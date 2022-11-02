@@ -1,0 +1,11 @@
+{
+    "files.associations": {
+        "stm32f4xx_ll_gpio.h": "c",
+        "stm32f4xx_hal.h": "c",
+        "stm32f4xx_hal_gpio.h": "c",
+        "stm32f4xx_hal_rcc.h": "c",
+        "stm32f4xx_hal_cortex.h": "c",
+        "stm32f4xx_hal_flash.h": "c",
+        "stm32f4xx_hal_pwr.h": "c"
+    }
+}
