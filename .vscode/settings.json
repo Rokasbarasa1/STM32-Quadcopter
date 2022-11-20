@@ -1,17 +1,7 @@
 {
     "files.associations": {
-        "stm32f4xx_ll_gpio.h": "c",
-        "stm32f4xx_hal.h": "c",
-        "stm32f4xx_hal_gpio.h": "c",
-        "stm32f4xx_hal_rcc.h": "c",
-        "stm32f4xx_hal_cortex.h": "c",
-        "stm32f4xx_hal_flash.h": "c",
-        "stm32f4xx_hal_pwr.h": "c",
-        "stm32f4xx_hal_i2c.h": "c",
-        "stm32f4xx_hal_uart.h": "c",
-        "retarget.h": "c",
-        "stm32f4xx_hal_dma.h": "c",
-        "stm32f4xx_hal_exti.h": "c",
-        "gy271.h": "c"
+        "main.h": "c",
+        "mpu6050.h": "c",
+        "retarget.h": "c"
     }
 }
