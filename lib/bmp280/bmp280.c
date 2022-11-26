@@ -156,7 +156,7 @@ float bmp280_preassure_float()
 
     // printf("combined_pres: %ld\n", combined_pres);
     float pressure = ((float)bmp280_convert_raw_pres(combined_pres)) / 256.0;
-    printf("pressure: %f\n", pressure / 100);
+    // printf("pressure: %f\n", pressure / 100);
     return pressure / 100;
 }
 
@@ -183,6 +183,6 @@ float bmp280_temperature_float()
 
     // printf("combined_temp: %ld\n", combined_temp);
     float temperature = ((float)bmp280_convert_raw_temp(combined_temp)) / 100.0;
-    printf("temperature: %f\n", temperature);
+    // printf("temperature: %f\n", temperature);
     return temperature;
 }

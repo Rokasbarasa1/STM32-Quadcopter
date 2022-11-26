@@ -2,6 +2,10 @@
     "files.associations": {
         "main.h": "c",
         "mpu6050.h": "c",
-        "retarget.h": "c"
+        "retarget.h": "c",
+        "stm32f4xx_hal.h": "c",
+        "ned_coordinates.h": "c",
+        "nrf24l01.h": "c",
+        "stm32f4xx_hal_spi.h": "c"
     }
 }
