@@ -1,0 +1,4 @@
+(sym_lib_table
+  (lib (name "New_Library_0")(type "KiCad")(uri "C:/Users/kkAAAKA/Desktop/After school/Embedded/PI Pico/schematic/New_Library_0.kicad_sym")(options "")(descr ""))
+  (lib (name "blackpill breakout")(type "KiCad")(uri "C:/Users/kkAAAKA/Desktop/After school/Embedded/PI Pico/schematic/blackpill breakout.kicad_sym")(options "")(descr ""))
+)

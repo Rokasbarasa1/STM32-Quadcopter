@@ -23,7 +23,7 @@ static volatile SPI_HandleTypeDef *  device_handle;
 
 // Slave deselect equivalent
 static void cs_deselect(){
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
     // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
 
     // gpio_set_level(csn_pin, 1);
@@ -33,18 +33,18 @@ static void cs_deselect(){
 static void cs_select(){
     // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
 
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
     // gpio_set_level(csn_pin, 0);
 }
 
 // Ce pin is mainly used to change settings. If it is enabled you cant change them(cant write to the registers using spi)
 static void ce_enable(){
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
     // gpio_set_level(ce_pin, 1);
 }
 
 static void ce_disable(){
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
     // gpio_set_level(ce_pin, 0);
 }
 

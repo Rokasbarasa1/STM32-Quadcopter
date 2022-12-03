@@ -61,7 +61,7 @@ const float soft_iron_correction[3][3] = {{1.001470, 0.025460, -0.035586},
 const float accelerometer_correction[3] = {0.068885, 0.054472, 0.952431};
 const float gyro_correction[3] = {0.208137, -4.056841, 0.413817};
 
-const float refresh_rate_hz = 1;
+const float refresh_rate_hz = 10;
 
 float longitude = 0.0;
 float latitude = 0.0;
@@ -90,10 +90,10 @@ float yaw = 0;
 // PA1  - 2 TIM2
 
 // UART pins
-// PA2  UART2 tx
-// PA3  UART2 rx
-// PA10 UART1 rx
-// PA9  UART1 tx
+// PA2  UART2 tx GPS
+// PA3  UART2 rx GPS
+// PA10 UART1 rx FTDI
+// PA9  UART1 tx FTDI
 
 // I2C pins
 // PB7  I2C1 SDA
@@ -105,9 +105,9 @@ float yaw = 0;
 // PA7  SPI1 MOSI
 
 // GPIO
-// PC13 ????
-// PB5  SPI
-// PB4  SPI
+// PC13 Internal LED
+// PB5  SPI RADIO
+// PB4  SPI RADIO
 // PA12 LED
 
 int main(void)
@@ -209,9 +209,9 @@ int main(void)
         // HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
 
         HAL_Delay((1000 / refresh_rate_hz / 2));
-        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_12);
+        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
         HAL_Delay((1000 / refresh_rate_hz / 2));
-        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_12);
+        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
     }
 }
 
@@ -561,14 +561,32 @@ static void MX_GPIO_Init(void)
     GPIO_InitTypeDef GPIO_InitStruct = {0};
 
     /* GPIO Ports Clock Enable */
+    __HAL_RCC_GPIOC_CLK_ENABLE();
     __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
 
     /*Configure GPIO pin Output Level */
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 
     /*Configure GPIO pin Output Level */
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4 | GPIO_PIN_5, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_1, GPIO_PIN_RESET);
+
+    /*Configure GPIO pin Output Level */
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
+
+    /*Configure GPIO pin : PC13 */
+    GPIO_InitStruct.Pin = GPIO_PIN_13;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+    /*Configure GPIO pins : PB0 PB1 */
+    GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
     /*Configure GPIO pin : PA12 */
     GPIO_InitStruct.Pin = GPIO_PIN_12;
@@ -576,13 +594,6 @@ static void MX_GPIO_Init(void)
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-    /*Configure GPIO pins : PB4 PB5 */
-    GPIO_InitStruct.Pin = GPIO_PIN_4 | GPIO_PIN_5;
-    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 }
 
 /* USER CODE BEGIN 4 */
