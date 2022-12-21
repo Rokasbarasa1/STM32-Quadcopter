@@ -133,7 +133,7 @@ uint8_t init_bmp280(I2C_HandleTypeDef *i2c_address_temp)
     return ret1 == HAL_OK && ret2 == HAL_OK && ret3 == HAL_OK && load_trims == 1;
 }
 
-float bmp280_preassure_float()
+float bmp280_pressure_float()
 {
     uint8_t retrieved_data[] = {0, 0, 0};
 

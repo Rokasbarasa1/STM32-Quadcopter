@@ -41,17 +41,52 @@ uint8_t RxBuf[RxBuf_SIZE];
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 {
+    // make sure the dma is initialized before uart for this to work
+    // and that dma is initialized after GPIO.
+
+    // If the stm32 is restarted and while it is initializing dma the
+    // data arrives from the uart it fucks up. So you have to restart it a few times
+
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 1);
+
     if (huart->Instance == USART2)
     {
-        printf("IN INTERRUPT\n");
+        printf("Interrupt\n");
         memcpy((uint8_t *)MainBuf, RxBuf, Size);
         bn357_parse_and_store(MainBuf, Size);
-        printf("Out of bn357\n");
         /* start the DMA again */
         HAL_UARTEx_ReceiveToIdle_DMA(&huart2, (uint8_t *)RxBuf, RxBuf_SIZE);
         __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
     }
 }
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    // printf("ERROR\n");
+    // uint32_t error_code = huart->ErrorCode;
+// HAL_UART_ERROR_PE
+    // printf("ERROR CODE %d", error_code);
+    if (huart->Instance == USART2)
+    {
+        // HAL_UART_ClearError(&huart2);
+
+        printf("ERROR 2\n");
+        HAL_UART_DeInit(&huart2);
+        HAL_UART_Init(&huart2);
+
+        HAL_UARTEx_ReceiveToIdle_DMA(&huart2, RxBuf, RxBuf_SIZE);
+        __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
+        // MX_USART2_UART_Init();
+        // HAL_UART_DeInit(&huart);
+        // printf("Er 3\n");
+
+    }
+
+    // Code to handle the UART error
+}
+
+uint16_t setServoActivationPercent(uint8_t percent, uint16_t minValue, uint16_t maxValue);
+void extract_request_values(char *request, uint8_t request_size, uint8_t *x, uint8_t *y);
 
 const float hard_iron_correction[3] = {185.447609, 360.541288, 491.294615};
 const float soft_iron_correction[3][3] = {{1.001470, 0.025460, -0.035586},
@@ -72,7 +107,7 @@ float acceleration_data[] = {0, 0, 0};
 float gyro_angular[] = {0, 0, 0};
 float gyro_degrees[] = {0, 0, 0};
 float magnetometer_data[] = {0, 0, 0};
-float preassure = 0.0;
+float pressure = 0.0;
 float temperature = 0.0;
 
 float north_direction[] = {0, 0, 0};
@@ -82,6 +117,10 @@ float down_direction[] = {0, 0, 0};
 float pitch = 0;
 float roll = 0;
 float yaw = 0;
+
+// for nrf24 radio transmissions
+uint8_t tx_address[5] = {0xEE, 0xDD, 0xCC, 0xBB, 0xAA};
+uint8_t rx_data[32];
 
 // PWM pins
 // PA8  - 1 TIM1
@@ -112,17 +151,21 @@ float yaw = 0;
 
 int main(void)
 {
-    printf("\n\nInitializing peripherals... ");
+    printf("Initializing peripherals... ");
     HAL_Init();
     SystemClock_Config();
     MX_GPIO_Init();
-    MX_DMA_Init();
-    MX_USART1_UART_Init();
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 0);
+
+    HAL_Delay(1);
+    MX_DMA_Init(); // This has to be before the uart inits, othervise dma interrupts dont work
     MX_I2C1_Init();
-    MX_USART2_UART_Init();
     MX_SPI1_Init();
     MX_TIM1_Init();
     MX_TIM2_Init();
+    HAL_Delay(1);
+    MX_USART2_UART_Init();
+    MX_USART1_UART_Init();
     RetargetInit(&huart1);
 
     HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
@@ -133,53 +176,66 @@ int main(void)
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
 
+    // HAL_UART_RegisterCallback(&huart2, HAL_UART_ERROR_CB_ID, HAL_UART_ErrorCallback);
     HAL_UARTEx_ReceiveToIdle_DMA(&huart2, RxBuf, RxBuf_SIZE);
     __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
 
     printf("OK\n");
-    printf("Initializing modules... ");
+    printf("-----------------------------INITIALIZING MODULES...\n");
 
     uint8_t mpu6050 = init_mpu6050(&hi2c1, 1, accelerometer_correction, gyro_correction);
     uint8_t gy271 = init_gy271(&hi2c1, 1, hard_iron_correction, soft_iron_correction);
     uint8_t bmp280 = init_bmp280(&hi2c1);
     uint8_t bn357 = init_bn357(&huart2);
     uint8_t nrf24 = init_nrf24(&hspi1);
+
+    printf("-----------------------------INITIALIZING MODULES DONE... ");
+
     if (mpu6050 && gy271 && bmp280 && bn357 && nrf24)
     {
         printf("OK\n");
     }
     else
     {
+        // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 1);
         printf("NOT OK\n");
     }
 
-    // HAL_StatusTypeDef ret;
+    // Continue initializing
 
-    // uint8_t data = 20;
-    // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
-    // ret = HAL_SPI_Transmit(&hspi1, &data, 1, 5000);
+    nrf24_rx_mode(tx_address, 10);
 
-    // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
+    uint16_t brightness = 90;
+    uint32_t loop_start_time = HAL_GetTick();
+    uint32_t loop_end_time = 0;
+    int16_t deltaLoopTime = 0;
 
-    // uint8_t sdasd = 0;
-    // if(ret == HAL_ERROR){
-    //     sdasd = 23123;
-    // }else{
-    //     sdasd = 1;
-    // }
-
-    // printf("dasd %d", sdasd);
-    uint8_t brightness = 0;
     while (1)
     {
-        printf("New loop\n");
+        // printf("New loop\n");
+
+        // Get the joystick values
+        // Joystick values, 50 is basically zero position
+        // uint8_t x = 50;
+        // uint8_t y = 50;
+        // if(nrf24_data_available(1)){
+        //     nrf24_receive(rx_data);
+        //     // for(uint8_t i = 0; i < strlen((char*) rx_data); i++ ){
+        //     //     printf("%c", ((char*) rx_data)[i]);
+        //     // }
+        //     // printf("\n");
+
+        //     extract_request_values((char*) rx_data, strlen((char*) rx_data), &x, &y);
+        //     printf("Dat %d %d\n", x, y);
+        // }
+
         // Read sensor data
         longitude = bn357_get_longitude();
         latitude = bn357_get_latitude();
         longitude_direction = bn357_get_longitude_direction();
         latitude_direction = bn357_get_latitude_direction();
         temperature = bmp280_temperature_float();
-        preassure = bmp280_preassure_float();
+        pressure = bmp280_pressure_float();
         mpu6050_accelerometer_readings_float(acceleration_data);
         mpu6050_gyro_readings_float(gyro_angular);
         gy271_magnetometer_readings_micro_teslas(magnetometer_data);
@@ -190,29 +246,87 @@ int main(void)
         calculate_yaw(magnetometer_data, &yaw);
 
         // React to data
-        printf("ACCEL, %6.2f, %6.2f, %6.2f, \n", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
-        printf("GYRO, %6.2f, %6.2f, %6.2f, \n", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
-        printf("MAG, %6.2f, %6.2f, %6.2f, \n", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
-        printf("TEMP %6.2f\n", temperature);
-        printf("PRES %6.2f\n", preassure);
+        // printf("ACCEL, %6.2f, %6.2f, %6.2f, \n", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+        // printf("GYRO, %6.2f, %6.2f, %6.2f, \n", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
+        // printf("MAG, %6.2f, %6.2f, %6.2f, \n", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
+        // printf("TEMP %6.2f\n", temperature);
+        // printf("PRES %6.2f\n", pressure);
 
         // brightness++
+        // Duty range is from 0 to 2000
         brightness = ++brightness % 100;
+        // printf("Speed: %d\n", brightness);
 
-        TIM1->CCR1 = brightness;
-        TIM1->CCR4 = brightness;
-        TIM2->CCR1 = brightness;
-        TIM2->CCR2 = brightness;
+        uint16_t value = setServoActivationPercent(brightness, 25, 130);
+        TIM1->CCR1 = value;
+        TIM1->CCR4 = value;
+        TIM2->CCR1 = value;
+        TIM2->CCR2 = value;
+
+        // TIM1->CCR1 = brightness;
+        // TIM1->CCR4 = brightness;
+        // TIM2->CCR1 = brightness;
+        // TIM2->CCR2 = brightness;
         // HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
         // HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
         // HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
         // HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
 
-        HAL_Delay((1000 / refresh_rate_hz / 2));
-        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-        HAL_Delay((1000 / refresh_rate_hz / 2));
-        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+        loop_end_time = HAL_GetTick();
+        deltaLoopTime = loop_end_time - loop_start_time;
+        printf("Tim: %d ms\n", deltaLoopTime);
+        if (deltaLoopTime < (1000 / refresh_rate_hz))
+        {
+            HAL_Delay((1000 / refresh_rate_hz) - deltaLoopTime);
+        }
+        loop_start_time = HAL_GetTick();
+        // HAL_Delay(1000 / (refresh_rate_hz * 2));
+        // HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+        // HAL_Delay(1000 / (refresh_rate_hz * 2));
+        // HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
     }
+}
+
+// 0.5ms to 2ms = range is 1.5
+// 0.5 is 2.5%  and is 25
+// 2   is 10%   amd is 100
+// 100 - 25 = 75
+
+// default min and max is 25 and 75
+uint16_t setServoActivationPercent(uint8_t percent, uint16_t minValue, uint16_t maxValue)
+{
+    float percentProportion = percent / 100.0;
+    return percentProportion * (maxValue - minValue) + minValue;
+}
+
+void extract_request_values(char *request, uint8_t request_size, uint8_t *x, uint8_t *y)
+{
+    uint8_t x_index = 1;
+    uint8_t x_end_index = 0;
+
+    for (uint8_t i = 1; i < request_size; i++)
+    {
+        if (request[i] == '/')
+        {
+            x_end_index = i;
+            break;
+        }
+    }
+
+    uint8_t y_index = x_end_index + 1;
+    uint8_t y_end_index = request_size - 1;
+
+    uint8_t x_length = x_end_index - x_index;
+    char x_substring[x_length + 1];
+    strncpy(x_substring, &request[x_index], x_length);
+    x_substring[x_length] = '\0';
+    *x = atoi(x_substring);
+
+    uint8_t y_length = y_end_index - y_index + 1;
+    char y_substring[y_length + 1];
+    strncpy(y_substring, &request[y_index], y_length);
+    y_substring[y_length] = '\0';
+    *y = atoi(y_substring);
 }
 
 /* Auto generated shit again-----------------------------------------------*/
@@ -234,12 +348,11 @@ void SystemClock_Config(void)
     /** Initializes the RCC Oscillators according to the specified parameters
      * in the RCC_OscInitTypeDef structure.
      */
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-    RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-    RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+    RCC_OscInitStruct.HSEState = RCC_HSE_ON;
     RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-    RCC_OscInitStruct.PLL.PLLM = 8;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+    RCC_OscInitStruct.PLL.PLLM = 13;
     RCC_OscInitStruct.PLL.PLLN = 100;
     RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
     RCC_OscInitStruct.PLL.PLLQ = 4;
@@ -253,8 +366,8 @@ void SystemClock_Config(void)
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
     RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
     RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-    RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
-    RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+    RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+    RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV4;
 
     if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
     {
@@ -353,9 +466,9 @@ static void MX_TIM1_Init(void)
 
     /* USER CODE END TIM1_Init 1 */
     htim1.Instance = TIM1;
-    htim1.Init.Prescaler = 99;
+    htim1.Init.Prescaler = 999;
     htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim1.Init.Period = 99;
+    htim1.Init.Period = 999;
     htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     htim1.Init.RepetitionCounter = 0;
     htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -430,9 +543,9 @@ static void MX_TIM2_Init(void)
 
     /* USER CODE END TIM2_Init 1 */
     htim2.Instance = TIM2;
-    htim2.Init.Prescaler = 99;
+    htim2.Init.Prescaler = 999;
     htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim2.Init.Period = 99;
+    htim2.Init.Period = 999;
     htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
     if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -562,6 +675,7 @@ static void MX_GPIO_Init(void)
 
     /* GPIO Ports Clock Enable */
     __HAL_RCC_GPIOC_CLK_ENABLE();
+    __HAL_RCC_GPIOH_CLK_ENABLE();
     __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
 
@@ -570,9 +684,6 @@ static void MX_GPIO_Init(void)
 
     /*Configure GPIO pin Output Level */
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_1, GPIO_PIN_RESET);
-
-    /*Configure GPIO pin Output Level */
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, GPIO_PIN_RESET);
 
     /*Configure GPIO pin : PC13 */
     GPIO_InitStruct.Pin = GPIO_PIN_13;
@@ -587,13 +698,6 @@ static void MX_GPIO_Init(void)
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-    /*Configure GPIO pin : PA12 */
-    GPIO_InitStruct.Pin = GPIO_PIN_12;
-    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 }
 
 /* USER CODE BEGIN 4 */

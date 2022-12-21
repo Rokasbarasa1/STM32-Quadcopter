@@ -24,28 +24,20 @@ static volatile SPI_HandleTypeDef *  device_handle;
 // Slave deselect equivalent
 static void cs_deselect(){
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_SET);
-    // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
-
-    // gpio_set_level(csn_pin, 1);
 }
 
 // Slave select equivalent
 static void cs_select(){
-    // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
-
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
-    // gpio_set_level(csn_pin, 0);
 }
 
 // Ce pin is mainly used to change settings. If it is enabled you cant change them(cant write to the registers using spi)
 static void ce_enable(){
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
-    // gpio_set_level(ce_pin, 1);
 }
 
 static void ce_disable(){
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
-    // gpio_set_level(ce_pin, 0);
 }
 
 // Spi write one byte to specific register
@@ -59,17 +51,11 @@ static void write_register(uint8_t reg, uint8_t data) {
 
     HAL_StatusTypeDef ret;
     cs_select();
-    ret = HAL_SPI_Transmit(device_handle, &reg_temp, 1, 5000);
-    ret = HAL_SPI_Transmit(device_handle, buf, 1, 5000);
-    // spi_write(device_handle, (reg & 0x7f), 1, buf);
+    HAL_SPI_Transmit(device_handle, &reg_temp, 1, 5000);
+    HAL_SPI_Transmit(device_handle, buf, 1, 5000);
     cs_deselect();
 
-    if(ret == HAL_ERROR){
-        printf("ERORR");
-    }else{
-        printf("");
-    }
-
+    HAL_Delay(1);
 }
 
 // Read one register and return it from function
@@ -79,8 +65,9 @@ static uint8_t read_register(uint8_t reg) {
     cs_select();
     HAL_SPI_Transmit(device_handle, &reg, 1, 5000);
     HAL_SPI_Receive(device_handle, buf, 1, 5000);
-    // spi_read(device_handle, reg, 1, buf);
     cs_deselect();
+
+    HAL_Delay(1);
 
     return buf[0];
 }
@@ -94,27 +81,28 @@ static void write_register_multiple(uint8_t reg, uint8_t * data, uint8_t size, u
     cs_select();
     HAL_SPI_Transmit(device_handle, &reg, 1, 5000);
     HAL_SPI_Transmit(device_handle, data, size, 5000);
-    // spi_write(device_handle, reg, size, data);
     cs_deselect();
+
+    HAL_Delay(1);
 }
 
 // send a specific command. Basically write and ignore response
 static void send_command(uint8_t command){
     cs_select();
     HAL_SPI_Transmit(device_handle, &command, 1, 5000);
-    // spi_write(device_handle, command, 0, NULL);
     cs_deselect();
+
+    HAL_Delay(1);
 }
 
 // read multiple registers from specified registers
 static void read_register_multiple(uint8_t reg, uint8_t *buf, uint16_t len) {
     cs_select();
-    // HAL_SPI_TransmitReceive(device_handle, &reg, 1, 100);
-
     HAL_SPI_Transmit(device_handle, &reg, 1, 5000);
     HAL_SPI_Receive(device_handle, buf, len, 5000);
-    // spi_read(device_handle, reg, len, buf);
     cs_deselect();
+
+    HAL_Delay(1);
 }
 
 // Test to see if spi setup is working for nrf24
@@ -124,7 +112,6 @@ uint8_t nrf24_test(){
         
     uint8_t data[1] = {0};
     read_register_multiple(RF_CH, data, 1);
-    printf("%d\n", data[0]);
 
     if(data[0] != 0b00000000){ // check that it is empty
         return 0;
@@ -134,7 +121,6 @@ uint8_t nrf24_test(){
 
     uint8_t data1[1] = {0};
     read_register_multiple(RF_CH, data1, 1);
-    printf("%d\n", data1[0]);
 
     if(data1[0] != 0b01010101){ // check that it is the same value as writen
         return 0;
@@ -335,82 +321,35 @@ void nrf24_read_all(uint8_t *data){
 }
 
 uint8_t init_nrf24(SPI_HandleTypeDef * spi_port){
-    // csn_pin = pin_csn_temp;
-    // ce_pin = pin_ce_temp;
-    
-    // printf("Setting up device\n");
-    // spi_device_interface_config_t device_config = {
-    //     .address_bits = 8,
-    //     .command_bits = 0,
-    //     .dummy_bits     = 0,
-    //     .mode           = 0,
-    //     .duty_cycle_pos = 128,
-    //     .cs_ena_posttrans = 0,
-    //     .cs_ena_pretrans  = 0,
-    //     .clock_speed_hz = 500000,  // 125Khz
-    //     .spics_io_num = -1,         // CS Pin
-    //     .queue_size = 1,
-    //     .pre_cb = NULL,
-    //     .post_cb = NULL,
-    // };
 
-    // printf("Init device\n");
     device_handle = spi_port;
-    // init_spi_device(spi_port, &device_config, &device_handle);
-
-    // init cs pin and set it to high to make the device not be selected 
-    printf("Deselecting device\n");
-
-    // gpio_set_direction(csn_pin, GPIO_MODE_OUTPUT);
-    // gpio_set_direction(ce_pin, GPIO_MODE_OUTPUT);
 
     cs_deselect();
     ce_disable(); // disable to start changing registers on nrf24
 
-
-    // HAL_StatusTypeDef ret;
-
-    // uint8_t data = 20;
-    // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
-    // ret = HAL_SPI_Transmit(&hspi1, &data, 1, 5000);
-
-    // HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
-
-    // uint8_t sdasd = 0;
-    // if(ret == HAL_ERROR){
-    //     sdasd = 23123;
-    // }else{
-    //     sdasd = 1;
-    // }
-
-    // printf("dasd %d", sdasd);
-
-    printf("Testing\n");
-
     if(!nrf24_test()){ // test if spi works
-        printf("Testing bad\n");
-
+        printf("NRF24 not initialized\n");
         return 0;
     }
-    printf("Testing ok\n");
 
     nrf24_reset(0);
     write_register(CONFIG, 0b00000000);// Will come back
-    printf("CONFIG "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(CONFIG)));
+    // printf("CONFIG "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(CONFIG)));
     write_register(EN_AA, 0b00000000); // No auto ACK
-    printf("EN_AA "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(EN_AA)));
+    // printf("EN_AA "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(EN_AA)));
     write_register(EN_RXADDR, 0b00000000); // Will come back
-    printf("EN_RXADDR "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(EN_RXADDR)));
+    // printf("EN_RXADDR "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(EN_RXADDR)));
     write_register(SETUP_AW, 0b00000011); // 5 bytes rx/tx address field
-    printf("SETUP_AW "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(SETUP_AW)));
+    // printf("SETUP_AW "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(SETUP_AW)));
     write_register(SETUP_RETR, 0b00000000); // no ACK being used
-    printf("SETUP_RETR "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(SETUP_RETR)));
+    // printf("SETUP_RETR "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(SETUP_RETR)));
     write_register(RF_CH, 0b00000000);   // will come back
-    printf("RF_CH "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(RF_CH)));
+    // printf("RF_CH "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(RF_CH)));
     write_register(RF_SETUP, 0b00001110); // 0db power and data rate 2Mbps
-    printf("RF_SETUP "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(RF_SETUP)));
+    // printf("RF_SETUP "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(RF_SETUP)));
 
     ce_enable();
+    printf("NRF24 initialized\n");
     return 1;
 }
 

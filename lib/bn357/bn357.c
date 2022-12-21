@@ -39,12 +39,12 @@ void bn357_parse_and_store(uint8_t *buffer, uint16_t size_of_buf)
     // Quit if you could not find the correct gps text
     if (!gps_string_exists)
     {
-        printf("Bad data\n");
+        // printf("Bad data\n");
         return;
     }
     if (buffer[gps_index + 6] == ',')
     {
-        printf("Bad gps connection!\n");
+        // printf("Bad gps connection!\n");
         return;
     }
 
@@ -54,16 +54,16 @@ void bn357_parse_and_store(uint8_t *buffer, uint16_t size_of_buf)
 
     // printf("%d\n", gps_index);
 
-    for (uint16_t i = 0 + gps_index; i < gps_index + 100; i++)
-    {
-        if (i >= size_of_buf - 1)
-        {
-            break;
-        }
-        printf("%c", (char *)buffer[i]);
-    }
+    // for (uint16_t i = 0 + gps_index; i < gps_index + 100; i++)
+    // {
+    //     if (i >= size_of_buf - 1)
+    //     {
+    //         break;
+    //     }
+    //     printf("%c", (char *)buffer[i]);
+    // }
 
-    printf("\n");
+    // printf("\n");
 
     // printf("READ GPS\n");
 
@@ -76,7 +76,7 @@ void bn357_parse_and_store(uint8_t *buffer, uint16_t size_of_buf)
 
     if (buffer[longitude_start_index] == ',')
     {
-        printf("Bad gps connection!\n");
+        // printf("Bad gps connection!\n");
         return;
     }
 
@@ -143,4 +143,6 @@ void bn357_parse_and_store(uint8_t *buffer, uint16_t size_of_buf)
     free(latitude_number);
     // printf("%c\n", latitude_direction);
     current_latitude_direction = longitude_direction;
+
+    printf("C: %c\n", current_latitude_direction);
 }
