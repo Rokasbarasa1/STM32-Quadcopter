@@ -144,5 +144,5 @@ void bn357_parse_and_store(uint8_t *buffer, uint16_t size_of_buf)
     // printf("%c\n", latitude_direction);
     current_latitude_direction = longitude_direction;
 
-    printf("C: %c\n", current_latitude_direction);
+    // printf("C: %c\n", current_latitude_direction);
 }
