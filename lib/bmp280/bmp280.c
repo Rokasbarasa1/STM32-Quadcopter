@@ -11,7 +11,6 @@
         (byte & 0x02 ? '1' : '0'), \
         (byte & 0x01 ? '1' : '0')
 
-#define BMP280 (0x76 << 1)
 
 I2C_HandleTypeDef *i2c_address;
 
@@ -66,11 +65,11 @@ uint8_t load_trim_registers()
     HAL_StatusTypeDef ret;
     ret = HAL_I2C_Mem_Read(
         i2c_address,
-        BMP280 + 1,
-        0x88,
+        BMP280_I2C_ID + 1,
+        TRIM_REG,
         1,
         trimdata,
-        26,
+        26, // there is 26 bits
         100);
 
     if (ret != HAL_OK)
@@ -103,7 +102,7 @@ uint8_t init_bmp280(I2C_HandleTypeDef *i2c_address_temp)
 
     // Check that the i2c device is there
     uint8_t check = 0;
-    ret = HAL_I2C_Mem_Read(i2c_address, BMP280 + 1, 0xD0, 1, &check, 1, 100);
+    ret = HAL_I2C_Mem_Read(i2c_address, BMP280_I2C_ID + 1, ID_REG, 1, &check, 1, 100);
 
     if (ret != HAL_OK || check != 0x58)
     {
@@ -113,21 +112,21 @@ uint8_t init_bmp280(I2C_HandleTypeDef *i2c_address_temp)
 
     // Try to reset it
     uint8_t reset_device1[] = {0xE0, 0xB6};
-    HAL_StatusTypeDef ret1 = HAL_I2C_Mem_Write(i2c_address, BMP280, reset_device1[0], 1, &reset_device1[1], 1, 100);
+    HAL_StatusTypeDef ret1 = HAL_I2C_Mem_Write(i2c_address, BMP280_I2C_ID, reset_device1[0], 1, &reset_device1[1], 1, 100);
 
     uint8_t ctrl_meas_register = 0b00000000;
-    ctrl_meas_register |= 0b00000011; // set it to normal mode
-    ctrl_meas_register |= 0b00100000; // enable temp measurement oversampling x1
-    ctrl_meas_register |= 0b00001100; // set pressure oversampling to standard resolution 18bit/0.66 PA x4
-    HAL_StatusTypeDef ret2 = HAL_I2C_Mem_Write(i2c_address, BMP280, 0xF4, 1, &ctrl_meas_register, 1, 100);
+    ctrl_meas_register |= NORMAL_MODE; // set it to normal mode
+    ctrl_meas_register |= OS_TEMP_1; // enable temp measurement oversampling x1
+    ctrl_meas_register |= OS_PRES_1; // set pressure oversampling to standard resolution 18bit/0.66 PA x4
+    HAL_StatusTypeDef ret2 = HAL_I2C_Mem_Write(i2c_address, BMP280_I2C_ID, CTRL_MEAS_REG, 1, &ctrl_meas_register, 1, 100);
 
     uint8_t config_register = 0b00000000;
-    config_register |= 0b00000000; // Set standby time to 0.5mx, disable spi on last bit
-    config_register |= 0b00000100; // Set filter to coefficient 2
-    HAL_StatusTypeDef ret3 = HAL_I2C_Mem_Write(i2c_address, BMP280, 0xF5, 1, &config_register, 1, 100);
+    config_register |= SB_MODE_0_5; // Set standby time to 0.5mx, disable spi on last bit
+    config_register |= FILTER_MODE_2; // Set filter to coefficient 2
+    HAL_StatusTypeDef ret3 = HAL_I2C_Mem_Write(i2c_address, BMP280_I2C_ID, CONFIG_REG, 1, &config_register, 1, 100);
 
     printf("BMP280 initialized\n");
-    HAL_Delay(100);
+    HAL_Delay(100); // Wait a bit to let the new settings soak in
     uint8_t load_trims = load_trim_registers();
 
     return ret1 == HAL_OK && ret2 == HAL_OK && ret3 == HAL_OK && load_trims == 1;
@@ -143,8 +142,8 @@ float bmp280_pressure_float()
     //  press_xlsb
     HAL_I2C_Mem_Read(
         i2c_address,
-        BMP280 + 1,
-        0xF7,
+        BMP280_I2C_ID + 1,
+        PRES_MSB_REG,
         1,
         retrieved_data,
         3,
@@ -152,7 +151,7 @@ float bmp280_pressure_float()
 
     // printf("PRESS %d %d %d \n", retrieved_data[0], retrieved_data[1], retrieved_data[2]);
 
-    int32_t combined_pres = ((int32_t)retrieved_data[0] << 12) | ((int32_t)retrieved_data[1]) >> 4 | ((int32_t)retrieved_data[1] >> 4);
+    int32_t combined_pres = ((int32_t)retrieved_data[0] << 12) | ((int32_t)retrieved_data[1]) << 4 | ((int32_t)retrieved_data[1] >> 4);
 
     // printf("combined_pres: %ld\n", combined_pres);
     float pressure = ((float)bmp280_convert_raw_pres(combined_pres)) / 256.0;
@@ -170,8 +169,8 @@ float bmp280_temperature_float()
     //  temp_xlsb
     HAL_I2C_Mem_Read(
         i2c_address,
-        BMP280 + 1,
-        0xFA,
+        BMP280_I2C_ID + 1,
+        TEMP_MSB_REG,
         1,
         retrieved_data,
         3,
@@ -179,7 +178,7 @@ float bmp280_temperature_float()
 
     // printf("TEMP %d %d %d \n", retrieved_data[0], retrieved_data[1], retrieved_data[2]);
 
-    int32_t combined_temp = ((int32_t)retrieved_data[0] << 12) | ((int32_t)retrieved_data[1]) >> 4 | ((int32_t)retrieved_data[1] >> 4);
+    int32_t combined_temp = ((int32_t)retrieved_data[0] << 12) | ((int32_t)retrieved_data[1]) << 4 | ((int32_t)retrieved_data[1] >> 4);
 
     // printf("combined_temp: %ld\n", combined_temp);
     float temperature = ((float)bmp280_convert_raw_temp(combined_temp)) / 100.0;

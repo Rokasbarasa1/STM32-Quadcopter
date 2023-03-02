@@ -205,8 +205,8 @@ int main(void)
     int16_t deltaLoopTime = 0;
     uint8_t first_load = 1;
 
-    find_accelerometer_error(1000);
-    find_gyro_error(1000);
+    // find_accelerometer_error(1000);
+    // find_gyro_error(1000);
 
     // init(&hi2c1, &hspi1, &htim1, &htim2, &huart1, &huart2, &hdma_usart2_rx);
     while (1)
