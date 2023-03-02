@@ -36,6 +36,18 @@ void bn357_parse_and_store(uint8_t *buffer, uint16_t size_of_buf)
     uint16_t gps_index = 9999;
     uint8_t gps_string_exists = find_substring(buffer, 0, size_of_buf, "GNGGA", &gps_index);
 
+
+    for (uint16_t i = 0 + gps_index; i < gps_index + 100; i++)
+    {
+        if (i >= size_of_buf - 1)
+        {
+            break;
+        }
+        printf("%c", (char *)buffer[i]);
+    }
+
+    printf("\n");
+
     // Quit if you could not find the correct gps text
     if (!gps_string_exists)
     {

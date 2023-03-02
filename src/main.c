@@ -32,6 +32,7 @@ static void MX_TIM2_Init(void);
 #include "../lib/bn357/bn357.h"
 #include "../lib/utils/ned_coordinates/ned_coordinates.h"
 #include "../lib/nrf24l01/nrf24l01.h"
+// #include "./App/start.h"
 
 #define RxBuf_SIZE 500
 #define MainBuf_SIZE 550
@@ -52,7 +53,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 
     if (huart->Instance == USART2)
     {
-        // printf("Interrupt\n");
+        printf("Interrupt UART 2\n");
         memcpy((uint8_t *)MainBuf, RxBuf, Size);
         bn357_parse_and_store(MainBuf, Size);
         /* start the DMA again */
@@ -66,7 +67,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
     if (huart->Instance == USART2)
     {
-        // printf("ERROR IN UART 2\n");
+        printf("Error UART 2\n");
         HAL_UART_DeInit(&huart2);
         HAL_UART_Init(&huart2);
 
@@ -146,7 +147,6 @@ uint8_t rx_data[32];
 
 int main(void)
 {
-    printf("Initializing peripherals... ");
     HAL_Init();
     SystemClock_Config();
     MX_GPIO_Init();
@@ -199,18 +199,20 @@ int main(void)
 
     nrf24_rx_mode(tx_address, 10);
 
-    uint16_t brightness = 90;
+    uint8_t brightness = 0;
     uint32_t loop_start_time = HAL_GetTick();
     uint32_t loop_end_time = 0;
     int16_t deltaLoopTime = 0;
     uint8_t first_load = 1;
 
-    // find_accelerometer_error(1000);
-    // find_gyro_error(1000);
+    find_accelerometer_error(1000);
+    find_gyro_error(1000);
 
+    // init(&hi2c1, &hspi1, &htim1, &htim2, &huart1, &huart2, &hdma_usart2_rx);
     while (1)
     {
-        // printf("New loop\n");
+        // loop();
+        printf("New loop\n");
 
         // Joystick values, 50 is basically zero position
         uint8_t x = 50;
@@ -271,12 +273,14 @@ int main(void)
         // printf("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
         // printf("MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
         // printf("NORTH, %6.2f, %6.2f, %6.2f, \n", north_direction[0], north_direction[1], north_direction[2]);
-        // printf("TEMP %6.2f, ", temperature);
-        // printf("PRES %6.2f, \n", pressure);
+        printf("TEMP %6.2f, ", temperature);
+        printf("PRES %6.2f, ", pressure);
+        // printf("GPS %6.2f %c  %6.2f %c\n", longitude, longitude_direction, latitude, latitude_direction);
+        printf("\n");
 
         // brightness++
         // Duty range is from 0 to 2000
-        brightness = ++brightness % 100;
+        brightness = ++brightness % 35;
         // printf("Speed: %d\n", brightness);
 
         uint16_t value = setServoActivationPercent(brightness, 25, 130);
@@ -302,10 +306,10 @@ int main(void)
             HAL_Delay((1000 / refresh_rate_hz) - deltaLoopTime);
         }
         loop_start_time = HAL_GetTick();
-        // HAL_Delay(1000 / (refresh_rate_hz * 2));
-        // HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-        // HAL_Delay(1000 / (refresh_rate_hz * 2));
-        // HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+        HAL_Delay(1000 / (refresh_rate_hz * 2));
+        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+        HAL_Delay(1000 / (refresh_rate_hz * 2));
+        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
     }
 }
 
@@ -351,7 +355,8 @@ void extract_request_values(char *request, uint8_t request_size, uint8_t *x, uin
     *y = atoi(y_substring);
 }
 
-void fix_mag_axis(float* magnetometer_data){
+void fix_mag_axis(float *magnetometer_data)
+{
     float temp = 0.0;
     temp = magnetometer_data[0];
     // y is x
