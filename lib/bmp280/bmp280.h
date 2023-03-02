@@ -56,9 +56,6 @@ enum filter_modes {
     FILTER_MODE_16 = 0b00010000,
 };
 
-// Standby modes
-#define MODE_0_5
-
 uint8_t init_bmp280(I2C_HandleTypeDef *i2c_address_temp);
 float bmp280_pressure_float();
 float bmp280_temperature_float();
