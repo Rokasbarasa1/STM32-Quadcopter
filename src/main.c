@@ -172,8 +172,10 @@ int main(void)
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
 
     // HAL_UART_RegisterCallback(&huart2, HAL_UART_ERROR_CB_ID, HAL_UART_ErrorCallback);
-    HAL_UARTEx_ReceiveToIdle_DMA(&huart2, RxBuf, RxBuf_SIZE);
-    __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
+
+
+    // HAL_UARTEx_ReceiveToIdle_DMA(&huart2, RxBuf, RxBuf_SIZE);
+    // __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
 
     printf("OK\n");
     printf("-----------------------------INITIALIZING MODULES...\n");
@@ -211,39 +213,35 @@ int main(void)
     // init(&hi2c1, &hspi1, &htim1, &htim2, &huart1, &huart2, &hdma_usart2_rx);
     while (1)
     {
-        // loop();
-        printf("New loop\n");
-
-        // Joystick values, 50 is basically zero position
-        uint8_t x = 50;
-        uint8_t y = 50;
-        if(nrf24_data_available(1)){
-            nrf24_receive(rx_data);
-            // for(uint8_t i = 0; i < strlen((char*) rx_data); i++ ){
-            //     printf("%c", ((char*) rx_data)[i]);
-            // }
-            // printf("\n");
-
-            extract_request_values((char*) rx_data, strlen((char*) rx_data), &x, &y);
-            printf("Dat %d %d\n", x, y);
-        }
+        // printf("New loop\n");
 
         // Read sensor data
         longitude = bn357_get_longitude();
         latitude = bn357_get_latitude();
         longitude_direction = bn357_get_longitude_direction();
         latitude_direction = bn357_get_latitude_direction();
-        temperature = bmp280_temperature_float();
-        pressure = bmp280_pressure_float();
-        mpu6050_accelerometer_readings_float(acceleration_data);
-        mpu6050_gyro_readings_float(gyro_angular);
+        temperature = bmp280_get_temperature_celsius();
+        pressure = bmp280_get_pressure_hPa();
+        mpu6050_get_accelerometer_readings_gravity(acceleration_data);
+        // mpu6050_get_gyro_readings_dps(gyro_angular);
         gy271_magnetometer_readings_micro_teslas(magnetometer_data);
-        fix_mag_axis(magnetometer_data);
+
+        // fix_mag_axis(magnetometer_data);
+
 
         // Calculate using sensor data
         // get_ned_coordinates(acceleration_data, magnetometer_data, north_direction, east_direction, down_direction);
         calculate_pitch_and_roll(acceleration_data, &roll, &pitch);
         calculate_yaw(magnetometer_data, &yaw);
+
+        // // Joystick values, 50 is basically zero position
+        // uint8_t x = 50;
+        // uint8_t y = 50;
+        // if(nrf24_data_available(1)){
+        //     nrf24_receive(rx_data);
+        //     extract_request_values((char*) rx_data, strlen((char*) rx_data), &x, &y);
+        //     printf("Dat %d %d\n", x, y);
+        // }
 
         // Find the initial position in degrees and apply it to the gyro measurement integral
         // This will tell the robot which way to go to get the actual upward
@@ -269,12 +267,12 @@ int main(void)
         // printf("Degrees: roll: %6.2f pitch: %6.2f yaw: %6.2f\n", complementary_ratio * (-roll), complementary_ratio * (-pitch), complementary_ratio * (-yaw));
 
         // React to data
-        // printf("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
-        // printf("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
+        printf("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+        printf("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
         // printf("MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
         // printf("NORTH, %6.2f, %6.2f, %6.2f, \n", north_direction[0], north_direction[1], north_direction[2]);
-        printf("TEMP %6.2f, ", temperature);
-        printf("PRES %6.2f, ", pressure);
+        // printf("TEMP %6.5f, ", temperature);
+        // printf("PRES %6.5f, ", pressure);
         // printf("GPS %6.2f %c  %6.2f %c\n", longitude, longitude_direction, latitude, latitude_direction);
         printf("\n");
 
@@ -300,7 +298,7 @@ int main(void)
 
         loop_end_time = HAL_GetTick();
         deltaLoopTime = loop_end_time - loop_start_time;
-        printf("Tim: %d ms\n", deltaLoopTime);
+        // printf("Tim: %d ms\n", deltaLoopTime);
         if (deltaLoopTime < (1000 / refresh_rate_hz))
         {
             HAL_Delay((1000 / refresh_rate_hz) - deltaLoopTime);

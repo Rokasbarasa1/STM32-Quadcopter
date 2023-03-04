@@ -8,6 +8,8 @@
 
 #define BMP280_I2C_ID (0x76 << 1)
 #define ID_REG 0xD0
+#define ID_VALUE 0x58
+
 #define TRIM_REG 0x88
 #define CTRL_MEAS_REG 0xF4
 #define CONFIG_REG 0xF5
@@ -15,7 +17,7 @@
 #define TEMP_MSB_REG 0xFA
 
 
-enum temp_oversampling {
+enum t_temp_oversampling {
     OS_TEMP_1  = 0b00100000,
     OS_TEMP_2  = 0b01000000,
     OS_TEMP_4  = 0b01100000,
@@ -23,7 +25,7 @@ enum temp_oversampling {
     OS_TEMP_16 = 0b10100000
 };
 
-enum pres_oversampling {
+enum t_pres_oversampling {
     OS_PRES_1  = 0b00000100,
     OS_PRES_2  = 0b00001000,
     OS_PRES_4  = 0b00001100,
@@ -31,13 +33,13 @@ enum pres_oversampling {
     OS_PRES_16 = 0b00010100
 };
 
-enum power_modes {
+enum t_power_modes {
     SLEEP_MODE  = 0b00000000,
     FORCED_MODE = 0b00000001,
     NORMAL_MODE = 0b00000011,
 };
 
-enum standby_modes {
+enum t_standby_modes {
     SB_MODE_0_5  = 0b00000000,
     SB_MODE_62_5 = 0b00000001,
     SB_MODE_125  = 0b00000010,
@@ -48,7 +50,7 @@ enum standby_modes {
     SB_MODE_4000 = 0b00000111,
 };
 
-enum filter_modes {
+enum t_filter_modes {
     FILTER_MODE_1  = 0b00000000,
     FILTER_MODE_2  = 0b00000100,
     FILTER_MODE_4  = 0b00001000,
@@ -57,5 +59,5 @@ enum filter_modes {
 };
 
 uint8_t init_bmp280(I2C_HandleTypeDef *i2c_address_temp);
-float bmp280_pressure_float();
-float bmp280_temperature_float();
+float bmp280_get_pressure_hPa();
+float bmp280_get_temperature_celsius();

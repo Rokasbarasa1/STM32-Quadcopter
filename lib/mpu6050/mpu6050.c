@@ -6,6 +6,8 @@
 // #define I2C_MASTER_FREQ_HZ          400000                     /*!< I2C master clock frequency */
 // #define I2C_MASTER_TX_BUF_DISABLE   0                          /*!< I2C master doesn't need buffer */
 // #define I2C_MASTER_RX_BUF_DISABLE   0                          /*!< I2C master doesn't need buffer */
+
+
 #define I2C_MASTER_TIMEOUT_MS 1000
 
 #ifndef M_PI // i guess not the right compiler ...
@@ -67,7 +69,7 @@ uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_address_temp, uint8_t apply_calibrat
     return 1;
 }
 
-void mpu6050_accelerometer_readings_float(float *data)
+void mpu6050_get_accelerometer_readings_gravity(float *data)
 {
     HAL_StatusTypeDef ret;
     uint8_t data_register[] = {0x3B};
@@ -98,7 +100,7 @@ void mpu6050_accelerometer_readings_float(float *data)
     data[2] = Z_out - (accelerometer_correction_loc[2] - 1);
 }
 
-void mpu6050_gyro_readings_float(float *data)
+void mpu6050_get_gyro_readings_dps(float *data)
 {
     uint8_t data_register[] = {0x43};
     uint8_t retrieved_data[] = {0, 0, 0, 0, 0, 0};
@@ -159,7 +161,7 @@ void find_accelerometer_error(uint64_t sample_size)
 
     for (uint64_t i = 0; i < sample_size; i++)
     {
-        mpu6050_accelerometer_readings_float(data);
+        mpu6050_get_accelerometer_readings_gravity(data);
         x_sum += data[0];
         y_sum += data[1];
         z_sum += data[2];
@@ -183,7 +185,7 @@ void find_gyro_error(uint64_t sample_size)
 
     for (uint64_t i = 0; i < sample_size; i++)
     {
-        mpu6050_gyro_readings_float(data);
+        mpu6050_get_gyro_readings_dps(data);
 
         x_sum += data[0];
         y_sum += data[1];

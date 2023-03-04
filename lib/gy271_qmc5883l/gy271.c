@@ -1,82 +1,85 @@
 #include "./gy271.h"
 
-#define GY271 (0x0D << 1)
+I2C_HandleTypeDef *i2c_address;
 
-#define I2C_MASTER_NUM 0            /*!< I2C master i2c port number, the number of i2c peripheral interfaces available will depend on the chip */
-#define I2C_MASTER_FREQ_HZ 400000   /*!< I2C master clock frequency */
-#define I2C_MASTER_TX_BUF_DISABLE 0 /*!< I2C master doesn't need buffer */
-#define I2C_MASTER_RX_BUF_DISABLE 0 /*!< I2C master doesn't need buffer */
-#define I2C_MASTER_TIMEOUT_MS 1000
-
-#define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
-#define BYTE_TO_BINARY(byte)       \
-    (byte & 0x80 ? '1' : '0'),     \
-        (byte & 0x40 ? '1' : '0'), \
-        (byte & 0x20 ? '1' : '0'), \
-        (byte & 0x10 ? '1' : '0'), \
-        (byte & 0x08 ? '1' : '0'), \
-        (byte & 0x04 ? '1' : '0'), \
-        (byte & 0x02 ? '1' : '0'), \
-        (byte & 0x01 ? '1' : '0')
-
-#ifndef M_PI // i guess not the right compiler ...
-#define M_PI (3.14159265358979323846)
-#endif
-
-volatile float hard_iron_loc[3] = {
+// Storage of hard iron correction, values should be replaced by what is passed
+volatile float m_hard_iron[3] = {
     0, 0, 0};
 
-volatile float soft_iron_loc[3][3] = {
+// Storage of soft iron correction, values should be replaced by what is passed
+volatile float m_soft_iron[3][3] = {
     {1, 0, 0},
     {0, 1, 0},
     {0, 0, 1}};
 
-I2C_HandleTypeDef *i2c_address;
-
 // max value output is at 200 Hz
 uint8_t init_gy271(I2C_HandleTypeDef *i2c_address_temp, uint8_t apply_calibration, float hard_iron[3], float soft_iron[3][3])
 {
-    HAL_StatusTypeDef ret;
-
     i2c_address = i2c_address_temp;
 
+    // assign the correction for irons
     if (apply_calibration)
     {
-        // assign the correction for irons
         for (uint8_t i = 0; i < 3; i++)
         {
-            hard_iron_loc[i] = hard_iron[i];
+            m_hard_iron[i] = hard_iron[i];
         }
 
         for (uint8_t i = 0; i < 3; i++)
         {
             for (uint8_t k = 0; k < 3; k++)
             {
-                soft_iron_loc[i][k] = soft_iron[i][k];
+                m_soft_iron[i][k] = soft_iron[i][k];
             }
         }
     }
 
     // Test the sensor by reading it's address register
     uint8_t check;
-    HAL_I2C_Mem_Read(i2c_address, GY271 + 1, 0x0D, 1, &check, 1, 100);
+    HAL_I2C_Mem_Read(
+        i2c_address,
+        GY271_I2C_ID + 1,
+        ID_REG,
+        1,
+        &check,
+        1,
+        100);
 
-    if (check != 0b11111111)
+    // Check if the value is as it should be
+    if (check != ID_VALUE)
     {
         printf("GY271 initialization failed\n");
         return 0;
     }
-    // reset it
-    uint8_t reset_device1[] = {0x0A, 0b00000001};
-    HAL_I2C_Mem_Write(i2c_address, GY271, reset_device1[0], 1, &reset_device1[1], 1, 100);
 
-    uint8_t oversampling = 0b00000000; // 512 over sample ratio
-    uint8_t range = 0b00000000;        // 2 gauss
-    uint8_t rate = 0b00000100;         // 50Hz sample rate
-    uint8_t mode = 0b00000001;         // continuous mode
+    // Disable interrupts
+    uint8_t settings2 = 0b00000000;
+    settings2 |= INTERRUPT_PIN_DISABLED;
 
-    uint8_t reset_device2[] = {0x09, oversampling | range | rate | mode};
-    HAL_I2C_Mem_Write(i2c_address, GY271, reset_device2[0], 1, &reset_device2[1], 1, 100);
+    HAL_I2C_Mem_Write(
+        i2c_address,
+        GY271_I2C_ID,
+        CONTROL2_REG,
+        1,
+        settings2,
+        1,
+        100);
+
+    // Set some essential settings that control the data being outputted
+    uint8_t settings1 = 0b00000000;
+    settings1 |= OS_RATIO_512;
+    settings1 |= MEASURE_SCALE_2G;
+    settings1 |= ODR_50HZ;
+    settings1 |= MODE_CONTINUOUS;
+
+    HAL_I2C_Mem_Write(
+        i2c_address,
+        GY271_I2C_ID,
+        CONTROL1_REG,
+        1,
+        settings1,
+        1,
+        100);
 
     printf("GY271 initialized\n");
 
@@ -85,26 +88,16 @@ uint8_t init_gy271(I2C_HandleTypeDef *i2c_address_temp, uint8_t apply_calibratio
 
 void gy271_magnetometer_readings_micro_teslas(float *data)
 {
-    uint8_t data_register[] = {0x00};
     uint8_t retrieved_data[] = {0, 0, 0, 0, 0, 0};
 
     HAL_I2C_Mem_Read(
         i2c_address,
-        GY271 + 1,
-        0x00,
+        GY271_I2C_ID + 1,
+        OUTPUT_DATA1_REG,
         1,
         retrieved_data,
-        6,
+        6, // read six registers in total so from 
         100);
-    // i2c_master_write_read_device(
-    //     I2C_MASTER_NUM,
-    //     GY271,
-    //     data_register,
-    //     sizeof(data_register),
-    //     retrieved_data,
-    //     sizeof(retrieved_data),
-    //     I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS
-    // );
 
     int16_t X, Y, Z;
 
@@ -123,14 +116,14 @@ void gy271_magnetometer_readings_micro_teslas(float *data)
     // Use the soft and hard iron calibrations
     for (uint8_t i = 0; i < 3; i++)
     {
-        data[i] = data[i] - hard_iron_loc[i];
+        data[i] = data[i] - m_hard_iron[i];
     }
 
     for (uint8_t i = 0; i < 3; i++)
     {
-        data[i] = (soft_iron_loc[i][0] * data[0]) +
-                  (soft_iron_loc[i][1] * data[1]) +
-                  (soft_iron_loc[i][2] * data[2]);
+        data[i] = (m_soft_iron[i][0] * data[0]) +
+                  (m_soft_iron[i][1] * data[1]) +
+                  (m_soft_iron[i][2] * data[2]);
     }
 }
 
@@ -147,7 +140,4 @@ void calculate_yaw(float *magnetometer_data, float *yaw)
 
     // rotation around the x axis
     *yaw = atan2f(y, x) * (180 / M_PI);
-
-    // rotation around the y axis
-    // *pitch = asinf(x) * (180 / M_PI);
 }
