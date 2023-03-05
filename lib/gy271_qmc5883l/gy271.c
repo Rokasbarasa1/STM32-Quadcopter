@@ -13,7 +13,7 @@ volatile float m_soft_iron[3][3] = {
     {0, 0, 1}};
 
 // max value output is at 200 Hz
-uint8_t init_gy271(I2C_HandleTypeDef *i2c_address_temp, uint8_t apply_calibration, float hard_iron[3], float soft_iron[3][3])
+uint8_t init_gy271(I2C_HandleTypeDef *i2c_address_temp, uint8_t apply_calibration, const float hard_iron[3], const float soft_iron[3][3])
 {
     i2c_address = i2c_address_temp;
 
@@ -34,7 +34,7 @@ uint8_t init_gy271(I2C_HandleTypeDef *i2c_address_temp, uint8_t apply_calibratio
         }
     }
 
-    // Test the sensor by reading it's address register
+    // Test the sensor by reading it's id register
     uint8_t check;
     HAL_I2C_Mem_Read(
         i2c_address,
@@ -45,7 +45,7 @@ uint8_t init_gy271(I2C_HandleTypeDef *i2c_address_temp, uint8_t apply_calibratio
         1,
         100);
 
-    // Check if the value is as it should be
+    // Check if the id value is as it should be
     if (check != ID_VALUE)
     {
         printf("GY271 initialization failed\n");
@@ -61,7 +61,7 @@ uint8_t init_gy271(I2C_HandleTypeDef *i2c_address_temp, uint8_t apply_calibratio
         GY271_I2C_ID,
         CONTROL2_REG,
         1,
-        settings2,
+        &settings2,
         1,
         100);
 
@@ -77,7 +77,7 @@ uint8_t init_gy271(I2C_HandleTypeDef *i2c_address_temp, uint8_t apply_calibratio
         GY271_I2C_ID,
         CONTROL1_REG,
         1,
-        settings1,
+        &settings1,
         1,
         100);
 
@@ -99,13 +99,11 @@ void gy271_magnetometer_readings_micro_teslas(float *data)
         6, // read six registers in total so from 
         100);
 
-    int16_t X, Y, Z;
-
     // First is least significant and second is most significant
-    X = ((int16_t)retrieved_data[1] << 8) | (int16_t)retrieved_data[0];
-    Y = ((int16_t)retrieved_data[3] << 8) | (int16_t)retrieved_data[2];
-    Z = ((int16_t)retrieved_data[5] << 8) | (int16_t)retrieved_data[4];
-
+    int16_t X = ((int16_t)retrieved_data[1] << 8) | (int16_t)retrieved_data[0];
+    int16_t Y = ((int16_t)retrieved_data[3] << 8) | (int16_t)retrieved_data[2];
+    int16_t Z = ((int16_t)retrieved_data[5] << 8) | (int16_t)retrieved_data[4];
+    
     // Convert the mag's adc value to gauss
     // ADC accuracy is 2 MilliGauss per 1 step
     // Divide by 20 to do micro teslas

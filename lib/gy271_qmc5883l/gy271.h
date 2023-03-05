@@ -5,7 +5,7 @@
 #include "../printf/retarget.h"
 #include <math.h>
 
-#ifndef M_PI // i guess not the right compiler ...
+#ifndef M_PI
 #define M_PI (3.14159265358979323846)
 #endif
 
@@ -46,6 +46,6 @@ enum t_measure_scale {
     MEASURE_SCALE_8G = 0b00010000,
 };
 
-uint8_t init_gy271(I2C_HandleTypeDef *i2c_address_temp, uint8_t apply_calibration, float hard_iron[3], float soft_iron[3][3]);
+uint8_t init_gy271(I2C_HandleTypeDef *i2c_address_temp, uint8_t apply_calibration, const float hard_iron[3], const float soft_iron[3][3]);
 void gy271_magnetometer_readings_micro_teslas(float *data);
 void calculate_yaw(float *magnetometer_data, float *yaw);

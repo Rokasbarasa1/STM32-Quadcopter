@@ -11,6 +11,9 @@
 #define ID_VALUE 0x58
 
 #define TRIM_REG 0x88
+#define RESET_REG 0xE0
+#define RESET_VALUE 0xB6
+
 #define CTRL_MEAS_REG 0xF4
 #define CONFIG_REG 0xF5
 #define PRES_MSB_REG 0xF7

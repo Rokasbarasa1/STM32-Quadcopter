@@ -79,13 +79,13 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 uint16_t setServoActivationPercent(uint8_t percent, uint16_t minValue, uint16_t maxValue);
 void extract_request_values(char *request, uint8_t request_size, uint8_t *x, uint8_t *y);
 
-const float hard_iron_correction[3] = {185.447609, 360.541288, 491.294615};
-const float soft_iron_correction[3][3] = {{1.001470, 0.025460, -0.035586},
-                                          {0.025460, 0.405497, -0.054355},
-                                          {-0.035586, -0.054355, 1.219251}};
+const float hard_iron_correction[3] = {205.801249, -329.544434, -51.579693};
+const float soft_iron_correction[3][3] = {{0.178946, 0.001568, -0.007812},
+                                          {0.001568, 0.181964, 0.002300},
+                                          {-0.007812, 0.002300, 0.186567}};
 
-const float accelerometer_correction[3] = {0.029564, -0.034211, 2.030124};
-const float gyro_correction[3] = {-6.334980, 1.789433, -0.124588};
+const float accelerometer_correction[3] = {0.008026, -0.038413, 1.149903};
+const float gyro_correction[3] = {-2.371043, 2.884454, 0.648193};
 
 const float refresh_rate_hz = 50;
 
@@ -98,7 +98,7 @@ volatile char latitude_direction = 'f';
 
 float acceleration_data[] = {0, 0, 0};
 float gyro_angular[] = {0, 0, 0};
-float complementary_ratio = 0.04;
+float complementary_ratio = 0.02;
 float gyro_degrees[] = {0, 0, 0};
 float magnetometer_data[] = {0, 0, 0};
 
@@ -208,7 +208,7 @@ int main(void)
     uint8_t first_load = 1;
 
     // find_accelerometer_error(1000);
-    // find_gyro_error(1000);
+    // find_gyro_error(300);
 
     // init(&hi2c1, &hspi1, &htim1, &htim2, &huart1, &huart2, &hdma_usart2_rx);
     while (1)
@@ -223,14 +223,12 @@ int main(void)
         temperature = bmp280_get_temperature_celsius();
         pressure = bmp280_get_pressure_hPa();
         mpu6050_get_accelerometer_readings_gravity(acceleration_data);
-        // mpu6050_get_gyro_readings_dps(gyro_angular);
+        mpu6050_get_gyro_readings_dps(gyro_angular);
         gy271_magnetometer_readings_micro_teslas(magnetometer_data);
-
-        // fix_mag_axis(magnetometer_data);
-
+        fix_mag_axis(magnetometer_data); // Switches around the x and the y to match mpu6050
 
         // Calculate using sensor data
-        // get_ned_coordinates(acceleration_data, magnetometer_data, north_direction, east_direction, down_direction);
+        get_ned_coordinates(acceleration_data, magnetometer_data, north_direction, east_direction, down_direction);
         calculate_pitch_and_roll(acceleration_data, &roll, &pitch);
         calculate_yaw(magnetometer_data, &yaw);
 
@@ -264,17 +262,25 @@ int main(void)
         gyro_degrees[2] = (gyro_degrees[2] * (1.0-complementary_ratio)) + (complementary_ratio * (-yaw));
 
         // printf("ROll: (%6.2f * %6.2f) + (%6.2f)\n",gyro_degrees[0], 1.0-complementary_ratio, complementary_ratio * (-roll) );
-        // printf("Degrees: roll: %6.2f pitch: %6.2f yaw: %6.2f\n", complementary_ratio * (-roll), complementary_ratio * (-pitch), complementary_ratio * (-yaw));
+        // printf("Degrees: roll: %6.2f pitch: %6.2f yaw: %6.2f\n", roll, pitch, yaw);
 
         // React to data
         printf("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
         printf("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
-        // printf("MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
-        // printf("NORTH, %6.2f, %6.2f, %6.2f, \n", north_direction[0], north_direction[1], north_direction[2]);
+        printf("MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
+        printf("NORTH, %6.2f, %6.2f, %6.2f, ", north_direction[0], north_direction[1], north_direction[2]);
         // printf("TEMP %6.5f, ", temperature);
         // printf("PRES %6.5f, ", pressure);
         // printf("GPS %6.2f %c  %6.2f %c\n", longitude, longitude_direction, latitude, latitude_direction);
         printf("\n");
+
+        // printf(
+        //     "%f,%f,%f\n", 
+        //     magnetometer_data[0], 
+        //     magnetometer_data[1], 
+        //     magnetometer_data[2]
+        // );
+
 
         // brightness++
         // Duty range is from 0 to 2000

@@ -19,7 +19,14 @@ uint8_t init_bmp280(I2C_HandleTypeDef *i2c_address_temp)
 
     // Check that the i2c device is there
     uint8_t check = 0;
-    HAL_StatusTypeDef ret = HAL_I2C_Mem_Read(i2c_address, BMP280_I2C_ID + 1, ID_REG, 1, &check, 1, 100);
+    HAL_StatusTypeDef ret = HAL_I2C_Mem_Read(
+        i2c_address, 
+        BMP280_I2C_ID + 1, 
+        ID_REG, 
+        1, 
+        &check, 
+        1, 
+        100);
 
     // Check if reading was ok and if the value that was read is correct, matches id value
     if (ret != HAL_OK || check != ID_VALUE)
@@ -28,20 +35,41 @@ uint8_t init_bmp280(I2C_HandleTypeDef *i2c_address_temp)
         return 0;
     }
 
-    // Try to reset it
-    uint8_t reset_device1[] = {0xE0, 0xB6};
-    HAL_StatusTypeDef ret1 = HAL_I2C_Mem_Write(i2c_address, BMP280_I2C_ID, reset_device1[0], 1, &reset_device1[1], 1, 100);
+    uint8_t reset_device = 0b00000000;
+    reset_device |= RESET_VALUE; // A specific reset value has to be applied to the register
+
+    HAL_StatusTypeDef ret1 = HAL_I2C_Mem_Write(
+        i2c_address, 
+        BMP280_I2C_ID, 
+        RESET_REG, 
+        1, 
+        &reset_device, 
+        1, 100);
 
     uint8_t ctrl_meas_register = 0b00000000;
     ctrl_meas_register |= NORMAL_MODE; // set it to normal mode
     ctrl_meas_register |= OS_TEMP_16; // enable temp measurement oversampling x1
     ctrl_meas_register |= OS_PRES_1; // set pressure oversampling to standard resolution 18bit/0.66 PA x4
-    HAL_StatusTypeDef ret2 = HAL_I2C_Mem_Write(i2c_address, BMP280_I2C_ID, CTRL_MEAS_REG, 1, &ctrl_meas_register, 1, 100);
+    HAL_StatusTypeDef ret2 = HAL_I2C_Mem_Write(
+        i2c_address, 
+        BMP280_I2C_ID, 
+        CTRL_MEAS_REG, 
+        1, 
+        &ctrl_meas_register, 
+        1, 
+        100);
 
     uint8_t config_register = 0b00000000;
     config_register |= SB_MODE_0_5; // Set standby time to 0.5mx, disable spi on last bit
     config_register |= FILTER_MODE_2; // Set filter to coefficient 2
-    HAL_StatusTypeDef ret3 = HAL_I2C_Mem_Write(i2c_address, BMP280_I2C_ID, CONFIG_REG, 1, &config_register, 1, 100);
+    HAL_StatusTypeDef ret3 = HAL_I2C_Mem_Write(
+        i2c_address, 
+        BMP280_I2C_ID, 
+        CONFIG_REG, 
+        1, 
+        &config_register, 
+        1, 
+        100);
 
     printf("BMP280 initialized\n");
     HAL_Delay(100); // Wait a bit to let the new settings soak in
