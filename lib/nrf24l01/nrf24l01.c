@@ -5,9 +5,6 @@
 #define SPIBUS_READ     (0b00000000)
 #define SPIBUS_WRITE    (0b00100000)
 
-
-// static volatile uint csn_pin = 0;
-// static volatile uint ce_pin = 0;
 static volatile SPI_HandleTypeDef *  device_handle;
 
 #define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
@@ -31,7 +28,8 @@ static void cs_select(){
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
 }
 
-// Ce pin is mainly used to change settings. If it is enabled you cant change them(cant write to the registers using spi)
+// Ce pin is mainly used to change settings. If it is enabled you 
+// cant change them(cant write to the registers using spi)
 static void ce_enable(){
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
 }
@@ -107,7 +105,7 @@ static void read_register_multiple(uint8_t reg, uint8_t *buf, uint16_t len) {
 
 // Test to see if spi setup is working for nrf24
 uint8_t nrf24_test(){
-    write_register(CONFIG, 0b00000010);// Turn it on i guess
+    write_register(CONFIG, CONFIG_PWR_UP);
     write_register(RF_CH, 0b00000000);  // Clear this register
         
     uint8_t data[1] = {0};
@@ -122,13 +120,12 @@ uint8_t nrf24_test(){
     uint8_t data1[1] = {0};
     read_register_multiple(RF_CH, data1, 1);
 
-    if(data1[0] != 0b01010101){ // check that it is the same value as writen
+    if(data1[0] != 0b01010101){ // check that it is the same value as written
         return 0;
     }
 
     return 1;
 }
-
 
 // reset some registers on the nrf24
 void nrf24_reset(uint8_t REG)
@@ -190,11 +187,9 @@ void nrf24_tx_mode(uint8_t *address, uint8_t channel){
     printf("TX_ADDR "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(data[3]));
     printf("TX_ADDR "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(data[4]));
 
-	// power up the device
 	uint8_t config = read_register(CONFIG);
-    //	config = config | (1<<1);   // write 1 in the PWR_UP bit
-	// config = config & (0xF2);    // write 0 in the PRIM_RX, and 1 in the PWR_UP, and all other bits are masked
-    config = config | (1<<1) | (1<<0);
+    config |= CONFIG_PWR_UP; // power up 
+    config |= CONFIG_RX_PTX; // set mode transmit
 	write_register(CONFIG, config);
 
 	// Enable the chip after configuring the device
@@ -217,41 +212,9 @@ void nrf24_rx_mode(uint8_t *address, uint8_t channel){
     write_register_multiple(RX_ADDR_P1, address, 5, 0);
     write_register(RX_PW_P1, 32);
     
-    // setup pipe 2
-    // en_rxaddr = read_register(EN_RXADDR);
-	// en_rxaddr = en_rxaddr | (1<<2);
-	// write_register(EN_RXADDR, en_rxaddr);
-    // write_register(RX_ADDR_P2, 0xEE);
-    // write_register(RX_PW_P2, 32);
-
-
-
-
-    // dont need pipe 2
-	// // select data pipe 2
-	// uint8_t en_rxaddr = read_register(EN_RXADDR);
-	// en_rxaddr = en_rxaddr | (1<<2);
-	// write_register(EN_RXADDR, en_rxaddr);
-
-	// /* We must write the address for Data Pipe 1, if we want to use any pipe from 2 to 5
-	//  * The Address from DATA Pipe 2 to Data Pipe 5 differs only in the LSB
-	//  * Their 4 MSB Bytes will still be same as Data Pipe 1
-	//  *
-	//  * For Eg->
-	//  * Pipe 1 ADDR = 0xAABBCCDD11
-	//  * Pipe 2 ADDR = 0xAABBCCDD22
-	//  * Pipe 3 ADDR = 0xAABBCCDD33
-	//  *
-	//  */
-	// write_register_multiple(RX_ADDR_P1, address, 5);  // Write the Pipe1 address
-	// write_register(RX_ADDR_P2, 0xEE);  // Write the Pipe2 LSB address
-
-	// write_register(RX_PW_P2, 32);   // 32 bit payload size for pipe 2
-
-
-	// power up the device in Rx mode
 	uint8_t config = read_register(CONFIG);
-	config = config | (1<<1) | (1<<0);
+    config |= CONFIG_PWR_UP; // power up 
+    config |= CONFIG_RX_PRX; // set mode receive
 	write_register(CONFIG, config);
 
 	ce_enable();
@@ -261,7 +224,6 @@ void nrf24_rx_mode(uint8_t *address, uint8_t channel){
 uint8_t nrf24_transmit(uint8_t *data){
     write_register_multiple(W_TX_PAYLOAD, data, 32, 1);
 	HAL_Delay(1);
-    // vTaskDelay(1 / portTICK_RATE_MS);
 
 	uint8_t fifo_status = read_register(FIFO_STATUS);
 
@@ -294,7 +256,6 @@ void nrf24_receive(uint8_t *data){
 	// payload command
     read_register_multiple(R_RX_PAYLOAD, data, 32);
     HAL_Delay(1);
-    // vTaskDelay(1 / portTICK_RATE_MS);
 
 	send_command(FLUSH_RX);
 }
@@ -333,20 +294,32 @@ uint8_t init_nrf24(SPI_HandleTypeDef * spi_port){
     }
 
     nrf24_reset(0);
-    write_register(CONFIG, 0b00000000);// Will come back
-    // printf("CONFIG "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(CONFIG)));
-    write_register(EN_AA, 0b00000000); // No auto ACK
-    // printf("EN_AA "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(EN_AA)));
-    write_register(EN_RXADDR, 0b00000000); // Will come back
-    // printf("EN_RXADDR "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(EN_RXADDR)));
-    write_register(SETUP_AW, 0b00000011); // 5 bytes rx/tx address field
-    // printf("SETUP_AW "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(SETUP_AW)));
-    write_register(SETUP_RETR, 0b00000000); // no ACK being used
-    // printf("SETUP_RETR "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(SETUP_RETR)));
-    write_register(RF_CH, 0b00000000);   // will come back
-    // printf("RF_CH "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(RF_CH)));
-    write_register(RF_SETUP, 0b00001110); // 0db power and data rate 2Mbps
-    // printf("RF_SETUP "BYTE_TO_BINARY_PATTERN"\n", BYTE_TO_BINARY(read_register(RF_SETUP)));
+    
+    uint8_t data = 0b00000000;
+
+
+    data |= CONFIG_PWR_DOWN; // Restart it 
+    write_register(CONFIG, data);
+
+    data = DISABLE_ACK; // No ack
+    write_register(EN_AA, data);
+
+    data = DISABLE_RC_PIPES; // No receiving
+    write_register(EN_RXADDR, data);
+
+    data = ADDRESS_WIDTH_5_BYTES; // 5 bytes rx/tx address field
+    write_register(SETUP_AW, data); 
+    
+    data = DISABLED_AUTO_RETRY_COUNT; // Disabled because ACK not used
+    write_register(SETUP_RETR, data); 
+
+    data = EMPTY_RECEIVE_CHANNEL; // Receive not listening to any channel
+    write_register(RF_CH, data);
+
+    data = 0b00000000;
+    data |= RF_DATA_RATE_2_MBPS; // 2Mbps 
+    data |= RF_PWR_0_DBM; // 0 dBm power, highest
+    write_register(RF_SETUP, data); // 0db power and data rate 2Mbps
 
     ce_enable();
     printf("NRF24 initialized\n");
