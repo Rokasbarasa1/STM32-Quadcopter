@@ -223,7 +223,7 @@ float bmp280_get_temperature_celsius()
 float bmp280_get_height_meters_above_sea_level(float pressure_sea_level_hpa, float temperature_sea_level){
     float pressure = bmp280_get_pressure_hPa();
 
-    return (((temperature_sea_level + CELSIUS_TO_KELVIN) / TEMP_LAPSE_RATE) * log(pressure_sea_level_hpa/pressure));
+    return 44330 * (1.0 - pow(pressure / pressure_sea_level_hpa, 0.1903));
 }
 
 float bmp280_get_height_meters_from_reference(uint8_t reset_reference){
