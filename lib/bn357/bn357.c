@@ -2,159 +2,208 @@
 
 UART_HandleTypeDef *uart;
 
-float current_longitude = 0.0;
-char current_longitude_direction = 'f';
-float current_latitude = 0.0;
-char current_latitude_direction = 'f';
+volatile double m_latitude = 0.0;
+volatile double m_longitude = 0.0;
+volatile double m_altitude = 0.0;
+volatile double m_altitude_geoid = 0.0;
+volatile double m_accuracy = 0.0;
+volatile uint8_t m_satellites_quantity = 0.0;
+volatile uint8_t m_fix_quality = 0;
+volatile uint8_t m_time_utc_hours = 0;
+volatile uint8_t m_time_utc_minutes = 0;
+volatile uint8_t m_time_utc_seconds = 0;
+volatile uint8_t m_up_to_date_date = 0;
 
-uint8_t init_bn357(UART_HandleTypeDef *uart_temp)
-{
+volatile uint8_t m_logging = 0;
+
+// consider adding mutexes even though interrupt always finished everything before letting the cpu continue reading
+
+uint8_t init_bn357(UART_HandleTypeDef *uart_temp, uint8_t logging){
     uart = uart_temp;
+    m_logging = logging;
     return 1;
 }
 
-float bn357_get_longitude()
-{
-    return current_longitude;
-}
-float bn357_get_latitude()
-{
-    return current_latitude;
-}
-char bn357_get_longitude_direction()
-{
-    return current_longitude_direction;
-}
-char bn357_get_latitude_direction()
-{
-    return current_latitude_direction;
+// Check the status of the gps reading. If they are up to date or not
+uint8_t bn357_get_status_up_to_date(){
+    return m_up_to_date_date;
 }
 
-void bn357_parse_and_store(uint8_t *buffer, uint16_t size_of_buf)
-{
+void bn357_get_clear_status(){
+    m_up_to_date_date = 0;
+}
 
-    uint16_t gps_index = 9999;
-    uint8_t gps_string_exists = find_substring(buffer, 0, size_of_buf, "GNGGA", &gps_index);
-
-
-    for (uint16_t i = 0 + gps_index; i < gps_index + 100; i++)
-    {
-        if (i >= size_of_buf - 1)
-        {
-            break;
-        }
-        printf("%c", (char *)buffer[i]);
+void bn357_parse_and_store(unsigned char *gps_output_buffer, uint16_t size_of_buffer){
+    // reset the state of successful gps parse
+    m_up_to_date_date = 0;
+    // find the starting position of the substring
+    char* start = strstr(gps_output_buffer, "$GNGGA");  
+    // Check if the start exists
+    if(start == NULL) return;
+    char* end = strchr(start, '\n');  // find the position of the first new line character after the substring
+    // check if the end of it exists
+    if (end == NULL) return;
+    int length = end - start;  // calculate the length of the substring
+    char sub_string[length + 1];  // create a new string to store the substring, plus one for null terminator
+    strncpy(sub_string, start, length);  // copy the substring to the new string
+    sub_string[length] = '\0';  // add a null terminator to the new string
+    if(m_logging == 1){
+        printf("Substring: %s\n", sub_string);  // print the substring
     }
 
-    printf("\n");
-
-    // Quit if you could not find the correct gps text
-    if (!gps_string_exists)
-    {
-        // printf("Bad data\n");
-        return;
-    }
-    if (buffer[gps_index + 6] == ',')
-    {
-        // printf("Bad gps connection!\n");
-        return;
-    }
-
-    // printf("COntinuing\n");
-    // $GNGGA,182459.00,5551.75853,N,00950.61588,E,1,05,5.31,-14.8,M,43.4,M,,*56</>
-    //  ^
-
-    // printf("%d\n", gps_index);
-
-    // for (uint16_t i = 0 + gps_index; i < gps_index + 100; i++)
-    // {
-    //     if (i >= size_of_buf - 1)
-    //     {
-    //         break;
-    //     }
-    //     printf("%c", (char *)buffer[i]);
-    // }
-
-    // printf("\n");
-
-    // printf("READ GPS\n");
-
-    // get longitude index starting counting offset from gps text that was found
-    uint16_t longitude_start_index = 9999;
-    find_substring(buffer, gps_index + 6, size_of_buf, ",", &longitude_start_index);
-    longitude_start_index++;
-    // $GNGGA,182459.00,5551.75853,N,00950.61588,E,1,05,5.31,-14.8,M,43.4,M,,*56</p>
-    //                  ^
-
-    if (buffer[longitude_start_index] == ',')
-    {
-        // printf("Bad gps connection!\n");
-        return;
+    // find utc time
+    start = strchr(sub_string, ',') + 1;
+    if(start[0] == ',') return;
+    end = strchr(start, ',');
+    length = end - start;
+    char utc_time_string[length + 1];
+    strncpy(utc_time_string, start, length);
+    utc_time_string[length] = '\0';
+    uint32_t time = atoi(utc_time_string);
+    m_time_utc_seconds = time % 100;
+    m_time_utc_minutes = ((time % 10000) - m_time_utc_seconds) / 100;
+    m_time_utc_hours = ((time % 1000000) - (m_time_utc_minutes * 100) - m_time_utc_seconds) / 10000;
+    if(m_logging == 1){
+        printf("UTC time: %d%d%d%\n", m_time_utc_hours, m_time_utc_minutes, m_time_utc_seconds);
     }
 
+    // find latitude
+    start = end+1;
+    if(start[0] == ',') return;
+    end = strchr(start, ',');
+    length = end - start;
+    char latitude_string[length + 1];
+    strncpy(latitude_string, start, length);
+    latitude_string[length] = '\0';
+    uint16_t latitude_temp = atoi(latitude_string);
+    uint16_t latitude_degrees = ((latitude_temp % 10000) - (latitude_temp % 100)) / 100;
+    m_latitude = (double)latitude_degrees + ((atof(latitude_string) - (double)latitude_degrees * 100)/60);
+    if(m_logging == 1){
+        printf("Latitude: %f\n", m_latitude);
+    }
 
-    // get the end of longitude text
-    uint16_t longitude_end_index = 9999;
-    find_substring(buffer, longitude_start_index, size_of_buf, ",", &longitude_end_index);
-    longitude_end_index--;
-    // $GNGGA,182459.00,5551.75853,N,00950.61588,E,1,05,5.31,-14.8,M,43.4,M,,*56</p>
-    //                           ^
+    // find longitude
+    start = end+3; // skip the N character
+    if(start[0] == ',') return;
+    end = strchr(start, ',');
+    length = end - start;
+    char longitude_string[length + 1];
+    strncpy(longitude_string, start, length);
+    longitude_string[length] = '\0';
+    uint16_t longitude_temp = atoi(longitude_string);
+    uint16_t longitude_degrees = ((longitude_temp % 10000) - (longitude_temp % 100)) / 100;
+    m_longitude = (double)longitude_degrees + ((atof(longitude_string) - (double)longitude_degrees * 100)/60);
+    if(m_logging == 1){
+        printf("Longitude: %f\n", m_longitude);
+    }
 
-    char longitude_direction = buffer[longitude_end_index + 2];
-    // $GNGGA,182459.00,5551.75853,N,00950.61588,E,1,05,5.31,-14.8,M,43.4,M,,*56</p>
-    //                             ^
+    // find fix quality
+    start = end+3; // skip the E character
+    if(start[0] == ',') return;
+    end = strchr(start, ',');
+    length = end - start;
+    char fix_qualtiy_string[length + 1];
+    strncpy(fix_qualtiy_string, start, length);
+    fix_qualtiy_string[length] = '\0';
+    m_fix_quality = atoi(fix_qualtiy_string);
+    if(m_logging == 1){
+        printf("Fix quality: %d\n", m_fix_quality);
+    }
 
-    uint16_t latitude_start_index = longitude_end_index + 4;
-    // $GNGGA,182459.00,5551.75853,N,00950.61588,E,1,05,5.31,-14.8,M,43.4,M,,*56</p>
-    //                               ^
+    // find satellites quantity
+    start = end+1;
+    if(start[0] == ',') return;
+    end = strchr(start, ',');
+    length = end - start;
+    char satellites_quantity_string[length + 1];
+    strncpy(satellites_quantity_string, start, length);
+    satellites_quantity_string[length] = '\0';
+    m_satellites_quantity = atoi(satellites_quantity_string);
+    if(m_logging == 1){
+        printf("Satellites quantity: %d\n", m_satellites_quantity);
+    }
 
-    uint16_t latitude_end_index = 9999;
-    find_substring(buffer, latitude_start_index, size_of_buf, ",", &latitude_end_index);
-    latitude_end_index--;
-    // $GNGGA,182459.00,5551.75853,N,00950.61588,E,1,05,5.31,-14.8,M,43.4,M,,*56</p>
-    //                                         ^
+    // find accuracy
+    start = end+1;
+    if(start[0] == ',') return;
+    end = strchr(start, ',');
+    length = end - start;
+    char accuracy_quantity_string[length + 1];
+    strncpy(accuracy_quantity_string, start, length);
+    accuracy_quantity_string[length] = '\0';
+    m_accuracy = atof(accuracy_quantity_string);
+    if(m_logging == 1){
+        printf("Accuracy: %f\n", m_accuracy);
+    }
 
-    char latitude_direction = buffer[latitude_end_index + 2];
-    // $GNGGA,182459.00,5551.75853,N,00950.61588,E,1,05,5.31,-14.8,M,43.4,M,,*56</p>
-    //                                           ^
+    // find altitude above sea levels
+    start = end+1;
+    if(start[0] == ',') return;
+    end = strchr(start, ',');
+    length = end - start;
+    char altitude_string[length + 1];
+    strncpy(altitude_string, start, length);
+    altitude_string[length] = '\0';
+    m_altitude = atof(altitude_string);
+    if(m_logging == 1){
+        printf("Altitude: %f\n", m_altitude);
+    }
 
-    char *longitude_number = get_substring(buffer, size_of_buf, longitude_start_index, longitude_end_index);
-    // for (uint16_t i = 0; i < 100; i++)
-    // {
-    //     if (longitude_number[i] == '\0')
-    //     {
-    //         break;
-    //     }
-    //     else
-    //     {
-    //         printf("%c", (char *)longitude_number[i]);
-    //     }
-    // }
-    // printf("\n");
+    // find geoid altitude deviation
+    start = end+3;
+    if(start[0] == ',') return;
+    end = strchr(start, ',');
+    length = end - start;
+    char geoid_altitude_string[length + 1];
+    strncpy(geoid_altitude_string, start, length);
+    geoid_altitude_string[length] = '\0';
+    m_altitude_geoid = atof(geoid_altitude_string);
+    if(m_logging == 1){
+        printf("Geoid altitude: %f\n", m_altitude_geoid);
+    }
 
+    m_up_to_date_date = 1;
+    if(m_logging == 1){
+        printf("GPS data read successful\n");
+    }
+}
 
-    current_longitude = strtof(longitude_number, NULL);
-    free(longitude_number);
-    // printf("%c\n", longitude_direction);
-    current_longitude_direction = longitude_direction;
+double bn357_get_latitude_decimal_format(){
+    return m_latitude;
+}
 
-    char *latitude_number = get_substring(buffer, size_of_buf, latitude_start_index, latitude_end_index);
-    // for (uint16_t i = 0; i < 100; i++)
-    // {
-    //     if (latitude_number[i] == '\0')
-    //     {
-    //         break;
-    //     }
-    //     else
-    //     {
-    //         printf("%c", (char *)latitude_number[i]);
-    //     }
-    // }
-    // printf("\n");
-    current_latitude = strtof(longitude_number, NULL);
-    free(latitude_number);
-    // printf("%c\n", latitude_direction);
-    current_latitude_direction = longitude_direction;
+double bn357_get_longitude_decimal_format(){
+    return m_longitude;
+}
 
-    // printf("C: %c\n", current_latitude_direction);
+double bn357_get_altitude_meters(){
+    return m_altitude;
+}
+
+double bn357_get_geoid_altitude_meters(){
+    return m_altitude_geoid;
+}
+
+double bn357_get_accuracy(){
+    return m_accuracy;
+}
+
+uint8_t bn357_get_satellites_quantity(){
+    return m_satellites_quantity;
+}
+
+uint8_t bn357_get_fix_quality(){
+    return m_fix_quality;
+}
+
+uint8_t bn357_get_utc_time_hours(){
+    return m_time_utc_hours;
+}
+
+uint8_t bn357_get_utc_time_minutes(){
+    return m_time_utc_minutes;
+}
+
+uint8_t bn357_get_utc_time_seconds(){
+    return m_time_utc_seconds;
 }
