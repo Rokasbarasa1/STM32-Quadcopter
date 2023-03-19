@@ -6,20 +6,6 @@
 #include "../printf/retarget.h"
 #include <math.h>
 
-#define BMP280_I2C_ID (0x76 << 1)
-#define ID_REG 0xD0
-#define ID_VALUE 0x58
-
-#define TRIM_REG 0x88
-#define RESET_REG 0xE0
-#define RESET_VALUE 0xB6
-
-#define CTRL_MEAS_REG 0xF4
-#define CONFIG_REG 0xF5
-#define PRES_MSB_REG 0xF7
-#define TEMP_MSB_REG 0xFA
-
-
 enum t_temp_oversampling {
     OS_TEMP_1  = 0b00100000,
     OS_TEMP_2  = 0b01000000,
@@ -64,3 +50,6 @@ enum t_filter_modes {
 uint8_t init_bmp280(I2C_HandleTypeDef *i2c_address_temp);
 float bmp280_get_pressure_hPa();
 float bmp280_get_temperature_celsius();
+float bmp280_get_height_meters_above_sea_level(float pressure_sea_level_hpa, float temperature_sea_level);
+void bmp280_set_reference_for_initial_point_measurement();
+float bmp280_get_height_meters_from_reference(uint8_t reset_reference);

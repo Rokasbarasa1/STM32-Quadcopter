@@ -5,18 +5,6 @@
 #include "../printf/retarget.h"
 #include <math.h>
 
-#ifndef M_PI
-#define M_PI (3.14159265358979323846)
-#endif
-
-#define GY271_I2C_ID (0x0D << 1)
-#define ID_REG 0x0D
-#define ID_VALUE 0b11111111
-#define CONTROL1_REG 0x09
-#define CONTROL2_REG 0x0A
-
-#define OUTPUT_DATA1_REG 0x00
-
 enum t_interrupts {
     INTERRUPT_PIN_ENABLED  = 0b00000000,
     INTERRUPT_PIN_DISABLED = 0b00000001,

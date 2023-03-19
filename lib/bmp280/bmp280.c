@@ -1,6 +1,28 @@
 #include "./bmp280.h"
 
+#define BMP280_I2C_ID (0x76 << 1)
+#define ID_REG 0xD0
+#define ID_VALUE 0x58
+
+#define TRIM_REG 0x88
+#define RESET_REG 0xE0
+#define RESET_VALUE 0xB6
+
+#define CTRL_MEAS_REG 0xF4
+#define CONFIG_REG 0xF5
+#define PRES_MSB_REG 0xF7
+#define TEMP_MSB_REG 0xFA
+
+
+#define TEMP_LAPSE_RATE 0.0065
+#define CELSIUS_TO_KELVIN 273.15
+#define GRAVITY 9.80665
+#define DRY_AIR_MOLAR_MASS 0.0289644
+#define DRY_AIR_GAS_CONSTANT 287.058
+
 I2C_HandleTypeDef *i2c_address;
+
+float reference_pressure = 0.0;
 
 // For storing the trim values for pressure and temperature
 uint16_t dig_T1,
@@ -48,8 +70,8 @@ uint8_t init_bmp280(I2C_HandleTypeDef *i2c_address_temp)
 
     uint8_t ctrl_meas_register = 0b00000000;
     ctrl_meas_register |= NORMAL_MODE; // set it to normal mode
-    ctrl_meas_register |= OS_TEMP_16; // enable temp measurement oversampling x1
-    ctrl_meas_register |= OS_PRES_1; // set pressure oversampling to standard resolution 18bit/0.66 PA x4
+    ctrl_meas_register |= OS_TEMP_1; // enable temp measurement oversampling x1
+    ctrl_meas_register |= OS_PRES_16; // set pressure oversampling to standard resolution 18bit/0.66 PA x4
     HAL_StatusTypeDef ret2 = HAL_I2C_Mem_Write(
         i2c_address, 
         BMP280_I2C_ID, 
@@ -61,7 +83,7 @@ uint8_t init_bmp280(I2C_HandleTypeDef *i2c_address_temp)
 
     uint8_t config_register = 0b00000000;
     config_register |= SB_MODE_0_5; // Set standby time to 0.5mx, disable spi on last bit
-    config_register |= FILTER_MODE_2; // Set filter to coefficient 2
+    config_register |= FILTER_MODE_16; // Set filter to coefficient 2
     HAL_StatusTypeDef ret3 = HAL_I2C_Mem_Write(
         i2c_address, 
         BMP280_I2C_ID, 
@@ -174,7 +196,6 @@ float bmp280_get_pressure_hPa()
     return pressure / 100;
 }
 
-
 float bmp280_get_temperature_celsius()
 {
     // For storing the bytes of temperature data that is going to be read
@@ -197,4 +218,20 @@ float bmp280_get_temperature_celsius()
     int32_t combined_temp = ((int32_t)retrieved_data[0] << 12) | ((int32_t)retrieved_data[1]) << 4 | ((int32_t)retrieved_data[2] >> 4);
     float temperature = ((float)bmp280_convert_raw_temp(combined_temp)) / 100.0;
     return temperature;
+}
+
+float bmp280_get_height_meters_above_sea_level(float pressure_sea_level_hpa, float temperature_sea_level){
+    float pressure = bmp280_get_pressure_hPa();
+
+    return (((temperature_sea_level + CELSIUS_TO_KELVIN) / TEMP_LAPSE_RATE) * log(pressure_sea_level_hpa/pressure));
+}
+
+float bmp280_get_height_meters_from_reference(uint8_t reset_reference){
+    float pressure = bmp280_get_pressure_hPa();
+
+    if(reference_pressure == 0.0 || reset_reference == 1){
+        reference_pressure = pressure;
+    }
+
+    return 44330 * (1.0 - pow(pressure / reference_pressure, 0.1903));
 }

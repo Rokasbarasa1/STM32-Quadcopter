@@ -7,6 +7,9 @@
         "ned_coordinates.h": "c",
         "nrf24l01.h": "c",
         "stm32f4xx_hal_spi.h": "c",
-        "start.h": "c"
+        "start.h": "c",
+        "stm32f4xx_hal_i2c.h": "c",
+        "bmp280.h": "c",
+        "string_utils.h": "c"
     }
 }

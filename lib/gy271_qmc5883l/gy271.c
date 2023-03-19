@@ -1,5 +1,17 @@
 #include "./gy271.h"
 
+#ifndef M_PI
+#define M_PI (3.14159265358979323846)
+#endif
+
+#define GY271_I2C_ID (0x0D << 1)
+#define ID_REG 0x0D
+#define ID_VALUE 0b11111111
+#define CONTROL1_REG 0x09
+#define CONTROL2_REG 0x0A
+
+#define OUTPUT_DATA1_REG 0x00
+
 I2C_HandleTypeDef *i2c_address;
 
 // Storage of hard iron correction, values should be replaced by what is passed

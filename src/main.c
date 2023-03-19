@@ -50,8 +50,8 @@ static void MX_TIM2_Init(void);
  */
 #define MAX_TIMER_VALUE 999
 
-uint8_t MainBuf[MainBuf_SIZE];
-uint8_t RxBuf[RxBuf_SIZE];
+uint8_t gps_output_buffer[MainBuf_SIZE];
+uint8_t receive_buffer[RxBuf_SIZE];
 
 // Interrupt for uart 2 data received
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
@@ -66,11 +66,13 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 
     if (huart->Instance == USART2)
     {
-        printf("Interrupt UART 2\n");
-        memcpy((uint8_t *)MainBuf, RxBuf, Size);
-        bn357_parse_and_store(MainBuf, Size);
+        // printf("Interrupt UART 2\n");
+        memcpy((uint8_t *)gps_output_buffer, receive_buffer, Size);
+        // unsigned char gpsString[] = "dfdgfhdfdfhsdfh$GNGGA,,,N,,E,,,,,M,,M,,*7413.786016\ndasdasd";
+        // bn357_parse_and_store(gpsString, Size);
+        bn357_parse_and_store((unsigned char*)gps_output_buffer, Size);
         /* start the DMA again */
-        HAL_UARTEx_ReceiveToIdle_DMA(&huart2, (uint8_t *)RxBuf, RxBuf_SIZE);
+        HAL_UARTEx_ReceiveToIdle_DMA(&huart2, (uint8_t *)receive_buffer, RxBuf_SIZE);
         __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
     }
 }
@@ -84,13 +86,11 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
         HAL_UART_DeInit(&huart2);
         HAL_UART_Init(&huart2);
 
-        HAL_UARTEx_ReceiveToIdle_DMA(&huart2, RxBuf, RxBuf_SIZE);
+        HAL_UARTEx_ReceiveToIdle_DMA(&huart2, receive_buffer, RxBuf_SIZE);
         __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
     }
 }
 
-uint16_t setServoActivationPercent(uint8_t percent, uint16_t minValue, uint16_t maxValue);
-void extract_request_values(char *request, uint8_t request_size, uint8_t *x, uint8_t *y);
 
 // For calibrating the magnetometer I
 // used a method found in MicWro Engr Video:
@@ -105,13 +105,12 @@ const float soft_iron_correction[3][3] = {{0.178946, 0.001568, -0.007812},
 const float accelerometer_correction[3] = {0.008026, -0.038413, 1.149903};
 const float gyro_correction[3] = {-2.371043, 2.884454, 0.648193};
 
-const float refresh_rate_hz = 100;
+const float refresh_rate_hz = 50;
 
 // gps variables
-volatile float longitude = 0.0;
-volatile float latitude = 0.0;
-volatile char longitude_direction = 'f';
-volatile char latitude_direction = 'f';
+volatile double longitude = 0.0;
+volatile double latitude = 0.0;
+
 
 float acceleration_data[] = {0, 0, 0};
 float gyro_angular[] = {0, 0, 0};
@@ -122,6 +121,7 @@ float magnetometer_data[] = {0, 0, 0};
 // bmp280 data
 float pressure = 0.0;
 float temperature = 0.0;
+float altitude = 0.0;
 
 float north_direction[] = {0, 0, 0};
 float east_direction[] = {0, 0, 0};
@@ -162,6 +162,11 @@ uint8_t rx_data[32];
 // PB4  SPI RADIO
 // PA12 LED
 
+void fix_mag_axis(float *magnetometer_data);
+uint16_t setServoActivationPercent(float percent, uint16_t minValue, uint16_t maxValue);
+void extract_request_values(char *request, uint8_t request_size, uint8_t *x, uint8_t *y);
+double get_sensor_fusion_altitude(double gps_altitude, double barometer_altitude);
+
 int main(void)
 {
     HAL_Init();
@@ -190,8 +195,8 @@ int main(void)
 
     // HAL_UART_RegisterCallback(&huart2, HAL_UART_ERROR_CB_ID, HAL_UART_ErrorCallback);
 
-    // HAL_UARTEx_ReceiveToIdle_DMA(&huart2, RxBuf, RxBuf_SIZE);
-    // __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
+    HAL_UARTEx_ReceiveToIdle_DMA(&huart2, receive_buffer, RxBuf_SIZE);
+    __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
 
     printf("OK\n");
     printf("-----------------------------INITIALIZING MODULES...\n");
@@ -199,29 +204,26 @@ int main(void)
     uint8_t mpu6050 = init_mpu6050(&hi2c1, 1, accelerometer_correction, gyro_correction);
     uint8_t gy271 = init_gy271(&hi2c1, 1, hard_iron_correction, soft_iron_correction);
     uint8_t bmp280 = init_bmp280(&hi2c1);
-    uint8_t bn357 = init_bn357(&huart2);
+    uint8_t bn357 = init_bn357(&huart2, 0);
     uint8_t nrf24 = init_nrf24(&hspi1);
 
     printf("-----------------------------INITIALIZING MODULES DONE... ");
 
-    if (mpu6050 && gy271 && bmp280 && bn357 && nrf24)
-    {
+    if (mpu6050 && gy271 && bmp280 && bn357 && nrf24){
         printf("OK\n");
-    }
-    else
-    {
+    }else{
         printf("NOT OK\n");
     }
 
     // Continue initializing
     nrf24_rx_mode(tx_address, 10);
 
-    uint8_t brightness = 0;
+    float brightness = 0.0;
     uint32_t loop_start_time = HAL_GetTick();
     uint32_t loop_end_time = 0;
     int16_t deltaLoopTime = 0;
 
-    // 
+    // Checking errors opf mpu6050
     // find_accelerometer_error(1000);
     // find_gyro_error(300);
 
@@ -239,27 +241,48 @@ int main(void)
     gyro_degrees[2] = -yaw;
     printf("Initial location x: %.2f y: %.2f, z: %.2f\n", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
 
+    // uint16_t new_value1 = setServoActivationPercent(100, 50, 150);
 
-    // init(&hi2c1, &hspi1, &htim1, &htim2, &huart1, &huart2, &hdma_usart2_rx);
+    // TIM1->CCR1 = new_value1;
+    // TIM1->CCR4 = new_value1;
+    // TIM2->CCR1 = new_value1;
+    // TIM2->CCR2 = new_value1;
+
+    // HAL_Delay(5000);
+    // uint16_t new_value2 = setServoActivationPercent(0, 50, 150);
+
+    // TIM1->CCR1 = new_value2;
+    // TIM1->CCR4 = new_value2;
+    // TIM2->CCR1 = new_value2;
+    // TIM2->CCR2 = new_value2;
+
+    // HAL_Delay(5000);
+    // bmp280_set_reference_for_initial_point_measurement();
     while (1)
     {
+        // for measuring time 
+        // uint32_t start_point = HAL_GetTick();
+        // uint32_t end_point = HAL_GetTick();
+        // printf("Radio time: %d ms\n", end_point - start_point);
         // printf("New loop\n");
 
         // Read sensor data
-        uint32_t start_point = HAL_GetTick();
-
-        longitude = bn357_get_longitude();
-        latitude = bn357_get_latitude();
-
-
-        longitude_direction = bn357_get_longitude_direction();
-        latitude_direction = bn357_get_latitude_direction();
+        latitude = bn357_get_latitude_decimal_format();
+        longitude = bn357_get_longitude_decimal_format();
         temperature = bmp280_get_temperature_celsius();
-        pressure = bmp280_get_pressure_hPa();
 
+        // calculate the altitude using gps altitude and a bmp280 reference altitude
+        // Reset the reference on bmp280 every time the gps gets updated
+        // So the barometer keeps track in between the gps updates and does so with the 
+        // origin of the precise altitude value from gps
+        altitude = get_sensor_fusion_altitude(bn357_get_altitude_meters() ,(double)bmp280_get_height_meters_from_reference(bn357_get_status_up_to_date()));
+        // need to reset the status afterwards
+        bn357_get_clear_status();
+
+        // printf("Altitude: %f hPa: %f, temp: %f \n", altitude, pressure, temperature);
+        // printf("Calculated: %f, gps: %f\n", altitude, bn357_get_altitude_meters());
 
         mpu6050_get_accelerometer_readings_gravity(acceleration_data);
-
         mpu6050_get_gyro_readings_dps(gyro_angular);
         gy271_magnetometer_readings_micro_teslas(magnetometer_data);
         fix_mag_axis(magnetometer_data); // Switches around the x and the y to match mpu6050
@@ -283,8 +306,7 @@ int main(void)
             printf("Dat %d %d\n", x, y);
         }
 
-        uint32_t end_point = HAL_GetTick();
-        printf("Radio time: %d ms\n", end_point - start_point);
+
         // uint32_t end_point = HAL_GetTick();
         // printf("Radio time: %d ms\n", end_point - end_point);
 
@@ -302,8 +324,6 @@ int main(void)
         gyro_degrees[2] = (gyro_degrees[2] * (1.0 - complementary_ratio)) + (complementary_ratio * (-yaw));
 
 
-        // printf("ROll: (%6.2f * %6.2f) + (%6.2f)\n",gyro_degrees[0], 1.0-complementary_ratio, complementary_ratio * (-roll) );
-        // printf("Degrees: roll: %6.2f pitch: %6.2f yaw: %6.2f\n", roll, pitch, yaw);
 
         // React to data
         // printf("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
@@ -312,7 +332,7 @@ int main(void)
         // printf("NORTH, %6.2f, %6.2f, %6.2f, ", north_direction[0], north_direction[1], north_direction[2]);
         // printf("TEMP %6.5f, ", temperature);
         // printf("PRES %6.5f, ", pressure);
-        // printf("GPS %6.2f %c  %6.2f %c\n", longitude, longitude_direction, latitude, latitude_direction);
+        // printf("GPS %f, %f", longitude, latitude);
         // printf("\n");
 
         // For calibrating magnetometer
@@ -325,29 +345,36 @@ int main(void)
 
         // brightness++
         // Duty range is from 0 to 2000
-        brightness = ++brightness % 100;
-        // printf("Speed: %d\n", brightness);
+        // brightness = brightness + 0.1;
+        // if(brightness > 100.0){
+        //     brightness = 0.1;
+        // }
 
-        uint16_t value = setServoActivationPercent(x, 25, 125);
+        if(x<=50){
+            x = 0;
+        }else{
+            x -= 50;
+            x *= 2;
+        }
+        // printf("value: %d\n",x);
+        uint16_t value = setServoActivationPercent(x, 50, 150);
         TIM1->CCR1 = value;
         TIM1->CCR4 = value;
         TIM2->CCR1 = value;
         TIM2->CCR2 = value;
 
-
-
         loop_end_time = HAL_GetTick();
         deltaLoopTime = loop_end_time - loop_start_time;
-        printf("Tim: %d ms\n", deltaLoopTime);
+        // printf("Tim: %d ms\n", deltaLoopTime);
         if (deltaLoopTime < (1000 / refresh_rate_hz))
         {
             HAL_Delay((1000 / refresh_rate_hz) - deltaLoopTime);
         }
         loop_start_time = HAL_GetTick();
-        HAL_Delay(1000 / (refresh_rate_hz * 2));
-        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-        HAL_Delay(1000 / (refresh_rate_hz * 2));
-        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+        // HAL_Delay(1000 / (refresh_rate_hz * 2));
+        // HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+        // HAL_Delay(1000 / (refresh_rate_hz * 2));
+        // HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
     }
 }
 
@@ -357,10 +384,14 @@ int main(void)
 // 100 - 25 = 75
 
 // default min and max is 25 and 75
-uint16_t setServoActivationPercent(uint8_t percent, uint16_t minValue, uint16_t maxValue)
+uint16_t setServoActivationPercent(float percent, uint16_t minValue, uint16_t maxValue)
 {
     float percentProportion = percent / 100.0;
     return percentProportion * (maxValue - minValue) + minValue;
+}
+
+double get_sensor_fusion_altitude(double gps_altitude, double barometer_altitude){
+    return gps_altitude + barometer_altitude;
 }
 
 void extract_request_values(char *request, uint8_t request_size, uint8_t *x, uint8_t *y)

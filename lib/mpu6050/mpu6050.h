@@ -6,18 +6,6 @@
 #include "../printf/retarget.h"
 #include <math.h>
 
-#ifndef M_PI
-#define M_PI (3.14159265358979323846)
-#endif
-
-#define MPU6050 (0b1101000 << 1)
-#define I2C_MASTER_TIMEOUT_MS 1000
-#define ID_REG 0x75
-#define ID_VALUE 104
-#define PWR_MGMT_REG 0x6B
-#define ACCEL_XOUT_H_REG 0x3B
-#define GYRO_XOUT_H_REG 0x43
-
 enum t_power_management {
     PWR_RESET    = 0b10000000,
     PWR_SLEEP    = 0b01000000,
