@@ -232,6 +232,6 @@ float bmp280_get_height_meters_from_reference(uint8_t reset_reference){
     if(reference_pressure == 0.0 || reset_reference == 1){
         reference_pressure = pressure;
     }
-
+    
     return 44330 * (1.0 - pow(pressure / reference_pressure, 0.1903));
 }

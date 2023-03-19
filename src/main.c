@@ -135,6 +135,11 @@ float yaw = 0;
 uint8_t tx_address[5] = {0xEE, 0xDD, 0xCC, 0xBB, 0xAA};
 uint8_t rx_data[32];
 
+// handling loop timing
+uint32_t loop_start_time = 0;
+uint32_t loop_end_time = 0;
+int16_t deltaLoopTime = 0;
+
 // PWM pins
 // PA8  - 1 TIM1
 // PA11 - 4 TIM1
@@ -162,13 +167,104 @@ uint8_t rx_data[32];
 // PB4  SPI RADIO
 // PA12 LED
 
+void init_STM32_peripherals();
 void fix_mag_axis(float *magnetometer_data);
 uint16_t setServoActivationPercent(float percent, uint16_t minValue, uint16_t maxValue);
 void extract_request_values(char *request, uint8_t request_size, uint8_t *x, uint8_t *y);
 double get_sensor_fusion_altitude(double gps_altitude, double barometer_altitude);
+void init_sensors();
+void init_loop_timer();
+void check_calibrations();
+void get_initial_position();
+void handle_loop_timing();
+void convert_angular_rotation_to_degrees();
+void output_magnetometer_measurement();
+void control_esc(uint8_t x, uint8_t y);
 
 int main(void)
 {
+    init_STM32_peripherals();
+    init_sensors();
+    init_loop_timer();
+    // check_calibrations();
+    get_initial_position();
+
+    // uint16_t new_value1 = setServoActivationPercent(100, 50, 150);
+
+    // TIM1->CCR1 = new_value1;
+    // TIM1->CCR4 = new_value1;
+    // TIM2->CCR1 = new_value1;
+    // TIM2->CCR2 = new_value1;
+
+    // HAL_Delay(5000);
+    // uint16_t new_value2 = setServoActivationPercent(0, 50, 150);
+
+    // TIM1->CCR1 = new_value2;
+    // TIM1->CCR4 = new_value2;
+    // TIM2->CCR1 = new_value2;
+    // TIM2->CCR2 = new_value2;
+
+    // HAL_Delay(5000);
+
+    while (1)
+    {
+        // for measuring time 
+        // uint32_t start_point = HAL_GetTick();
+        // uint32_t end_point = HAL_GetTick();
+        // printf("Radio time: %d ms\n", end_point - start_point);
+        // printf("New loop\n");
+
+        // Read sensor data
+        latitude = bn357_get_latitude_decimal_format();
+        longitude = bn357_get_longitude_decimal_format();
+        temperature = bmp280_get_temperature_celsius();
+
+        // calculate the altitude using gps altitude and a bmp280 reference altitude
+        // Reset the reference on bmp280 every time the gps gets updated
+        // So the barometer keeps track in between the gps updates and does so with the 
+        // origin of the precise altitude value from gps
+
+        altitude = get_sensor_fusion_altitude(bn357_get_altitude_meters() ,(double)bmp280_get_height_meters_from_reference(bn357_get_status_up_to_date(1)));
+        mpu6050_get_accelerometer_readings_gravity(acceleration_data);
+        mpu6050_get_gyro_readings_dps(gyro_angular);
+        gy271_magnetometer_readings_micro_teslas(magnetometer_data);
+        fix_mag_axis(magnetometer_data); // Switches around the x and the y to match mpu6050
+
+
+        // Calculate using sensor data
+        get_ned_coordinates(acceleration_data, magnetometer_data, north_direction, east_direction, down_direction);
+        calculate_pitch_and_roll(acceleration_data, &roll, &pitch);
+        calculate_yaw(magnetometer_data, &yaw);
+        convert_angular_rotation_to_degrees();
+
+        // // Joystick values, 50 is basically zero position
+        uint8_t x = 50;
+        uint8_t y = 50;
+
+        if(nrf24_data_available(1)){
+            nrf24_receive(rx_data);
+            extract_request_values((char*) rx_data, strlen((char*) rx_data), &x, &y);
+            printf("Dat %d %d\n", x, y);
+        }
+
+        control_esc(x, y);
+        // output_magnetometer_measurement();
+
+        // Print out for debugging
+        printf("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+        printf("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
+        // printf("MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
+        // printf("NORTH, %6.2f, %6.2f, %6.2f, ", north_direction[0], north_direction[1], north_direction[2]);
+        // printf("TEMP %6.5f, ", temperature);
+        printf("ALT %6.2f, ", altitude);
+        printf("GPS %f, %f", longitude, latitude);
+        printf("\n");
+
+        handle_loop_timing();
+    }
+}
+
+void init_STM32_peripherals(){
     HAL_Init();
     SystemClock_Config();
     MX_GPIO_Init();
@@ -197,8 +293,9 @@ int main(void)
 
     HAL_UARTEx_ReceiveToIdle_DMA(&huart2, receive_buffer, RxBuf_SIZE);
     __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
+}
 
-    printf("OK\n");
+void init_sensors(){
     printf("-----------------------------INITIALIZING MODULES...\n");
 
     uint8_t mpu6050 = init_mpu6050(&hi2c1, 1, accelerometer_correction, gyro_correction);
@@ -217,17 +314,21 @@ int main(void)
 
     // Continue initializing
     nrf24_rx_mode(tx_address, 10);
+}
 
-    float brightness = 0.0;
-    uint32_t loop_start_time = HAL_GetTick();
-    uint32_t loop_end_time = 0;
-    int16_t deltaLoopTime = 0;
+void init_loop_timer(){
+    loop_start_time = HAL_GetTick();
+}
 
-    // Checking errors opf mpu6050
-    // find_accelerometer_error(1000);
-    // find_gyro_error(300);
+void check_calibrations(){
+    // Checking errors of mpu6050
+    find_accelerometer_error(1000);
+    find_gyro_error(300);
+}
 
-    // calculate initial position
+void get_initial_position(){
+    // Find the initial position in degrees and apply it to the gyro measurement integral
+    // This will tell the robot which way to go to get the actual upward
     mpu6050_get_accelerometer_readings_gravity(acceleration_data);
     mpu6050_get_gyro_readings_dps(gyro_angular);
     gy271_magnetometer_readings_micro_teslas(magnetometer_data);
@@ -240,144 +341,55 @@ int main(void)
     gyro_degrees[1] = -pitch;
     gyro_degrees[2] = -yaw;
     printf("Initial location x: %.2f y: %.2f, z: %.2f\n", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
-
-    // uint16_t new_value1 = setServoActivationPercent(100, 50, 150);
-
-    // TIM1->CCR1 = new_value1;
-    // TIM1->CCR4 = new_value1;
-    // TIM2->CCR1 = new_value1;
-    // TIM2->CCR2 = new_value1;
-
-    // HAL_Delay(5000);
-    // uint16_t new_value2 = setServoActivationPercent(0, 50, 150);
-
-    // TIM1->CCR1 = new_value2;
-    // TIM1->CCR4 = new_value2;
-    // TIM2->CCR1 = new_value2;
-    // TIM2->CCR2 = new_value2;
-
-    // HAL_Delay(5000);
-    // bmp280_set_reference_for_initial_point_measurement();
-    while (1)
-    {
-        // for measuring time 
-        // uint32_t start_point = HAL_GetTick();
-        // uint32_t end_point = HAL_GetTick();
-        // printf("Radio time: %d ms\n", end_point - start_point);
-        // printf("New loop\n");
-
-        // Read sensor data
-        latitude = bn357_get_latitude_decimal_format();
-        longitude = bn357_get_longitude_decimal_format();
-        temperature = bmp280_get_temperature_celsius();
-
-        // calculate the altitude using gps altitude and a bmp280 reference altitude
-        // Reset the reference on bmp280 every time the gps gets updated
-        // So the barometer keeps track in between the gps updates and does so with the 
-        // origin of the precise altitude value from gps
-        altitude = get_sensor_fusion_altitude(bn357_get_altitude_meters() ,(double)bmp280_get_height_meters_from_reference(bn357_get_status_up_to_date()));
-        // need to reset the status afterwards
-        bn357_get_clear_status();
-
-        // printf("Altitude: %f hPa: %f, temp: %f \n", altitude, pressure, temperature);
-        // printf("Calculated: %f, gps: %f\n", altitude, bn357_get_altitude_meters());
-
-        mpu6050_get_accelerometer_readings_gravity(acceleration_data);
-        mpu6050_get_gyro_readings_dps(gyro_angular);
-        gy271_magnetometer_readings_micro_teslas(magnetometer_data);
-        fix_mag_axis(magnetometer_data); // Switches around the x and the y to match mpu6050
-
-
-        // Calculate using sensor data
-        get_ned_coordinates(acceleration_data, magnetometer_data, north_direction, east_direction, down_direction);
-        calculate_pitch_and_roll(acceleration_data, &roll, &pitch);
-        calculate_yaw(magnetometer_data, &yaw);
-
-
-
-        // // Joystick values, 50 is basically zero position
-        uint8_t x = 50;
-        uint8_t y = 50;
-
-        // uint32_t start_point = HAL_GetTick();
-        if(nrf24_data_available(1)){
-            nrf24_receive(rx_data);
-            extract_request_values((char*) rx_data, strlen((char*) rx_data), &x, &y);
-            printf("Dat %d %d\n", x, y);
-        }
-
-
-        // uint32_t end_point = HAL_GetTick();
-        // printf("Radio time: %d ms\n", end_point - end_point);
-
-        // Find the initial position in degrees and apply it to the gyro measurement integral
-        // This will tell the robot which way to go to get the actual upward
-
-        // Convert angular velocity to actual degrees that it moved and add it to the integral (dead reckoning not PID)
-        gyro_degrees[0] += (gyro_angular[0] * (1.0 / refresh_rate_hz));
-        gyro_degrees[1] += (gyro_angular[1] * (1.0 / refresh_rate_hz));
-        gyro_degrees[2] += (gyro_angular[2] * (1.0 / refresh_rate_hz));
-
-        // Apply complimentary filter
-        gyro_degrees[0] = (gyro_degrees[0] * (1.0 - complementary_ratio)) + (complementary_ratio * (-roll));
-        gyro_degrees[1] = (gyro_degrees[1] * (1.0 - complementary_ratio)) + (complementary_ratio * (-pitch));
-        gyro_degrees[2] = (gyro_degrees[2] * (1.0 - complementary_ratio)) + (complementary_ratio * (-yaw));
-
-
-
-        // React to data
-        // printf("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
-        // printf("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
-        // printf("MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
-        // printf("NORTH, %6.2f, %6.2f, %6.2f, ", north_direction[0], north_direction[1], north_direction[2]);
-        // printf("TEMP %6.5f, ", temperature);
-        // printf("PRES %6.5f, ", pressure);
-        // printf("GPS %f, %f", longitude, latitude);
-        // printf("\n");
-
-        // For calibrating magnetometer
-        // printf(
-        //     "%f,%f,%f\n",
-        //     magnetometer_data[0],
-        //     magnetometer_data[1],
-        //     magnetometer_data[2]
-        // );
-
-        // brightness++
-        // Duty range is from 0 to 2000
-        // brightness = brightness + 0.1;
-        // if(brightness > 100.0){
-        //     brightness = 0.1;
-        // }
-
-        if(x<=50){
-            x = 0;
-        }else{
-            x -= 50;
-            x *= 2;
-        }
-        // printf("value: %d\n",x);
-        uint16_t value = setServoActivationPercent(x, 50, 150);
-        TIM1->CCR1 = value;
-        TIM1->CCR4 = value;
-        TIM2->CCR1 = value;
-        TIM2->CCR2 = value;
-
-        loop_end_time = HAL_GetTick();
-        deltaLoopTime = loop_end_time - loop_start_time;
-        // printf("Tim: %d ms\n", deltaLoopTime);
-        if (deltaLoopTime < (1000 / refresh_rate_hz))
-        {
-            HAL_Delay((1000 / refresh_rate_hz) - deltaLoopTime);
-        }
-        loop_start_time = HAL_GetTick();
-        // HAL_Delay(1000 / (refresh_rate_hz * 2));
-        // HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-        // HAL_Delay(1000 / (refresh_rate_hz * 2));
-        // HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
-    }
 }
 
+void handle_loop_timing(){
+    loop_end_time = HAL_GetTick();
+    deltaLoopTime = loop_end_time - loop_start_time;
+    // printf("Tim: %d ms\n", deltaLoopTime);
+    if (deltaLoopTime < (1000 / refresh_rate_hz))
+    {
+        HAL_Delay((1000 / refresh_rate_hz) - deltaLoopTime);
+    }
+    loop_start_time = HAL_GetTick();
+}
+
+void convert_angular_rotation_to_degrees(){
+    // Convert angular velocity to actual degrees that it moved and add it to the integral (dead reckoning not PID)
+    gyro_degrees[0] += (gyro_angular[0] * (1.0 / refresh_rate_hz));
+    gyro_degrees[1] += (gyro_angular[1] * (1.0 / refresh_rate_hz));
+    gyro_degrees[2] += (gyro_angular[2] * (1.0 / refresh_rate_hz));
+
+    // Apply complimentary filter
+    gyro_degrees[0] = (gyro_degrees[0] * (1.0 - complementary_ratio)) + (complementary_ratio * (-roll));
+    gyro_degrees[1] = (gyro_degrees[1] * (1.0 - complementary_ratio)) + (complementary_ratio * (-pitch));
+    gyro_degrees[2] = (gyro_degrees[2] * (1.0 - complementary_ratio)) + (complementary_ratio * (-yaw));
+}
+
+void output_magnetometer_measurement(){
+    // For calibrating magnetometer
+    printf(
+        "%f,%f,%f\n",
+        magnetometer_data[0],
+        magnetometer_data[1],
+        magnetometer_data[2]
+    );
+}
+
+void control_esc(uint8_t x, uint8_t y){
+    if(x<=50){
+        x = 0;
+    }else{
+        x -= 50;
+        x *= 2;
+    }
+    // printf("value: %d\n",x);
+    uint16_t value = setServoActivationPercent(x, 50, 150);
+    TIM1->CCR1 = value;
+    TIM1->CCR4 = value;
+    TIM2->CCR1 = value;
+    TIM2->CCR2 = value;
+}
 // 0.5ms to 2ms = range is 1.5
 // 0.5 is 2.5%  and is 25
 // 2   is 10%   amd is 100

@@ -25,8 +25,12 @@ uint8_t init_bn357(UART_HandleTypeDef *uart_temp, uint8_t logging){
 }
 
 // Check the status of the gps reading. If they are up to date or not
-uint8_t bn357_get_status_up_to_date(){
-    return m_up_to_date_date;
+uint8_t bn357_get_status_up_to_date(uint8_t reset_afterwards){
+    uint8_t temp_status = m_up_to_date_date;
+    if(reset_afterwards){
+        m_up_to_date_date = 0;
+    }
+    return temp_status;
 }
 
 void bn357_get_clear_status(){
