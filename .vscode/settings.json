@@ -10,6 +10,7 @@
         "start.h": "c",
         "stm32f4xx_hal_i2c.h": "c",
         "bmp280.h": "c",
-        "string_utils.h": "c"
+        "string_utils.h": "c",
+        "pid.h": "c"
     }
 }

@@ -32,6 +32,7 @@ static void MX_TIM2_Init(void);
 #include "../lib/bn357/bn357.h"
 #include "../lib/utils/ned_coordinates/ned_coordinates.h"
 #include "../lib/nrf24l01/nrf24l01.h"
+#include "../lib/pid/pid.h"
 
 #define RxBuf_SIZE 500
 #define MainBuf_SIZE 550
@@ -131,6 +132,11 @@ float pitch = 0;
 float roll = 0;
 float yaw = 0;
 
+// PID gains
+const double gain_p = 3; 
+const double gain_i = 0.3;
+const double gain_d = 15;
+
 // for nrf24 radio transmissions
 uint8_t tx_address[5] = {0xEE, 0xDD, 0xCC, 0xBB, 0xAA};
 uint8_t rx_data[32];
@@ -181,6 +187,13 @@ void convert_angular_rotation_to_degrees();
 void output_magnetometer_measurement();
 void control_esc(uint8_t x, uint8_t y);
 
+
+// motors 
+float motor_1_power = 0.0;
+float motor_2_power = 0.0;
+float motor_3_power = 0.0;
+float motor_4_power = 0.0;
+
 int main(void)
 {
     init_STM32_peripherals();
@@ -205,6 +218,15 @@ int main(void)
     // TIM2->CCR2 = new_value2;
 
     // HAL_Delay(5000);
+
+    uint8_t x = 50;
+    uint8_t y = 50;
+
+    uint8_t x_previous = 50;
+    uint8_t y_previous = 50;
+
+    struct pid x_axis_pid = pid_init(gain_p, gain_i, gain_p, 0.0, HAL_GetTick(), 1.0, -1.0);
+    struct pid y_axis_pid = pid_init(gain_p, gain_i, gain_p, 0.0, HAL_GetTick(), 1.0, -1.0);
 
     while (1)
     {
@@ -238,26 +260,36 @@ int main(void)
         convert_angular_rotation_to_degrees();
 
         // // Joystick values, 50 is basically zero position
-        uint8_t x = 50;
-        uint8_t y = 50;
 
-        if(nrf24_data_available(1)){
-            nrf24_receive(rx_data);
-            extract_request_values((char*) rx_data, strlen((char*) rx_data), &x, &y);
-            printf("Dat %d %d\n", x, y);
-        }
+        // x = 50;
+        // y = 50;
+        // if(nrf24_data_available(1)){
+        //     nrf24_receive(rx_data);
+        //     extract_request_values((char*) rx_data, strlen((char*) rx_data), &x, &y);
+        //     printf("Dat %d %d\n", x, y);
+        //     x_previous = x;
+        //     y_previous = y;
+        // }
+        // else{
+        //     x = x_previous;
+        //     y = y_previous;
+        // }
 
         control_esc(x, y);
+
+        
         // output_magnetometer_measurement();
 
         // Print out for debugging
         printf("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
-        printf("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
+        // printf("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
         // printf("MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
         // printf("NORTH, %6.2f, %6.2f, %6.2f, ", north_direction[0], north_direction[1], north_direction[2]);
         // printf("TEMP %6.5f, ", temperature);
-        printf("ALT %6.2f, ", altitude);
-        printf("GPS %f, %f", longitude, latitude);
+        // printf("ALT %6.2f, ", altitude);
+        // printf("GPS %f, %f, ", longitude, latitude);
+        printf("ERROR x=%6.2f y=%6.2f", pid_get_error(&x_axis_pid, acceleration_data[0], HAL_GetTick()), pid_get_error(&y_axis_pid, acceleration_data[1], HAL_GetTick()));
+
         printf("\n");
 
         handle_loop_timing();
@@ -381,7 +413,7 @@ void control_esc(uint8_t x, uint8_t y){
         x = 0;
     }else{
         x -= 50;
-        x *= 2;
+        // x *= 1;
     }
     // printf("value: %d\n",x);
     uint16_t value = setServoActivationPercent(x, 50, 150);
