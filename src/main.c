@@ -115,7 +115,7 @@ volatile double latitude = 0.0;
 
 float acceleration_data[] = {0, 0, 0};
 float gyro_angular[] = {0, 0, 0};
-float complementary_ratio = 0.01;
+float complementary_ratio = 0.1;
 float gyro_degrees[] = {0, 0, 0};
 float magnetometer_data[] = {0, 0, 0};
 
@@ -134,7 +134,7 @@ float accelerometer_z_rotation = 0;
 
 // PID gains
 const double gain_p = 1; 
-const double gain_i = 0.01;
+const double gain_i = 0.00;
 const double gain_d = 0.1;
 
 double motor_power[] = {0.0, 0.0, 0.0, 0.0};
@@ -308,7 +308,7 @@ int main(void)
 
         // Print out for debugging
         // printf("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
-        // printf("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
+        printf("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
         // printf("AXIS, %6.2f, %6.2f, %6.2f, ", accelerometer_x_rotation, accelerometer_y_rotation, accelerometer_z_rotation);
         
 
@@ -398,15 +398,13 @@ void get_initial_position(){
     gy271_magnetometer_readings_micro_teslas(magnetometer_data);
     fix_mag_axis(magnetometer_data); // Switches around the x and the y to match mpu6050
 
-    float ax,ay;
     calculate_degrees_x_y(acceleration_data, &accelerometer_x_rotation, &accelerometer_y_rotation);
     calculate_yaw(magnetometer_data, &accelerometer_z_rotation);
 
-    // gyro_degrees[0] = ax;
-    // gyro_degrees[1] = ay;
     gyro_degrees[0] = accelerometer_x_rotation;
     gyro_degrees[1] = accelerometer_y_rotation;
     gyro_degrees[2] = accelerometer_z_rotation;
+
     printf("Initial location x: %.2f y: %.2f, z: %.2f\n", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
 }
 
@@ -428,11 +426,11 @@ void convert_angular_rotation_to_degrees(){
     gyro_degrees[2] += (gyro_angular[2] * (1.0 / refresh_rate_hz));
 
     // Apply complimentary filter
-
-    // printf("%.2f - %.2f = %.2f       ", gyro_degrees[0], accelerometer_x_rotation, gyro_degrees[0] - accelerometer_x_rotation);
-    gyro_degrees[0] = gyro_degrees[0] * (1.0 - complementary_ratio) - (complementary_ratio * (gyro_degrees[0] - accelerometer_x_rotation));
-    gyro_degrees[1] = gyro_degrees[1] * (1.0 - complementary_ratio) - (complementary_ratio * (gyro_degrees[1] - accelerometer_y_rotation));
-    gyro_degrees[2] = gyro_degrees[2] * (1.0 - complementary_ratio) - (complementary_ratio * (gyro_degrees[2] - accelerometer_z_rotation));
+    // I have no idea why this version works. I tried the actually implementation and it was
+    // not working good. This one though works very good.
+    gyro_degrees[0] = -(-gyro_degrees[0] * (1.0 - complementary_ratio) - (complementary_ratio * accelerometer_x_rotation));
+    gyro_degrees[1] = -(-gyro_degrees[1] * (1.0 - complementary_ratio) - (complementary_ratio * accelerometer_y_rotation));
+    gyro_degrees[2] = -(-gyro_degrees[2] * (1.0 - complementary_ratio) - (complementary_ratio * accelerometer_z_rotation));
 
     // I dont want to track how many times the degrees went over the 360 degree mark, no point.
     while (gyro_degrees[0] > 180.0) {
