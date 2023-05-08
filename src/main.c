@@ -115,7 +115,7 @@ volatile double latitude = 0.0;
 
 float acceleration_data[] = {0, 0, 0};
 float gyro_angular[] = {0, 0, 0};
-float complementary_ratio = 0.02;
+float complementary_ratio = 0.01;
 float gyro_degrees[] = {0, 0, 0};
 float magnetometer_data[] = {0, 0, 0};
 
@@ -128,14 +128,16 @@ float north_direction[] = {0, 0, 0};
 float east_direction[] = {0, 0, 0};
 float down_direction[] = {0, 0, 0};
 
-float pitch = 0;
-float roll = 0;
-float yaw = 0;
+float accelerometer_x_rotation = 0;
+float accelerometer_y_rotation = 0;
+float accelerometer_z_rotation = 0;
 
 // PID gains
-const double gain_p = 3; 
-const double gain_i = 0.3;
-const double gain_d = 15;
+const double gain_p = 1; 
+const double gain_i = 0.01;
+const double gain_d = 0.1;
+
+double motor_power[] = {0.0, 0.0, 0.0, 0.0};
 
 // for nrf24 radio transmissions
 uint8_t tx_address[5] = {0xEE, 0xDD, 0xCC, 0xBB, 0xAA};
@@ -176,6 +178,7 @@ int16_t deltaLoopTime = 0;
 void init_STM32_peripherals();
 void fix_mag_axis(float *magnetometer_data);
 uint16_t setServoActivationPercent(float percent, uint16_t minValue, uint16_t maxValue);
+double mapValue(double value, double input_min, double input_max, double output_min, double output_max);
 void extract_request_values(char *request, uint8_t request_size, uint8_t *x, uint8_t *y);
 double get_sensor_fusion_altitude(double gps_altitude, double barometer_altitude);
 void init_sensors();
@@ -186,13 +189,6 @@ void handle_loop_timing();
 void convert_angular_rotation_to_degrees();
 void output_magnetometer_measurement();
 void control_esc(uint8_t x, uint8_t y);
-
-
-// motors 
-float motor_1_power = 0.0;
-float motor_2_power = 0.0;
-float motor_3_power = 0.0;
-float motor_4_power = 0.0;
 
 int main(void)
 {
@@ -225,8 +221,11 @@ int main(void)
     uint8_t x_previous = 50;
     uint8_t y_previous = 50;
 
-    struct pid x_axis_pid = pid_init(gain_p, gain_i, gain_p, 0.0, HAL_GetTick(), 1.0, -1.0);
-    struct pid y_axis_pid = pid_init(gain_p, gain_i, gain_p, 0.0, HAL_GetTick(), 1.0, -1.0);
+    // struct pid x_axis_pid = pid_init(gain_p, gain_i, gain_p, 0.0, HAL_GetTick(), 1.0, -1.0);
+    // struct pid y_axis_pid = pid_init(gain_p, gain_i, gain_p, 0.0, HAL_GetTick(), 1.0, -1.0);
+
+    struct pid x_pid = pid_init(gain_p, gain_i, gain_p, 0.0, HAL_GetTick(), 180.0, -180.0);
+    struct pid y_pid = pid_init(gain_p, gain_i, gain_p, 0.0, HAL_GetTick(), 180.0, -180.0);
 
     while (1)
     {
@@ -254,11 +253,14 @@ int main(void)
 
 
         // Calculate using sensor data
-        get_ned_coordinates(acceleration_data, magnetometer_data, north_direction, east_direction, down_direction);
-        calculate_pitch_and_roll(acceleration_data, &roll, &pitch);
-        calculate_yaw(magnetometer_data, &yaw);
+        // get_ned_coordinates(acceleration_data, magnetometer_data, north_direction, east_direction, down_direction);
+        // calculate_pitch_and_roll(acceleration_data, &roll, &pitch);
+
+        calculate_degrees_x_y(acceleration_data, &accelerometer_x_rotation, &accelerometer_y_rotation);
+        calculate_yaw(magnetometer_data, &accelerometer_z_rotation);
         convert_angular_rotation_to_degrees();
 
+        
         // // Joystick values, 50 is basically zero position
 
         // x = 50;
@@ -275,20 +277,50 @@ int main(void)
         //     y = y_previous;
         // }
 
-        control_esc(x, y);
+        double error_altitude = 0.0;
+
+        double error_x = mapValue(pid_get_error(&x_pid, gyro_degrees[0], HAL_GetTick()), -180.0, 180.0, -100.0, 100.0) ;
+        double error_y = mapValue(pid_get_error(&y_pid, gyro_degrees[1], HAL_GetTick()), -180.0, 180.0, -100.0, 100.0) ;
+
+        // mapValue(error_x)
+
+        // y is facing forwards and backwards
+
+        // x is facing to the sides
+
+        motor_power[0] = error_altitude + (-error_y) + (-error_x);
+        motor_power[1] = error_altitude + (-error_y) +  (error_x);
+        motor_power[2] = error_altitude +  (error_y) +  (error_x);
+        motor_power[3] = error_altitude +  (error_y) + (-error_x);
+
+        // GPS side
+        TIM2->CCR1 = 2 * setServoActivationPercent(motor_power[2], 25, 125);
+        TIM2->CCR2 = 2 * setServoActivationPercent(motor_power[3], 25, 125);
+
+        // No gps side
+        TIM1->CCR1 = 2 * setServoActivationPercent(motor_power[0], 25, 125);
+        TIM1->CCR4 = 2 * setServoActivationPercent(motor_power[1], 25, 125);
+        
+        // control_esc(x, y);
 
         
         // output_magnetometer_measurement();
 
         // Print out for debugging
-        printf("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+        // printf("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
         // printf("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
+        // printf("AXIS, %6.2f, %6.2f, %6.2f, ", accelerometer_x_rotation, accelerometer_y_rotation, accelerometer_z_rotation);
+        
+
+
         // printf("MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
         // printf("NORTH, %6.2f, %6.2f, %6.2f, ", north_direction[0], north_direction[1], north_direction[2]);
         // printf("TEMP %6.5f, ", temperature);
         // printf("ALT %6.2f, ", altitude);
         // printf("GPS %f, %f, ", longitude, latitude);
-        printf("ERROR x=%6.2f y=%6.2f", pid_get_error(&x_axis_pid, acceleration_data[0], HAL_GetTick()), pid_get_error(&y_axis_pid, acceleration_data[1], HAL_GetTick()));
+        // printf("ERROR x=%6.2f y=%6.2f", pid_get_error(&x_pid, gyro_degrees[0], HAL_GetTick()), pid_get_error(&y_pid, gyro_degrees[1], HAL_GetTick()));
+        // printf("MOTOR 1=%6.2f 2=%6.2f 3=%6.2f 4=%6.2f", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
+        // printf("ERROR x=%6.2f y=%6.2f ", error_x, error_y);
 
         printf("\n");
 
@@ -366,12 +398,15 @@ void get_initial_position(){
     gy271_magnetometer_readings_micro_teslas(magnetometer_data);
     fix_mag_axis(magnetometer_data); // Switches around the x and the y to match mpu6050
 
-    calculate_pitch_and_roll(acceleration_data, &roll, &pitch);
-    calculate_yaw(magnetometer_data, &yaw);
+    float ax,ay;
+    calculate_degrees_x_y(acceleration_data, &accelerometer_x_rotation, &accelerometer_y_rotation);
+    calculate_yaw(magnetometer_data, &accelerometer_z_rotation);
 
-    gyro_degrees[0] = -roll;
-    gyro_degrees[1] = -pitch;
-    gyro_degrees[2] = -yaw;
+    // gyro_degrees[0] = ax;
+    // gyro_degrees[1] = ay;
+    gyro_degrees[0] = accelerometer_x_rotation;
+    gyro_degrees[1] = accelerometer_y_rotation;
+    gyro_degrees[2] = accelerometer_z_rotation;
     printf("Initial location x: %.2f y: %.2f, z: %.2f\n", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
 }
 
@@ -393,9 +428,33 @@ void convert_angular_rotation_to_degrees(){
     gyro_degrees[2] += (gyro_angular[2] * (1.0 / refresh_rate_hz));
 
     // Apply complimentary filter
-    gyro_degrees[0] = (gyro_degrees[0] * (1.0 - complementary_ratio)) + (complementary_ratio * (-roll));
-    gyro_degrees[1] = (gyro_degrees[1] * (1.0 - complementary_ratio)) + (complementary_ratio * (-pitch));
-    gyro_degrees[2] = (gyro_degrees[2] * (1.0 - complementary_ratio)) + (complementary_ratio * (-yaw));
+
+    // printf("%.2f - %.2f = %.2f       ", gyro_degrees[0], accelerometer_x_rotation, gyro_degrees[0] - accelerometer_x_rotation);
+    gyro_degrees[0] = gyro_degrees[0] * (1.0 - complementary_ratio) - (complementary_ratio * (gyro_degrees[0] - accelerometer_x_rotation));
+    gyro_degrees[1] = gyro_degrees[1] * (1.0 - complementary_ratio) - (complementary_ratio * (gyro_degrees[1] - accelerometer_y_rotation));
+    gyro_degrees[2] = gyro_degrees[2] * (1.0 - complementary_ratio) - (complementary_ratio * (gyro_degrees[2] - accelerometer_z_rotation));
+
+    // I dont want to track how many times the degrees went over the 360 degree mark, no point.
+    while (gyro_degrees[0] > 180.0) {
+        gyro_degrees[0] -= 360.0;
+    }
+    while (gyro_degrees[0] < -180.0) {
+        gyro_degrees[0] += 360.0;
+    }
+
+    while (gyro_degrees[1] > 180.0) {
+        gyro_degrees[1] -= 360.0;
+    }
+    while (gyro_degrees[1] < -180.0) {
+        gyro_degrees[1] += 360.0;
+    }
+
+    while (gyro_degrees[2] > 180.0) {
+        gyro_degrees[2] -= 360.0;
+    }
+    while (gyro_degrees[2] < -180.0) {
+        gyro_degrees[2] += 360.0;
+    }
 }
 
 void output_magnetometer_measurement(){
@@ -430,8 +489,31 @@ void control_esc(uint8_t x, uint8_t y){
 // default min and max is 25 and 75
 uint16_t setServoActivationPercent(float percent, uint16_t minValue, uint16_t maxValue)
 {
-    float percentProportion = percent / 100.0;
-    return percentProportion * (maxValue - minValue) + minValue;
+    if(percent > 100.0){
+        percent = 1.0;
+    }else if(percent < 0.0){
+        percent = 0.0;
+    }else{
+        percent = percent / 100.0;
+    }
+    return percent * (maxValue - minValue) + minValue;
+}
+
+double mapValue(double value, double input_min, double input_max, double output_min, double output_max) {
+    // Calculate the input and output ranges' lengths
+    double input_range = input_max - input_min;
+    double output_range = output_max - output_min;
+
+    // Normalize the input value relative to the input range
+    double normalized_value = (value - input_min) / input_range;
+
+    // Scale the normalized value according to the output range
+    double scaled_value = normalized_value * output_range;
+
+    // Add the output range's minimum value to the scaled value
+    double output_value = output_min + scaled_value;
+
+    return output_value;
 }
 
 double get_sensor_fusion_altitude(double gps_altitude, double barometer_altitude){
@@ -861,6 +943,7 @@ void Error_Handler(void)
 {
     /* USER CODE BEGIN Error_Handler_Debug */
     /* User can add his own implementation to report the HAL error return state */
+    printf("-------------------Crashed\n");
     __disable_irq();
     while (1)
     {

@@ -160,7 +160,19 @@ void calculate_pitch_and_roll(float *data, float *roll, float *pitch)
     *roll = atan2f(y, z) * (180 / M_PI);
 
     // rotation around the y axis
-    *pitch = asinf(x) * (180 / M_PI);
+    *pitch = -(asinf(x) * (180 / M_PI));
+    // i put a minus on the pitch calculation as i have found that the pitch has opposite values of actual
+}
+
+void calculate_degrees_x_y(float *data, float *rotation_around_x, float *rotation_around_y)
+{
+    float x = data[0];
+    float y = data[1];
+    float z = data[2];
+
+    *rotation_around_x = atan2f(y, sqrtf(x * x + z * z)) * (180.0 / M_PI);
+    // added minus to match actual dps direction the values are supposed to go
+    *rotation_around_y = -(atan2f(x, sqrtf(y * y + z * z)) * (180.0 / M_PI));
 }
 
 void find_accelerometer_error(uint64_t sample_size)
