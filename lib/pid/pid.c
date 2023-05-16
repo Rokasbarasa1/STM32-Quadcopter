@@ -84,3 +84,13 @@ double pid_get_error(struct pid* pid_instance, double value, uint32_t time){
     pid_instance->m_previous_time = time;
     return total_error;
 }
+
+/**
+ * @brief Change the desired value. Mainly for user inputs for pid
+ * 
+ * @param pid_instance pid config
+ * @param value new desired value
+ */
+void pid_set_desired_value(struct pid* pid_instance, double value){
+    pid_instance->m_desired_value = value;
+}

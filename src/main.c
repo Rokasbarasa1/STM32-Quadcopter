@@ -48,6 +48,11 @@ static void MX_TIM2_Init(void);
  * These are the values to set to CCR
  * 0.5/20 * 1000(Counter period) = 25
  * 2.5/20 * 1000 = 125
+ * 
+ * 
+ * But the esc is shit so we have different max an min
+ * 1.08/20 * 1000(Counter period) = 54
+ * 1.94/20 * 1000 = 97
  */
 #define MAX_TIMER_VALUE 999
 
@@ -193,27 +198,33 @@ void control_esc(uint8_t x, uint8_t y);
 int main(void)
 {
     init_STM32_peripherals();
+
+    // uint16_t max_pwm = setServoActivationPercent(100, 90, 140);
+    // uint16_t max_pwm = setServoActivationPercent(100, 60, 90);
+    uint16_t max_pwm = setServoActivationPercent(100, 54, 97);
+    TIM1->CCR1 = max_pwm;
+    TIM1->CCR4 = max_pwm;
+    TIM2->CCR1 = max_pwm;
+    TIM2->CCR2 = max_pwm;
+    HAL_Delay(3000);
+    
+    // uint16_t min_pwm = setServoActivationPercent(0, 90, 140);
+    // uint16_t min_pwm = setServoActivationPercent(0, 60, 90);
+    uint16_t min_pwm = setServoActivationPercent(0, 54, 97);
+    TIM1->CCR1 = min_pwm;
+    TIM1->CCR4 = min_pwm;
+    TIM2->CCR1 = min_pwm;
+    TIM2->CCR2 = min_pwm;
+    HAL_Delay(10000);
+
+    while(1){
+        printf("Wating\n");
+    }
+
     init_sensors();
     init_loop_timer();
     // check_calibrations();
     get_initial_position();
-
-    // uint16_t new_value1 = setServoActivationPercent(100, 50, 150);
-
-    // TIM1->CCR1 = new_value1;
-    // TIM1->CCR4 = new_value1;
-    // TIM2->CCR1 = new_value1;
-    // TIM2->CCR2 = new_value1;
-
-    // HAL_Delay(5000);
-    // uint16_t new_value2 = setServoActivationPercent(0, 50, 150);
-
-    // TIM1->CCR1 = new_value2;
-    // TIM1->CCR4 = new_value2;
-    // TIM2->CCR1 = new_value2;
-    // TIM2->CCR2 = new_value2;
-
-    // HAL_Delay(5000);
 
     uint8_t x = 50;
     uint8_t y = 50;
@@ -226,6 +237,7 @@ int main(void)
 
     struct pid x_pid = pid_init(gain_p, gain_i, gain_p, 0.0, HAL_GetTick(), 180.0, -180.0);
     struct pid y_pid = pid_init(gain_p, gain_i, gain_p, 0.0, HAL_GetTick(), 180.0, -180.0);
+    struct pid altitude_pid = pid_init(gain_p, gain_i, gain_p, 1.5, HAL_GetTick(), 0.0, 100.0);
 
     while (1)
     {
@@ -245,7 +257,10 @@ int main(void)
         // So the barometer keeps track in between the gps updates and does so with the 
         // origin of the precise altitude value from gps
 
-        altitude = get_sensor_fusion_altitude(bn357_get_altitude_meters() ,(double)bmp280_get_height_meters_from_reference(bn357_get_status_up_to_date(1)));
+
+        // The value is good
+        altitude = bmp280_get_height_meters_from_reference(0);
+        // altitude = get_sensor_fusion_altitude(bn357_get_altitude_meters() ,(double)bmp280_get_height_meters_from_reference(bn357_get_status_up_to_date(1)));
         mpu6050_get_accelerometer_readings_gravity(acceleration_data);
         mpu6050_get_gyro_readings_dps(gyro_angular);
         gy271_magnetometer_readings_micro_teslas(magnetometer_data);
@@ -277,10 +292,11 @@ int main(void)
         //     y = y_previous;
         // }
 
-        double error_altitude = 0.0;
-
-        double error_x = mapValue(pid_get_error(&x_pid, gyro_degrees[0], HAL_GetTick()), -180.0, 180.0, -100.0, 100.0) ;
-        double error_y = mapValue(pid_get_error(&y_pid, gyro_degrees[1], HAL_GetTick()), -180.0, 180.0, -100.0, 100.0) ;
+        double error_altitude = mapValue(pid_get_error(&altitude_pid, altitude, HAL_GetTick()), -180.0, 180.0, -100.0, 100.0);
+        // printf("Altitude error %6.2f ", error_altitude);
+        error_altitude = 0;
+        double error_x = mapValue(pid_get_error(&x_pid, gyro_degrees[0], HAL_GetTick()), -180.0, 180.0, -100.0, 100.0);
+        double error_y = mapValue(pid_get_error(&y_pid, gyro_degrees[1], HAL_GetTick()), -180.0, 180.0, -100.0, 100.0);
 
         // mapValue(error_x)
 
@@ -294,13 +310,16 @@ int main(void)
         motor_power[3] = error_altitude +  (error_y) + (-error_x);
 
         // GPS side
-        TIM2->CCR1 = 2 * setServoActivationPercent(motor_power[2], 25, 125);
-        TIM2->CCR2 = 2 * setServoActivationPercent(motor_power[3], 25, 125);
+        TIM2->CCR1 = setServoActivationPercent(motor_power[2], 25, 125);
+        TIM2->CCR2 = setServoActivationPercent(motor_power[3], 25, 125);
+
 
         // No gps side
-        TIM1->CCR1 = 2 * setServoActivationPercent(motor_power[0], 25, 125);
-        TIM1->CCR4 = 2 * setServoActivationPercent(motor_power[1], 25, 125);
+        TIM1->CCR1 = setServoActivationPercent(motor_power[0], 25, 125); // 58
+        TIM1->CCR4 = setServoActivationPercent(motor_power[1], 25, 125); // 53
         
+
+        printf("ACTIVATION: motor0- %d, motor1- %d ", setServoActivationPercent(motor_power[0], 25, 125), setServoActivationPercent(motor_power[1], 25, 125));
         // control_esc(x, y);
 
         
@@ -308,7 +327,7 @@ int main(void)
 
         // Print out for debugging
         // printf("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
-        printf("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
+        // printf("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
         // printf("AXIS, %6.2f, %6.2f, %6.2f, ", accelerometer_x_rotation, accelerometer_y_rotation, accelerometer_z_rotation);
         
 
@@ -316,7 +335,7 @@ int main(void)
         // printf("MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
         // printf("NORTH, %6.2f, %6.2f, %6.2f, ", north_direction[0], north_direction[1], north_direction[2]);
         // printf("TEMP %6.5f, ", temperature);
-        // printf("ALT %6.2f, ", altitude);
+        //printf("ALT %6.2f, ", altitude);
         // printf("GPS %f, %f, ", longitude, latitude);
         // printf("ERROR x=%6.2f y=%6.2f", pid_get_error(&x_pid, gyro_degrees[0], HAL_GetTick()), pid_get_error(&y_pid, gyro_degrees[1], HAL_GetTick()));
         // printf("MOTOR 1=%6.2f 2=%6.2f 3=%6.2f 4=%6.2f", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);

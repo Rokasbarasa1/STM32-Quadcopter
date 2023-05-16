@@ -23,3 +23,4 @@ struct pid pid_init(
     double max_value,
     double min_value);
 double pid_get_error(struct pid* pid_instance, double value, uint32_t time);
+void pid_set_desired_value(struct pid* pid_instance, double value);
