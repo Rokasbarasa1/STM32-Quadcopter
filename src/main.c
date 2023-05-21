@@ -38,23 +38,24 @@ static void MX_TIM2_Init(void);
 #define MainBuf_SIZE 550
 
 /**
- * Pre-scaler: 1000
- * Counter period: 1000
- * Timer clock = 50,000,000/1000 = 50KHz
- * PWM Frequency = 50,000/1000 = 50Hz
- * Duty cycle = 1s/PWM Freq = 20ms
+ * Timer peripheral clock: 50000000Hz
+ * Pre scaler value: 250
+ * Counter period: 4000
+ * Timer clock divided by pre scaler: 200000.0Hz
+ * Frequency: 50.0Hz
+ * Max duty cycle: 20.0ms
+ * Pwm value range: 0-4000
+ * Resolution per pwm step: 0.005ms
  *
- * For servo it needs to be from 0.5ms to 2.5ms at the most extremes.
- * These are the values to set to CCR
- * 0.5/20 * 1000(Counter period) = 25
- * 2.5/20 * 1000 = 125
+
  * 
- * 
- * But the esc is shit so we have different max an min
- * 1.08/20 * 1000(Counter period) = 54
- * 1.94/20 * 1000 = 97
+ * The esc is shit so we have different max and min than normal
+ * 1.08ms/20ms * 4000(Counter period) = 216
+ * 1.94ms/20ms * 4000 = 388
  */
-#define MAX_TIMER_VALUE 999
+#define MAX_ESC_PWM_VALUE 388
+#define MIN_ESC_PWM_VALUE 188
+
 
 uint8_t gps_output_buffer[MainBuf_SIZE];
 uint8_t receive_buffer[RxBuf_SIZE];
@@ -88,7 +89,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
     if (huart->Instance == USART2)
     {
-        printf("Error UART 2\n");
+        // printf("Error UART 2\n");
         HAL_UART_DeInit(&huart2);
         HAL_UART_Init(&huart2);
 
@@ -138,9 +139,9 @@ float accelerometer_y_rotation = 0;
 float accelerometer_z_rotation = 0;
 
 // PID gains
-const double gain_p = 1; 
-const double gain_i = 0.00;
-const double gain_d = 0.1;
+const double gain_p = 1.0; 
+const double gain_i = 0.0;
+const double gain_d = 0.0;
 
 double motor_power[] = {0.0, 0.0, 0.0, 0.0};
 
@@ -181,6 +182,7 @@ int16_t deltaLoopTime = 0;
 // PA12 LED
 
 void init_STM32_peripherals();
+void calibrate_escs();
 void fix_mag_axis(float *magnetometer_data);
 uint16_t setServoActivationPercent(float percent, uint16_t minValue, uint16_t maxValue);
 double mapValue(double value, double input_min, double input_max, double output_min, double output_max);
@@ -192,52 +194,25 @@ void check_calibrations();
 void get_initial_position();
 void handle_loop_timing();
 void convert_angular_rotation_to_degrees();
-void output_magnetometer_measurement();
-void control_esc(uint8_t x, uint8_t y);
 
 int main(void)
 {
     init_STM32_peripherals();
-
-    // uint16_t max_pwm = setServoActivationPercent(100, 90, 140);
-    // uint16_t max_pwm = setServoActivationPercent(100, 60, 90);
-    uint16_t max_pwm = setServoActivationPercent(100, 54, 97);
-    TIM1->CCR1 = max_pwm;
-    TIM1->CCR4 = max_pwm;
-    TIM2->CCR1 = max_pwm;
-    TIM2->CCR2 = max_pwm;
-    HAL_Delay(3000);
-    
-    // uint16_t min_pwm = setServoActivationPercent(0, 90, 140);
-    // uint16_t min_pwm = setServoActivationPercent(0, 60, 90);
-    uint16_t min_pwm = setServoActivationPercent(0, 54, 97);
-    TIM1->CCR1 = min_pwm;
-    TIM1->CCR4 = min_pwm;
-    TIM2->CCR1 = min_pwm;
-    TIM2->CCR2 = min_pwm;
-    HAL_Delay(10000);
-
-    while(1){
-        printf("Wating\n");
-    }
-
+    // calibrate_escs();
     init_sensors();
     init_loop_timer();
     // check_calibrations();
     get_initial_position();
 
+    // For radio
     uint8_t x = 50;
     uint8_t y = 50;
-
     uint8_t x_previous = 50;
     uint8_t y_previous = 50;
 
-    // struct pid x_axis_pid = pid_init(gain_p, gain_i, gain_p, 0.0, HAL_GetTick(), 1.0, -1.0);
-    // struct pid y_axis_pid = pid_init(gain_p, gain_i, gain_p, 0.0, HAL_GetTick(), 1.0, -1.0);
-
-    struct pid x_pid = pid_init(gain_p, gain_i, gain_p, 0.0, HAL_GetTick(), 180.0, -180.0);
-    struct pid y_pid = pid_init(gain_p, gain_i, gain_p, 0.0, HAL_GetTick(), 180.0, -180.0);
-    struct pid altitude_pid = pid_init(gain_p, gain_i, gain_p, 1.5, HAL_GetTick(), 0.0, 100.0);
+    struct pid x_pid = pid_init(gain_p, gain_i, gain_p, 0.0, HAL_GetTick(), 180.0, -180.0, 1);
+    struct pid y_pid = pid_init(gain_p, gain_i, gain_p, 0.0, HAL_GetTick(), 180.0, -180.0, 1);
+    struct pid altitude_pid = pid_init(gain_p, gain_i, gain_p, 1.5, HAL_GetTick(), 0.0, 100.0, 1);
 
     while (1)
     {
@@ -257,9 +232,6 @@ int main(void)
         // So the barometer keeps track in between the gps updates and does so with the 
         // origin of the precise altitude value from gps
 
-
-        // The value is good
-        altitude = bmp280_get_height_meters_from_reference(0);
         // altitude = get_sensor_fusion_altitude(bn357_get_altitude_meters() ,(double)bmp280_get_height_meters_from_reference(bn357_get_status_up_to_date(1)));
         mpu6050_get_accelerometer_readings_gravity(acceleration_data);
         mpu6050_get_gyro_readings_dps(gyro_angular);
@@ -269,79 +241,92 @@ int main(void)
 
         // Calculate using sensor data
         // get_ned_coordinates(acceleration_data, magnetometer_data, north_direction, east_direction, down_direction);
-        // calculate_pitch_and_roll(acceleration_data, &roll, &pitch);
-
         calculate_degrees_x_y(acceleration_data, &accelerometer_x_rotation, &accelerometer_y_rotation);
         calculate_yaw(magnetometer_data, &accelerometer_z_rotation);
         convert_angular_rotation_to_degrees();
 
         
-        // // Joystick values, 50 is basically zero position
+        // Joystick values, 50 is basically zero position
+        x = 50;
+        y = 50;
+        uint8_t data_received = 0;
+        if(nrf24_data_available(1)){
+            nrf24_receive(rx_data);
+            extract_request_values((char*) rx_data, strlen((char*) rx_data), &x, &y);
+            // printf("Dat %d %d\n", x, y);
+            x_previous = x;
+            y_previous = y;
+            data_received = 1;
+        }
+        else{
+            x = x_previous;
+            y = y_previous;
+            // printf("Dat none\n");
 
-        // x = 50;
-        // y = 50;
-        // if(nrf24_data_available(1)){
-        //     nrf24_receive(rx_data);
-        //     extract_request_values((char*) rx_data, strlen((char*) rx_data), &x, &y);
-        //     printf("Dat %d %d\n", x, y);
-        //     x_previous = x;
-        //     y_previous = y;
-        // }
-        // else{
-        //     x = x_previous;
-        //     y = y_previous;
-        // }
+        }
 
-        double error_altitude = mapValue(pid_get_error(&altitude_pid, altitude, HAL_GetTick()), -180.0, 180.0, -100.0, 100.0);
+        // double error_altitude = mapValue(pid_get_error(&altitude_pid, altitude, HAL_GetTick()), -180.0, 180.0, -100.0, 100.0);
         // printf("Altitude error %6.2f ", error_altitude);
-        error_altitude = 0;
-        double error_x = mapValue(pid_get_error(&x_pid, gyro_degrees[0], HAL_GetTick()), -180.0, 180.0, -100.0, 100.0);
-        double error_y = mapValue(pid_get_error(&y_pid, gyro_degrees[1], HAL_GetTick()), -180.0, 180.0, -100.0, 100.0);
-
-        // mapValue(error_x)
-
-        // y is facing forwards and backwards
-
-        // x is facing to the sides
-
-        motor_power[0] = error_altitude + (-error_y) + (-error_x);
-        motor_power[1] = error_altitude + (-error_y) +  (error_x);
-        motor_power[2] = error_altitude +  (error_y) +  (error_x);
-        motor_power[3] = error_altitude +  (error_y) + (-error_x);
-
-        // GPS side
-        TIM2->CCR1 = setServoActivationPercent(motor_power[2], 25, 125);
-        TIM2->CCR2 = setServoActivationPercent(motor_power[3], 25, 125);
-
-
-        // No gps side
-        TIM1->CCR1 = setServoActivationPercent(motor_power[0], 25, 125); // 58
-        TIM1->CCR4 = setServoActivationPercent(motor_power[1], 25, 125); // 53
         
+        double error_x = 0;
+        double error_y = 0;
+        if(data_received){
+        // if(1){
 
-        printf("ACTIVATION: motor0- %d, motor1- %d ", setServoActivationPercent(motor_power[0], 25, 125), setServoActivationPercent(motor_power[1], 25, 125));
-        // control_esc(x, y);
+            double error_altitude = 10;
 
+            // x is facing to the sides
+            // y is facing forwards and backwards
+            error_x = mapValue(pid_get_error(&x_pid, gyro_degrees[0], HAL_GetTick()), -180.0, 180.0, -100.0, 100.0);
+            error_y = mapValue(pid_get_error(&y_pid, gyro_degrees[1], HAL_GetTick()), -180.0, 180.0, -100.0, 100.0);
+
+
+            // Disable y control when testing x
+            error_y = 0;
+
+
+            motor_power[0] = error_altitude + (-error_y) + (-error_x);
+            motor_power[1] = error_altitude + (-error_y) +  (error_x);
+            motor_power[2] = error_altitude +  (error_y) +  (error_x);
+            motor_power[3] = error_altitude +  (error_y) + (-error_x);
+
+            // motor_power[0] /= 2;
+            // motor_power[1] /= 2;
+            // motor_power[2] /= 2;
+            // motor_power[3] /= 2;
+
+            // GPS side
+            TIM2->CCR1 = setServoActivationPercent(motor_power[2], MIN_ESC_PWM_VALUE, MAX_ESC_PWM_VALUE);
+            TIM2->CCR2 = setServoActivationPercent(motor_power[3], MIN_ESC_PWM_VALUE, MAX_ESC_PWM_VALUE);
+
+            // No gps side
+            TIM1->CCR1 = setServoActivationPercent(motor_power[0], MIN_ESC_PWM_VALUE, MAX_ESC_PWM_VALUE);
+            TIM1->CCR4 = setServoActivationPercent(motor_power[1], MIN_ESC_PWM_VALUE, MAX_ESC_PWM_VALUE);
+            
+            // printf(" ACTIVATION: motor0- %6.2f, motor1- %6.2f, motor2- %6.2f, motor3- %6.2f ", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
+        }else{
+            // GPS side
+            TIM2->CCR1 = setServoActivationPercent(0, MIN_ESC_PWM_VALUE, MAX_ESC_PWM_VALUE);
+            TIM2->CCR2 = setServoActivationPercent(0, MIN_ESC_PWM_VALUE, MAX_ESC_PWM_VALUE);
+
+            // No gps side
+            TIM1->CCR1 = setServoActivationPercent(0, MIN_ESC_PWM_VALUE, MAX_ESC_PWM_VALUE);
+            TIM1->CCR4 = setServoActivationPercent(0, MIN_ESC_PWM_VALUE, MAX_ESC_PWM_VALUE);
+        }
         
-        // output_magnetometer_measurement();
-
         // Print out for debugging
         // printf("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
         // printf("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
         // printf("AXIS, %6.2f, %6.2f, %6.2f, ", accelerometer_x_rotation, accelerometer_y_rotation, accelerometer_z_rotation);
-        
-
-
         // printf("MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
         // printf("NORTH, %6.2f, %6.2f, %6.2f, ", north_direction[0], north_direction[1], north_direction[2]);
         // printf("TEMP %6.5f, ", temperature);
-        //printf("ALT %6.2f, ", altitude);
+        // printf("ALT %6.2f, ", altitude);
         // printf("GPS %f, %f, ", longitude, latitude);
         // printf("ERROR x=%6.2f y=%6.2f", pid_get_error(&x_pid, gyro_degrees[0], HAL_GetTick()), pid_get_error(&y_pid, gyro_degrees[1], HAL_GetTick()));
         // printf("MOTOR 1=%6.2f 2=%6.2f 3=%6.2f 4=%6.2f", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
         // printf("ERROR x=%6.2f y=%6.2f ", error_x, error_y);
-
-        printf("\n");
+        // printf("\n");
 
         handle_loop_timing();
     }
@@ -376,6 +361,34 @@ void init_STM32_peripherals(){
 
     HAL_UARTEx_ReceiveToIdle_DMA(&huart2, receive_buffer, RxBuf_SIZE);
     __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
+}
+
+void calibrate_escs(){
+    // Delay for things to settle down in the mcu init
+    HAL_Delay(2000);
+
+    // Set the max value
+    uint16_t max_pwm = setServoActivationPercent(100, MIN_ESC_PWM_VALUE, MAX_ESC_PWM_VALUE);
+    printf("Max: %d\n", max_pwm);
+    TIM1->CCR1 = max_pwm;
+    TIM1->CCR4 = max_pwm;
+    TIM2->CCR1 = max_pwm;
+    TIM2->CCR2 = max_pwm;
+    HAL_Delay(3000);
+    
+    // Set the min value
+    uint16_t min_pwm = setServoActivationPercent(0, MIN_ESC_PWM_VALUE, MAX_ESC_PWM_VALUE);
+    printf("Min: %d\n", min_pwm);
+    TIM1->CCR1 = min_pwm;
+    TIM1->CCR4 = min_pwm;
+    TIM2->CCR1 = min_pwm;
+    TIM2->CCR2 = min_pwm;
+
+    // 10 Seconds of min value init just to make sure
+    HAL_Delay(10000);
+
+    // After calibration remember that the 1 percent throttle might not do anything and it only starts moving at 3 percent throttle
+    // This is if it is starting from 0
 }
 
 void init_sensors(){
@@ -474,30 +487,7 @@ void convert_angular_rotation_to_degrees(){
     }
 }
 
-void output_magnetometer_measurement(){
-    // For calibrating magnetometer
-    printf(
-        "%f,%f,%f\n",
-        magnetometer_data[0],
-        magnetometer_data[1],
-        magnetometer_data[2]
-    );
-}
 
-void control_esc(uint8_t x, uint8_t y){
-    if(x<=50){
-        x = 0;
-    }else{
-        x -= 50;
-        // x *= 1;
-    }
-    // printf("value: %d\n",x);
-    uint16_t value = setServoActivationPercent(x, 50, 150);
-    TIM1->CCR1 = value;
-    TIM1->CCR4 = value;
-    TIM2->CCR1 = value;
-    TIM2->CCR2 = value;
-}
 // 0.5ms to 2ms = range is 1.5
 // 0.5 is 2.5%  and is 25
 // 2   is 10%   amd is 100
@@ -580,372 +570,372 @@ void fix_mag_axis(float *magnetometer_data)
 /* Auto generated shit again-----------------------------------------------*/
 
 /**
- * @brief System Clock Configuration
- * @retval None
- */
+  * @brief System Clock Configuration
+  * @retval None
+  */
 void SystemClock_Config(void)
 {
-    RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-    /** Configure the main internal regulator output voltage
-     */
-    __HAL_RCC_PWR_CLK_ENABLE();
-    __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+  /** Configure the main internal regulator output voltage
+  */
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
-    /** Initializes the RCC Oscillators according to the specified parameters
-     * in the RCC_OscInitTypeDef structure.
-     */
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-    RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-    RCC_OscInitStruct.PLL.PLLM = 13;
-    RCC_OscInitStruct.PLL.PLLN = 100;
-    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-    RCC_OscInitStruct.PLL.PLLQ = 4;
-    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-    {
-        Error_Handler();
-    }
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 13;
+  RCC_OscInitStruct.PLL.PLLN = 100;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 4;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
-    /** Initializes the CPU, AHB and APB buses clocks
-     */
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
     RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
-    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-    RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
     RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
-    RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV4;
 
-    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
-    {
-        Error_Handler();
-    }
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
+  {
+    Error_Handler();
+  }
 }
 
 /**
- * @brief I2C1 Initialization Function
- * @param None
- * @retval None
- */
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_I2C1_Init(void)
 {
 
-    /* USER CODE BEGIN I2C1_Init 0 */
+  /* USER CODE BEGIN I2C1_Init 0 */
 
-    /* USER CODE END I2C1_Init 0 */
+  /* USER CODE END I2C1_Init 0 */
 
-    /* USER CODE BEGIN I2C1_Init 1 */
+  /* USER CODE BEGIN I2C1_Init 1 */
 
-    /* USER CODE END I2C1_Init 1 */
-    hi2c1.Instance = I2C1;
-    hi2c1.Init.ClockSpeed = 100000;
-    hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
-    hi2c1.Init.OwnAddress1 = 0;
-    hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-    hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-    hi2c1.Init.OwnAddress2 = 0;
-    hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-    hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-    if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    /* USER CODE BEGIN I2C1_Init 2 */
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.ClockSpeed = 100000;
+  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
 
-    /* USER CODE END I2C1_Init 2 */
+  /* USER CODE END I2C1_Init 2 */
 }
 
 /**
- * @brief SPI1 Initialization Function
- * @param None
- * @retval None
- */
+  * @brief SPI1 Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_SPI1_Init(void)
 {
 
-    /* USER CODE BEGIN SPI1_Init 0 */
+  /* USER CODE BEGIN SPI1_Init 0 */
 
-    /* USER CODE END SPI1_Init 0 */
+  /* USER CODE END SPI1_Init 0 */
 
-    /* USER CODE BEGIN SPI1_Init 1 */
+  /* USER CODE BEGIN SPI1_Init 1 */
 
-    /* USER CODE END SPI1_Init 1 */
-    /* SPI1 parameter configuration*/
-    hspi1.Instance = SPI1;
-    hspi1.Init.Mode = SPI_MODE_MASTER;
-    hspi1.Init.Direction = SPI_DIRECTION_2LINES;
-    hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
-    hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
-    hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
-    hspi1.Init.NSS = SPI_NSS_SOFT;
-    hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
-    hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
-    hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
-    hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
-    hspi1.Init.CRCPolynomial = 10;
-    if (HAL_SPI_Init(&hspi1) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    /* USER CODE BEGIN SPI1_Init 2 */
+  /* USER CODE END SPI1_Init 1 */
+  /* SPI1 parameter configuration*/
+  hspi1.Instance = SPI1;
+  hspi1.Init.Mode = SPI_MODE_MASTER;
+  hspi1.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi1.Init.NSS = SPI_NSS_SOFT;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
+  hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi1.Init.CRCPolynomial = 10;
+  if (HAL_SPI_Init(&hspi1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI1_Init 2 */
 
-    /* USER CODE END SPI1_Init 2 */
+  /* USER CODE END SPI1_Init 2 */
 }
 
 /**
- * @brief TIM1 Initialization Function
- * @param None
- * @retval None
- */
+  * @brief TIM1 Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_TIM1_Init(void)
 {
 
-    /* USER CODE BEGIN TIM1_Init 0 */
+  /* USER CODE BEGIN TIM1_Init 0 */
 
-    /* USER CODE END TIM1_Init 0 */
+  /* USER CODE END TIM1_Init 0 */
 
-    TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-    TIM_MasterConfigTypeDef sMasterConfig = {0};
-    TIM_OC_InitTypeDef sConfigOC = {0};
-    TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
 
-    /* USER CODE BEGIN TIM1_Init 1 */
+  /* USER CODE BEGIN TIM1_Init 1 */
 
-    /* USER CODE END TIM1_Init 1 */
-    htim1.Instance = TIM1;
-    htim1.Init.Prescaler = 999;
-    htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim1.Init.Period = 999;
-    htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-    htim1.Init.RepetitionCounter = 0;
-    htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-    if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-    if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-    sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-    if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    sConfigOC.OCMode = TIM_OCMODE_PWM1;
-    sConfigOC.Pulse = 0;
-    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-    sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
-    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-    sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
-    sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
-    if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
-    sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
-    sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
-    sBreakDeadTimeConfig.DeadTime = 0;
-    sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
-    sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
-    sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
-    if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    /* USER CODE BEGIN TIM1_Init 2 */
+  /* USER CODE END TIM1_Init 1 */
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 250-1;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = 4000-1;
+  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
+  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
+  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
+  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
+  sBreakDeadTimeConfig.DeadTime = 0;
+  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
+  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
+  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
+  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM1_Init 2 */
 
-    /* USER CODE END TIM1_Init 2 */
-    HAL_TIM_MspPostInit(&htim1);
+  /* USER CODE END TIM1_Init 2 */
+  HAL_TIM_MspPostInit(&htim1);
 }
 
 /**
- * @brief TIM2 Initialization Function
- * @param None
- * @retval None
- */
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_TIM2_Init(void)
 {
 
-    /* USER CODE BEGIN TIM2_Init 0 */
+  /* USER CODE BEGIN TIM2_Init 0 */
 
-    /* USER CODE END TIM2_Init 0 */
+  /* USER CODE END TIM2_Init 0 */
 
-    TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-    TIM_MasterConfigTypeDef sMasterConfig = {0};
-    TIM_OC_InitTypeDef sConfigOC = {0};
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
 
-    /* USER CODE BEGIN TIM2_Init 1 */
+  /* USER CODE BEGIN TIM2_Init 1 */
 
-    /* USER CODE END TIM2_Init 1 */
-    htim2.Instance = TIM2;
-    htim2.Init.Prescaler = 999;
-    htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim2.Init.Period = 999;
-    htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-    htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-    if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-    if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-    sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-    if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    sConfigOC.OCMode = TIM_OCMODE_PWM1;
-    sConfigOC.Pulse = 0;
-    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-    if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    /* USER CODE BEGIN TIM2_Init 2 */
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 250-1;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 4000-1;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
 
-    /* USER CODE END TIM2_Init 2 */
-    HAL_TIM_MspPostInit(&htim2);
+  /* USER CODE END TIM2_Init 2 */
+  HAL_TIM_MspPostInit(&htim2);
 }
 
 /**
- * @brief USART1 Initialization Function
- * @param None
- * @retval None
- */
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_USART1_UART_Init(void)
 {
 
-    /* USER CODE BEGIN USART1_Init 0 */
+  /* USER CODE BEGIN USART1_Init 0 */
 
-    /* USER CODE END USART1_Init 0 */
+  /* USER CODE END USART1_Init 0 */
 
-    /* USER CODE BEGIN USART1_Init 1 */
+  /* USER CODE BEGIN USART1_Init 1 */
 
-    /* USER CODE END USART1_Init 1 */
-    huart1.Instance = USART1;
-    huart1.Init.BaudRate = 115200;
-    huart1.Init.WordLength = UART_WORDLENGTH_8B;
-    huart1.Init.StopBits = UART_STOPBITS_1;
-    huart1.Init.Parity = UART_PARITY_NONE;
-    huart1.Init.Mode = UART_MODE_TX_RX;
-    huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-    huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-    if (HAL_UART_Init(&huart1) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    /* USER CODE BEGIN USART1_Init 2 */
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
 
-    /* USER CODE END USART1_Init 2 */
+  /* USER CODE END USART1_Init 2 */
 }
 
 /**
- * @brief USART2 Initialization Function
- * @param None
- * @retval None
- */
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_USART2_UART_Init(void)
 {
 
-    /* USER CODE BEGIN USART2_Init 0 */
+  /* USER CODE BEGIN USART2_Init 0 */
 
-    /* USER CODE END USART2_Init 0 */
+  /* USER CODE END USART2_Init 0 */
 
-    /* USER CODE BEGIN USART2_Init 1 */
+  /* USER CODE BEGIN USART2_Init 1 */
 
-    /* USER CODE END USART2_Init 1 */
-    huart2.Instance = USART2;
-    huart2.Init.BaudRate = 9600;
-    huart2.Init.WordLength = UART_WORDLENGTH_8B;
-    huart2.Init.StopBits = UART_STOPBITS_1;
-    huart2.Init.Parity = UART_PARITY_NONE;
-    huart2.Init.Mode = UART_MODE_TX_RX;
-    huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-    huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-    if (HAL_UART_Init(&huart2) != HAL_OK)
-    {
-        Error_Handler();
-    }
-    /* USER CODE BEGIN USART2_Init 2 */
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 9600;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
 
-    /* USER CODE END USART2_Init 2 */
+  /* USER CODE END USART2_Init 2 */
 }
 
 /**
- * Enable DMA controller clock
- */
+  * Enable DMA controller clock
+  */
 static void MX_DMA_Init(void)
 {
 
-    /* DMA controller clock enable */
-    __HAL_RCC_DMA1_CLK_ENABLE();
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
 
-    /* DMA interrupt init */
-    /* DMA1_Stream5_IRQn interrupt configuration */
-    HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 0, 0);
-    HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
+  /* DMA interrupt init */
+  /* DMA1_Stream5_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
 }
 
 /**
- * @brief GPIO Initialization Function
- * @param None
- * @retval None
- */
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
 static void MX_GPIO_Init(void)
 {
-    GPIO_InitTypeDef GPIO_InitStruct = {0};
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-    /* GPIO Ports Clock Enable */
-    __HAL_RCC_GPIOC_CLK_ENABLE();
-    __HAL_RCC_GPIOH_CLK_ENABLE();
-    __HAL_RCC_GPIOA_CLK_ENABLE();
-    __HAL_RCC_GPIOB_CLK_ENABLE();
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOH_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
-    /*Configure GPIO pin Output Level */
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 
-    /*Configure GPIO pin Output Level */
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_1, GPIO_PIN_RESET);
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_1, GPIO_PIN_RESET);
 
-    /*Configure GPIO pin : PC13 */
-    GPIO_InitStruct.Pin = GPIO_PIN_13;
-    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+  /*Configure GPIO pin : PC13 */
+  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-    /*Configure GPIO pins : PB0 PB1 */
-    GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1;
-    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  /*Configure GPIO pins : PB0 PB1 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 }
 
 /* USER CODE BEGIN 4 */
@@ -953,34 +943,34 @@ static void MX_GPIO_Init(void)
 /* USER CODE END 4 */
 
 /**
- * @brief  This function is executed in case of error occurrence.
- * @retval None
- */
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
 void Error_Handler(void)
 {
-    /* USER CODE BEGIN Error_Handler_Debug */
-    /* User can add his own implementation to report the HAL error return state */
+  /* USER CODE BEGIN Error_Handler_Debug */
+  /* User can add his own implementation to report the HAL error return state */
     printf("-------------------Crashed\n");
-    __disable_irq();
-    while (1)
-    {
-    }
-    /* USER CODE END Error_Handler_Debug */
+  __disable_irq();
+  while (1)
+  {
+  }
+  /* USER CODE END Error_Handler_Debug */
 }
 
 #ifdef USE_FULL_ASSERT
 /**
- * @brief  Reports the name of the source file and the source line number
- *         where the assert_param error has occurred.
- * @param  file: pointer to the source file name
- * @param  line: assert_param error line source number
- * @retval None
- */
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
 void assert_failed(uint8_t *file, uint32_t line)
 {
-    /* USER CODE BEGIN 6 */
-    /* User can add his own implementation to report the file name and line number,
-       ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-    /* USER CODE END 6 */
+  /* USER CODE BEGIN 6 */
+  /* User can add his own implementation to report the file name and line number,
+     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */

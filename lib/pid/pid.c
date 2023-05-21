@@ -17,7 +17,8 @@ struct pid pid_init(
     double desired_value,
     uint32_t time,
     double max_value,
-    double min_value
+    double min_value,
+    uint8_t stop_windup
 ){
     struct pid new_pid;
 
@@ -30,6 +31,7 @@ struct pid pid_init(
     new_pid.m_previous_time = time;
     new_pid.m_max_value = max_value;
     new_pid.m_min_value = min_value;
+    new_pid.m_stop_windup = stop_windup;
 
     return new_pid;
 }
@@ -58,11 +60,13 @@ double pid_get_error(struct pid* pid_instance, double value, uint32_t time){
     {
         pid_instance->m_integral_sum += error;
 
-        // clamp the integral if it is getting out of bounds
-        if(pid_instance->m_integral_sum > pid_instance->m_max_value){
-            pid_instance->m_integral_sum = pid_instance->m_max_value;
-        }else if(pid_instance->m_integral_sum < pid_instance->m_min_value){
-            pid_instance->m_integral_sum = pid_instance->m_min_value;
+        if(pid_instance->m_stop_windup){
+            // clamp the integral if it is getting out of bounds
+            if(pid_instance->m_integral_sum > pid_instance->m_max_value){
+                pid_instance->m_integral_sum = pid_instance->m_max_value;
+            }else if(pid_instance->m_integral_sum < pid_instance->m_min_value){
+                pid_instance->m_integral_sum = pid_instance->m_min_value;
+            }
         }
         error_i = pid_instance->m_integral_sum;
     }
@@ -70,7 +74,13 @@ double pid_get_error(struct pid* pid_instance, double value, uint32_t time){
     // derivative
     {
         // divide by the time passed
-        error_d = (error_p - pid_instance->m_last_error) / (time-pid_instance->m_previous_time / 1000);///elapsed_time;
+
+        double time_passed_proportion = ((double)time-(double)pid_instance->m_previous_time) / (double)1000.0;
+        error_d = (error_p - pid_instance->m_last_error) * time_passed_proportion;
+
+        // printf("Time period %6.6fms  ", time_passed_proportion);
+
+        // printf("error d: %6.6f  ", error_d);
         // set the previous error for the next iteration
         pid_instance->m_last_error = error;
     }
