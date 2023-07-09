@@ -139,9 +139,9 @@ float accelerometer_y_rotation = 0;
 float accelerometer_z_rotation = 0;
 
 // PID gains
-const double gain_p = 1.0; 
-const double gain_i = 0.0;
-const double gain_d = 0.0;
+const double gain_p = 0.5; 
+const double gain_i = 0.03;
+const double gain_d = 1.5;
 
 double motor_power[] = {0.0, 0.0, 0.0, 0.0};
 
@@ -186,7 +186,7 @@ void calibrate_escs();
 void fix_mag_axis(float *magnetometer_data);
 uint16_t setServoActivationPercent(float percent, uint16_t minValue, uint16_t maxValue);
 double mapValue(double value, double input_min, double input_max, double output_min, double output_max);
-void extract_request_values(char *request, uint8_t request_size, uint8_t *x, uint8_t *y);
+void extract_request_values(char *request, uint8_t request_size, uint8_t *throttle, uint8_t *yaw, uint8_t *pitch, uint8_t *roll);
 double get_sensor_fusion_altitude(double gps_altitude, double barometer_altitude);
 void init_sensors();
 void init_loop_timer();
@@ -205,10 +205,10 @@ int main(void)
     get_initial_position();
 
     // For radio
-    uint8_t x = 50;
-    uint8_t y = 50;
-    uint8_t x_previous = 50;
-    uint8_t y_previous = 50;
+    uint8_t throttle = 0;
+    uint8_t yaw = 50;
+    uint8_t pitch = 50;
+    uint8_t roll = 50;
 
     struct pid x_pid = pid_init(gain_p, gain_i, gain_p, 0.0, HAL_GetTick(), 180.0, -180.0, 1);
     struct pid y_pid = pid_init(gain_p, gain_i, gain_p, 0.0, HAL_GetTick(), 180.0, -180.0, 1);
@@ -247,23 +247,18 @@ int main(void)
 
         
         // Joystick values, 50 is basically zero position
-        x = 50;
-        y = 50;
+        throttle = 0;
+        yaw = 50;
+        pitch = 50;
+        roll = 50;
+
         uint8_t data_received = 0;
         if(nrf24_data_available(1)){
             nrf24_receive(rx_data);
-            extract_request_values((char*) rx_data, strlen((char*) rx_data), &x, &y);
-            // printf("Dat %d %d\n", x, y);
-            x_previous = x;
-            y_previous = y;
+            extract_request_values((char*) rx_data, strlen((char*) rx_data), &throttle, &yaw, &pitch, &roll);
             data_received = 1;
         }
-        else{
-            x = x_previous;
-            y = y_previous;
-            // printf("Dat none\n");
 
-        }
 
         // double error_altitude = mapValue(pid_get_error(&altitude_pid, altitude, HAL_GetTick()), -180.0, 180.0, -100.0, 100.0);
         // printf("Altitude error %6.2f ", error_altitude);
@@ -273,7 +268,7 @@ int main(void)
         if(data_received){
         // if(1){
 
-            double error_altitude = 10;
+            double error_altitude = 15;
 
             // x is facing to the sides
             // y is facing forwards and backwards
@@ -327,6 +322,7 @@ int main(void)
         // printf("MOTOR 1=%6.2f 2=%6.2f 3=%6.2f 4=%6.2f", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
         // printf("ERROR x=%6.2f y=%6.2f ", error_x, error_y);
         // printf("\n");
+        printf("Loop\n");
 
         handle_loop_timing();
     }
@@ -527,34 +523,43 @@ double get_sensor_fusion_altitude(double gps_altitude, double barometer_altitude
     return gps_altitude + barometer_altitude;
 }
 
-void extract_request_values(char *request, uint8_t request_size, uint8_t *x, uint8_t *y)
+void extract_request_values(char *request, uint8_t request_size, uint8_t *throttle, uint8_t *yaw, uint8_t *pitch, uint8_t *roll)
 {
-    uint8_t x_index = 1;
-    uint8_t x_end_index = 0;
+    char* start = strchr(request, '/') + 1;
+    char* end = strchr(start, '/');
+    int length = end - start;
+    char throttle_string[length + 1];
+    strncpy(throttle_string, start, length);
+    throttle_string[length] = '\0';
+    *throttle = atoi(throttle_string);
+    //printf("'%s'\n", throttle_string);
 
-    for (uint8_t i = 1; i < request_size; i++)
-    {
-        if (request[i] == '/')
-        {
-            x_end_index = i;
-            break;
-        }
-    }
+    start = strchr(end, '/') + 1;
+    end = strchr(start, '/');
+    length = end - start;
+    char yaw_string[length + 1];
+    strncpy(yaw_string, start, length);
+    yaw_string[length] = '\0';
+    *yaw = atoi(yaw_string);
+    //printf("'%s'\n", yaw_string);
 
-    uint8_t y_index = x_end_index + 1;
-    uint8_t y_end_index = request_size - 1;
+    start = strchr(end, '/') + 1;
+    end = strchr(start, '/');
+    length = end - start;
+    char pitch_string[length + 1];
+    strncpy(pitch_string, start, length);
+    pitch_string[length] = '\0';
+    *pitch = atoi(pitch_string);
+    //printf("'%s'\n", pitch_string);
 
-    uint8_t x_length = x_end_index - x_index;
-    char x_substring[x_length + 1];
-    strncpy(x_substring, &request[x_index], x_length);
-    x_substring[x_length] = '\0';
-    *x = atoi(x_substring);
-
-    uint8_t y_length = y_end_index - y_index + 1;
-    char y_substring[y_length + 1];
-    strncpy(y_substring, &request[y_index], y_length);
-    y_substring[y_length] = '\0';
-    *y = atoi(y_substring);
+    start = strchr(end, '/') + 1;
+    end = strchr(start, '/');
+    length = end - start;
+    char roll_string[length + 1];
+    strncpy(roll_string, start, length);
+    roll_string[length] = '\0';
+    *roll = atoi(roll_string);
+    //printf("'%s'\n", roll_string);
 }
 
 void fix_mag_axis(float *magnetometer_data)
