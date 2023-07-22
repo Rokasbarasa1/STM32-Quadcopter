@@ -12,10 +12,10 @@
 #define ACCEL_XOUT_H_REG 0x3B
 #define GYRO_XOUT_H_REG 0x43
 
-volatile float accelerometer_correction_loc[3] = {
+volatile float m_accelerometer_correction[3] = {
     0, 0, 1};
 
-volatile float gyro_correction_loc[3] = {
+volatile float m_gyro_correction[3] = {
     0, 0, 0};
 
 I2C_HandleTypeDef *i2c_address;
@@ -29,13 +29,13 @@ uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_address_temp, uint8_t apply_calibrat
         // assign the correction for gyro
         for (uint8_t i = 0; i < 3; i++)
         {
-            gyro_correction_loc[i] = gyro_correction[i];
+            m_gyro_correction[i] = gyro_correction[i];
         }
 
         // assign the correction for accelerometer
         for (uint8_t i = 0; i < 3; i++)
         {
-            accelerometer_correction_loc[i] = accelerometer_correction[i];
+            m_accelerometer_correction[i] = accelerometer_correction[i];
         }
     }
 
@@ -114,9 +114,9 @@ void mpu6050_get_accelerometer_readings_gravity(float *data)
     float Y_out = ((float)Y) / 16384.0;
     float Z_out = ((float)Z) / 16384.0;
 
-    data[0] = X_out - (accelerometer_correction_loc[0]);
-    data[1] = Y_out - (accelerometer_correction_loc[1]);
-    data[2] = Z_out - (accelerometer_correction_loc[2] - 1);
+    data[0] = X_out - (m_accelerometer_correction[0]);
+    data[1] = Y_out - (m_accelerometer_correction[1]);
+    data[2] = Z_out - (m_accelerometer_correction[2] - 1);
 }
 
 void mpu6050_get_gyro_readings_dps(float *data)
@@ -140,9 +140,9 @@ void mpu6050_get_gyro_readings_dps(float *data)
     float Y_out = ((float)Y) / 131.0;
     float Z_out = ((float)Z) / 131.0;
 
-    data[0] = X_out - (gyro_correction_loc[0]);
-    data[1] = Y_out - (gyro_correction_loc[1]);
-    data[2] = Z_out - (gyro_correction_loc[2]);
+    data[0] = X_out - (m_gyro_correction[0]);
+    data[1] = Y_out - (m_gyro_correction[1]);
+    data[2] = Z_out - (m_gyro_correction[2]);
 }
 
 void calculate_pitch_and_roll(float *data, float *roll, float *pitch)
