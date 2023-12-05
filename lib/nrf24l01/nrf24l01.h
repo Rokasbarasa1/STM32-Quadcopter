@@ -97,6 +97,6 @@ uint8_t init_nrf24(SPI_HandleTypeDef * spi_port);
 void nrf24_tx_mode (uint8_t *address, uint8_t channel);
 void nrf24_rx_mode(uint8_t *address, uint8_t channel);
 uint8_t nrf24_data_available(int pipe_number);
-uint8_t nrf24_transmit (uint8_t *data);
-void nrf24_receive(uint8_t *data);
+uint8_t nrf24_transmit (char *data);
+void nrf24_receive(char *data);
 void nrf24_read_all (uint8_t *data);

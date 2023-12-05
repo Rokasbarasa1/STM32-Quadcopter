@@ -47,7 +47,7 @@
 #define REUSE_TX_PL     0xE3
 #define NOP             0xFF
 
-static volatile SPI_HandleTypeDef *  device_handle;
+static SPI_HandleTypeDef *  device_handle;
 
 #define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
 #define BYTE_TO_BINARY(byte)  \
@@ -263,7 +263,7 @@ void nrf24_rx_mode(uint8_t *address, uint8_t channel){
 }
 
 // perform the transmission with specified data
-uint8_t nrf24_transmit(uint8_t *data){
+uint8_t nrf24_transmit(char *data){
     write_register_multiple(W_TX_PAYLOAD, data, 32, 1);
 	HAL_Delay(1);
 
@@ -294,7 +294,7 @@ uint8_t nrf24_data_available(int pipe_number){
 }
 
 // receive the data form the nrf24 into the specified array
-void nrf24_receive(uint8_t *data){
+void nrf24_receive(char *data){
 	// payload command
     read_register_multiple(R_RX_PAYLOAD, data, 32);
     HAL_Delay(1);

@@ -34,6 +34,7 @@ enum t_measure_scale {
     MEASURE_SCALE_8G = 0b00010000,
 };
 
-uint8_t init_gy271(I2C_HandleTypeDef *i2c_address_temp, uint8_t apply_calibration, const float hard_iron[3], const float soft_iron[3][3]);
-void gy271_magnetometer_readings_micro_teslas(float *data);
+uint8_t init_qmc5883l(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibration, const float hard_iron[3], const float soft_iron[3][3]);
+void qmc5883l_magnetometer_readings_micro_teslas(float *data);
 void calculate_yaw(float *magnetometer_data, float *yaw);
+void calculate_yaw_tilt_compensated(float *magnetometer_data, float *yaw, float gyro_x_axis_rotation_degrees, float gyro_y_axis_rotation_degrees);

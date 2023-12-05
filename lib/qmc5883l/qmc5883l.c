@@ -1,10 +1,10 @@
-#include "./gy271.h"
+#include "./qmc5883l.h"
 
 #ifndef M_PI
 #define M_PI (3.14159265358979323846)
 #endif
 
-#define GY271_I2C_ID (0x0D << 1)
+#define QMC5883L_I2C_ID (0x0D << 1)
 #define ID_REG 0x0D
 #define ID_VALUE 0b11111111
 #define CONTROL1_REG 0x09
@@ -12,7 +12,7 @@
 
 #define OUTPUT_DATA1_REG 0x00
 
-I2C_HandleTypeDef *i2c_address;
+I2C_HandleTypeDef *i2c_handle;
 
 // Storage of hard iron correction, values should be replaced by what is passed
 volatile float m_hard_iron[3] = {
@@ -25,9 +25,9 @@ volatile float m_soft_iron[3][3] = {
     {0, 0, 1}};
 
 // max value output is at 200 Hz
-uint8_t init_gy271(I2C_HandleTypeDef *i2c_address_temp, uint8_t apply_calibration, const float hard_iron[3], const float soft_iron[3][3])
+uint8_t init_qmc5883l(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibration, const float hard_iron[3], const float soft_iron[3][3])
 {
-    i2c_address = i2c_address_temp;
+    i2c_handle = i2c_handle_temp;
 
     // assign the correction for irons
     if (apply_calibration)
@@ -49,8 +49,8 @@ uint8_t init_gy271(I2C_HandleTypeDef *i2c_address_temp, uint8_t apply_calibratio
     // Test the sensor by reading it's id register
     uint8_t check;
     HAL_I2C_Mem_Read(
-        i2c_address,
-        GY271_I2C_ID + 1,
+        i2c_handle,
+        QMC5883L_I2C_ID + 1,
         ID_REG,
         1,
         &check,
@@ -60,7 +60,7 @@ uint8_t init_gy271(I2C_HandleTypeDef *i2c_address_temp, uint8_t apply_calibratio
     // Check if the id value is as it should be
     if (check != ID_VALUE)
     {
-        printf("GY271 initialization failed\n");
+        printf("QMC5883L initialization failed\n");
         return 0;
     }
 
@@ -69,8 +69,8 @@ uint8_t init_gy271(I2C_HandleTypeDef *i2c_address_temp, uint8_t apply_calibratio
     settings2 |= INTERRUPT_PIN_DISABLED;
 
     HAL_I2C_Mem_Write(
-        i2c_address,
-        GY271_I2C_ID,
+        i2c_handle,
+        QMC5883L_I2C_ID,
         CONTROL2_REG,
         1,
         &settings2,
@@ -85,26 +85,26 @@ uint8_t init_gy271(I2C_HandleTypeDef *i2c_address_temp, uint8_t apply_calibratio
     settings1 |= MODE_CONTINUOUS;
 
     HAL_I2C_Mem_Write(
-        i2c_address,
-        GY271_I2C_ID,
+        i2c_handle,
+        QMC5883L_I2C_ID,
         CONTROL1_REG,
         1,
         &settings1,
         1,
         100);
 
-    printf("GY271 initialized\n");
+    printf("QMC5883L initialized\n");
 
     return 1;
 }
 
-void gy271_magnetometer_readings_micro_teslas(float *data)
+void qmc5883l_magnetometer_readings_micro_teslas(float *data)
 {
     uint8_t retrieved_data[] = {0, 0, 0, 0, 0, 0};
 
     HAL_I2C_Mem_Read(
-        i2c_address,
-        GY271_I2C_ID + 1,
+        i2c_handle,
+        QMC5883L_I2C_ID + 1,
         OUTPUT_DATA1_REG,
         1,
         retrieved_data,
@@ -143,11 +143,29 @@ void calculate_yaw(float *magnetometer_data, float *yaw)
     float y = magnetometer_data[1];
     float z = magnetometer_data[2];
 
-    float acc_vector_length = sqrt(pow(x, 2) + pow(y, 2) + pow(z, 2));
-    x = x / acc_vector_length;
-    y = y / acc_vector_length;
-    z = z / acc_vector_length;
-
-    // rotation around the x axis
+    // rotation around the z axis
     *yaw = atan2f(y, x) * (180 / M_PI);
+
+    // Convert yaw to [0, 360] range
+    if (*yaw > 180) {
+        *yaw -= 360;
+    }
+}
+
+
+void calculate_yaw_tilt_compensated(float *magnetometer_data, float *yaw, float gyro_x_axis_rotation_degrees, float gyro_y_axis_rotation_degrees){
+    float roll = gyro_x_axis_rotation_degrees * (M_PI / 180);  //  Convert roll from degrees to radians
+    float pitch = gyro_y_axis_rotation_degrees * (M_PI / 180);  // Convert pitch from degrees to radians
+
+    float mx = magnetometer_data[0];
+    float my = magnetometer_data[1];
+    float mz = magnetometer_data[2];
+
+    float Xc = mx * cos(pitch) + mz * sin(pitch);
+    float Yc = mx * sin(roll) * sin(pitch) + my * cos(roll) - mz * sin(roll) * cos(pitch);
+
+    *yaw = atan2(Yc, Xc) * (180 / M_PI);
+    if (*yaw > 180) {
+        *yaw -= 360;
+    }
 }

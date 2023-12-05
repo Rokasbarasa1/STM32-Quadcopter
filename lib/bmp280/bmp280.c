@@ -13,14 +13,54 @@
 #define PRES_MSB_REG 0xF7
 #define TEMP_MSB_REG 0xFA
 
-
 #define TEMP_LAPSE_RATE 0.0065
 #define CELSIUS_TO_KELVIN 273.15
 #define GRAVITY 9.80665
 #define DRY_AIR_MOLAR_MASS 0.0289644
 #define DRY_AIR_GAS_CONSTANT 287.058
 
-I2C_HandleTypeDef *i2c_address;
+enum t_temp_oversampling {
+    OS_TEMP_1  = 0b00100000,
+    OS_TEMP_2  = 0b01000000,
+    OS_TEMP_4  = 0b01100000,
+    OS_TEMP_8  = 0b10000000,
+    OS_TEMP_16 = 0b10100000
+};
+
+enum t_pres_oversampling {
+    OS_PRES_1  = 0b00000100,
+    OS_PRES_2  = 0b00001000,
+    OS_PRES_4  = 0b00001100,
+    OS_PRES_8  = 0b00010000,
+    OS_PRES_16 = 0b00010100
+};
+
+enum t_power_modes {
+    SLEEP_MODE  = 0b00000000,
+    FORCED_MODE = 0b00000001,
+    NORMAL_MODE = 0b00000011,
+};
+
+enum t_standby_modes {
+    SB_MODE_0_5  = 0b00000000,
+    SB_MODE_62_5 = 0b00000001,
+    SB_MODE_125  = 0b00000010,
+    SB_MODE_250  = 0b00000011,
+    SB_MODE_500  = 0b00000100,
+    SB_MODE_1000 = 0b00000101,
+    SB_MODE_2000 = 0b00000110,
+    SB_MODE_4000 = 0b00000111,
+};
+
+enum t_filter_modes {
+    FILTER_MODE_1  = 0b00000000,
+    FILTER_MODE_2  = 0b00000100,
+    FILTER_MODE_4  = 0b00001000,
+    FILTER_MODE_8  = 0b00001100,
+    FILTER_MODE_16 = 0b00010000,
+};
+
+I2C_HandleTypeDef *i2c_handle;
 
 float reference_pressure = 0.0;
 
@@ -35,14 +75,14 @@ int32_t bmp280_convert_raw_temp(int32_t adc_T);
 uint32_t bmp280_convert_raw_pres(int32_t adc_P);
 uint8_t load_trim_registers();
 
-uint8_t init_bmp280(I2C_HandleTypeDef *i2c_address_temp)
+uint8_t init_bmp280(I2C_HandleTypeDef *i2c_handle_temp)
 {
-    i2c_address = i2c_address_temp;
+    i2c_handle = i2c_handle_temp;
 
     // Check that the i2c device is there
     uint8_t check = 0;
     HAL_StatusTypeDef ret = HAL_I2C_Mem_Read(
-        i2c_address, 
+        i2c_handle, 
         BMP280_I2C_ID + 1, 
         ID_REG, 
         1, 
@@ -61,7 +101,7 @@ uint8_t init_bmp280(I2C_HandleTypeDef *i2c_address_temp)
     reset_device |= RESET_VALUE; // A specific reset value has to be applied to the register
 
     HAL_StatusTypeDef ret1 = HAL_I2C_Mem_Write(
-        i2c_address, 
+        i2c_handle, 
         BMP280_I2C_ID, 
         RESET_REG, 
         1, 
@@ -73,7 +113,7 @@ uint8_t init_bmp280(I2C_HandleTypeDef *i2c_address_temp)
     ctrl_meas_register |= OS_TEMP_1; // enable temp measurement oversampling x1
     ctrl_meas_register |= OS_PRES_16; // set pressure oversampling to standard resolution 18bit/0.66 PA x4
     HAL_StatusTypeDef ret2 = HAL_I2C_Mem_Write(
-        i2c_address, 
+        i2c_handle, 
         BMP280_I2C_ID, 
         CTRL_MEAS_REG, 
         1, 
@@ -85,7 +125,7 @@ uint8_t init_bmp280(I2C_HandleTypeDef *i2c_address_temp)
     config_register |= SB_MODE_0_5; // Set standby time to 0.5mx, disable spi on last bit
     config_register |= FILTER_MODE_16; // Set filter to coefficient 2
     HAL_StatusTypeDef ret3 = HAL_I2C_Mem_Write(
-        i2c_address, 
+        i2c_handle, 
         BMP280_I2C_ID, 
         CONFIG_REG, 
         1, 
@@ -140,7 +180,7 @@ uint8_t load_trim_registers()
 {
     uint8_t trim_data[26];
     HAL_StatusTypeDef ret = HAL_I2C_Mem_Read(
-        i2c_address,
+        i2c_handle,
         BMP280_I2C_ID + 1,
         TRIM_REG,
         1,
@@ -180,7 +220,7 @@ float bmp280_get_pressure_hPa()
     //  press_lsb
     //  press_xlsb
     HAL_I2C_Mem_Read(
-        i2c_address,
+        i2c_handle,
         BMP280_I2C_ID + 1,
         PRES_MSB_REG,
         1,
@@ -206,7 +246,7 @@ float bmp280_get_temperature_celsius()
     //  temp_lsb
     //  temp_xlsb
     HAL_I2C_Mem_Read(
-        i2c_address,
+        i2c_handle,
         BMP280_I2C_ID + 1,
         TEMP_MSB_REG,
         1,

@@ -51,6 +51,8 @@ double pid_get_error(struct pid* pid_instance, double value, uint32_t time){
 
     double error = (pid_instance->m_desired_value - value);
 
+    double elapsed_time_sec= (((double)time/1000.0)-((double)pid_instance->m_previous_time/1000.0)) / 1000.0;
+
     // proportional
     {
         error_p = error;
@@ -58,14 +60,14 @@ double pid_get_error(struct pid* pid_instance, double value, uint32_t time){
 
     // integral
     {
-        pid_instance->m_integral_sum += error;
+        pid_instance->m_integral_sum += (error * elapsed_time_sec);
 
-        if(pid_instance->m_stop_windup){
+        if(pid_instance->m_stop_windup == 1){
             // clamp the integral if it is getting out of bounds
-            if(pid_instance->m_integral_sum > pid_instance->m_max_value){
-                pid_instance->m_integral_sum = pid_instance->m_max_value;
-            }else if(pid_instance->m_integral_sum < pid_instance->m_min_value){
-                pid_instance->m_integral_sum = pid_instance->m_min_value;
+            if((pid_instance->m_integral_sum * pid_instance->m_gain_integral) > pid_instance->m_max_value){
+                pid_instance->m_integral_sum = pid_instance->m_max_value / pid_instance->m_gain_integral;
+            }else if(pid_instance->m_integral_sum * pid_instance->m_gain_integral < pid_instance->m_min_value){
+                pid_instance->m_integral_sum = pid_instance->m_min_value / pid_instance->m_gain_integral;
             }
         }
         error_i = pid_instance->m_integral_sum;
@@ -74,16 +76,92 @@ double pid_get_error(struct pid* pid_instance, double value, uint32_t time){
     // derivative
     {
         // divide by the time passed
+        error_d = (error_p - pid_instance->m_last_error) / elapsed_time_sec;
 
-        double time_passed_proportion = ((double)time-(double)pid_instance->m_previous_time) / (double)1000.0;
-        error_d = (error_p - pid_instance->m_last_error) * time_passed_proportion;
-
-        // printf("Time period %6.6fms  ", time_passed_proportion);
-
-        // printf("error d: %6.6f  ", error_d);
+        // Dont let it get out of bounds 
+        if(error_d > pid_instance->m_max_value){
+            error_d = pid_instance->m_max_value;
+        }else if(error_d < pid_instance->m_min_value){
+            error_d = pid_instance->m_min_value;
+        }
+        
         // set the previous error for the next iteration
         pid_instance->m_last_error = error;
     }
+
+
+    // printf("p: %8.4f, ", pid_instance->m_gain_proportional * error_p);
+    // printf("i: %8.4f, ", pid_instance->m_gain_integral * error_i);
+    // printf("d: %8.4f, ", pid_instance->m_gain_derivative * error_d);
+
+    // printf("%8.4f, %8.4f, %8.4f, ", pid_instance->m_gain_proportional * error_p, pid_instance->m_gain_integral * error_i, pid_instance->m_gain_derivative * error_d);
+
+
+    // end result
+    double total_error = (pid_instance->m_gain_proportional * error_p) + 
+                (pid_instance->m_gain_integral * error_i) + 
+                (pid_instance->m_gain_derivative * error_d) ;
+
+    // save the time for next calculation
+    pid_instance->m_previous_time = time;
+    return total_error;
+}
+
+
+/**
+ * @brief Calculate the error based on the configuration of the pid and the new value
+ * 
+ * @param pid_instance pid config
+ * @param error your own calculated error that will be used to get pid error
+ * @param time current time in ticks. Stm32 tick 
+ * @return double error result
+ */
+double pid_get_error_own_error(struct pid* pid_instance, double error, uint32_t time){
+
+    double error_p = 0, error_i = 0, error_d = 0;
+
+    double elapsed_time_sec= (((double)time/1000.0)-((double)pid_instance->m_previous_time/1000.0)) / 1000.0;
+
+    // proportional
+    {
+        error_p = error;
+    }
+
+    // integral
+    {
+        pid_instance->m_integral_sum += (error * elapsed_time_sec);
+
+        if(pid_instance->m_stop_windup == 1){
+            // clamp the integral if it is getting out of bounds
+            if((pid_instance->m_integral_sum * pid_instance->m_gain_integral) > pid_instance->m_max_value){
+                pid_instance->m_integral_sum = pid_instance->m_max_value / pid_instance->m_gain_integral;
+            }else if(pid_instance->m_integral_sum * pid_instance->m_gain_integral < pid_instance->m_min_value){
+                pid_instance->m_integral_sum = pid_instance->m_min_value / pid_instance->m_gain_integral;
+            }
+        }
+        error_i = pid_instance->m_integral_sum;
+    }
+
+    // derivative
+    {
+        // divide by the time passed
+        error_d = (error_p - pid_instance->m_last_error) / elapsed_time_sec;
+
+        // Dont let it get out of bounds 
+        if(error_d > pid_instance->m_max_value){
+            error_d = pid_instance->m_max_value;
+        }else if(error_d < pid_instance->m_min_value){
+            error_d = pid_instance->m_min_value;
+        }
+        
+        // set the previous error for the next iteration
+        pid_instance->m_last_error = error;
+    }
+
+
+    // printf("p: %8.4f, ", pid_instance->m_gain_proportional * error_p);
+    // printf("i: %8.4f, ", pid_instance->m_gain_integral * error_i);
+    // printf("d: %8.4f, ", pid_instance->m_gain_derivative * error_d);
 
     // end result
     double total_error = (pid_instance->m_gain_proportional * error_p) + 
@@ -103,4 +181,24 @@ double pid_get_error(struct pid* pid_instance, double value, uint32_t time){
  */
 void pid_set_desired_value(struct pid* pid_instance, double value){
     pid_instance->m_desired_value = value;
+}
+
+void pid_set_proportional_gain(struct pid* pid_instance, double proportional_gain){
+    pid_instance->m_gain_proportional = proportional_gain;
+}
+
+void pid_set_integral_gain(struct pid* pid_instance, double integral_gain){
+    pid_instance->m_gain_integral = integral_gain;
+}
+
+void pid_set_derivative_gain(struct pid* pid_instance, double derivative_gain){
+    pid_instance->m_gain_derivative = derivative_gain;
+}
+
+void pid_reset_integral_sum(struct pid* pid_instance){
+    pid_instance->m_integral_sum = 0;
+}
+
+void pid_set_previous_time(struct pid* pid_instance, uint32_t time){
+    pid_instance->m_previous_time = time;
 }
