@@ -13,7 +13,7 @@
 #define GYRO_XOUT_H_REG 0x43
 
 volatile float m_accelerometer_correction[3] = {
-    0, 0, 1};
+    0, 0, 0};
 
 volatile float m_gyro_correction[3] = {
     0, 0, 0};
@@ -23,7 +23,7 @@ volatile float m_complementary_ratio = 0.0;
 
 I2C_HandleTypeDef *i2c_handle;
 
-uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibration, const float accelerometer_correction[3], const float gyro_correction[3], float refresh_rate_hz, float complementary_ratio)
+uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibration, float accelerometer_correction[3], float gyro_correction[3], float refresh_rate_hz, float complementary_ratio)
 {
     i2c_handle = i2c_handle_temp;
 
@@ -188,6 +188,18 @@ void find_accelerometer_error(uint64_t sample_size)
     float x_sum = 0, y_sum = 0, z_sum = 0;
     float data[] = {0, 0, 0};
 
+    float accelerometer_correction_temp[3];
+    float gyro_correction_temp[3];
+
+    // Copy and delete the original corrections
+    for (uint8_t i = 0; i < 3; i++){
+        gyro_correction_temp[i] = m_gyro_correction[i];
+        m_gyro_correction[i] = 0;
+
+        accelerometer_correction_temp[i] = m_accelerometer_correction[i];
+        m_accelerometer_correction[i] = 0;
+    }
+
     for (uint64_t i = 0; i < sample_size; i++)
     {
         mpu6050_get_accelerometer_readings_gravity(data);
@@ -197,6 +209,12 @@ void find_accelerometer_error(uint64_t sample_size)
         // It can sample stuff at 1KHz
         // but 0.5Khz is just to be safe
         HAL_Delay(2);
+    }
+
+    // Reassign the corrections 
+    for (uint8_t i = 0; i < 3; i++){
+        m_gyro_correction[i] = gyro_correction_temp[i];
+        m_accelerometer_correction[i] = accelerometer_correction_temp[i];
     }
 
     printf(
@@ -213,6 +231,18 @@ void find_gyro_error(uint64_t sample_size)
     float x_sum = 0, y_sum = 0, z_sum = 0;
     float data[] = {0, 0, 0};
 
+    float accelerometer_correction_temp[3];
+    float gyro_correction_temp[3];
+
+    // Copy and delete the original corrections
+    for (uint8_t i = 0; i < 3; i++){
+        gyro_correction_temp[i] = m_gyro_correction[i];
+        m_gyro_correction[i] = 0;
+
+        accelerometer_correction_temp[i] = m_accelerometer_correction[i];
+        m_accelerometer_correction[i] = 0;
+    }
+
     for (uint64_t i = 0; i < sample_size; i++)
     {
         mpu6050_get_gyro_readings_dps(data);
@@ -225,12 +255,80 @@ void find_gyro_error(uint64_t sample_size)
         HAL_Delay(2);
     }
 
+    // Reassign the corrections 
+    for (uint8_t i = 0; i < 3; i++){
+        m_gyro_correction[i] = gyro_correction_temp[i];
+        m_accelerometer_correction[i] = accelerometer_correction_temp[i];
+    }
+
     printf(
         "GYRO errors:  X,Y,Z  %f, %f, %f\n",
         x_sum / sample_size,
         y_sum / sample_size,
         z_sum / sample_size);
 }
+
+void find_and_return_gyro_error(uint64_t sample_size, float *return_array)
+{
+
+    float x_sum = 0, y_sum = 0, z_sum = 0;
+    float data[] = {0, 0, 0};
+
+    float accelerometer_correction_temp[3];
+    float gyro_correction_temp[3];
+
+    // Copy and delete the original corrections
+    for (uint8_t i = 0; i < 3; i++){
+        gyro_correction_temp[i] = m_gyro_correction[i];
+        m_gyro_correction[i] = 0;
+
+        accelerometer_correction_temp[i] = m_accelerometer_correction[i];
+        m_accelerometer_correction[i] = 0;
+    }
+
+    for (uint64_t i = 0; i < sample_size; i++)
+    {
+        mpu6050_get_gyro_readings_dps(data);
+
+        x_sum += data[0];
+        y_sum += data[1];
+        z_sum += data[2];
+        // It can sample stuff at 1KHz
+        // but 0.5Khz is just to be safe
+        HAL_Delay(2);
+    }
+
+    // Reassign the corrections 
+    for (uint8_t i = 0; i < 3; i++){
+        m_gyro_correction[i] = gyro_correction_temp[i];
+        m_accelerometer_correction[i] = accelerometer_correction_temp[i];
+    }
+
+    printf(
+        "GYRO errors:  X,Y,Z  %f, %f, %f\n",
+        x_sum / sample_size,
+        y_sum / sample_size,
+        z_sum / sample_size);
+
+    return_array[0] = x_sum / sample_size;
+    return_array[1] = y_sum / sample_size;
+    return_array[2] = z_sum / sample_size;
+}
+
+void mpu6050_apply_calibrations(float accelerometer_correction[3], float gyro_correction[3]){
+    // assign the correction for gyro
+    for (uint8_t i = 0; i < 3; i++)
+    {
+        m_gyro_correction[i] = gyro_correction[i];
+    }
+
+    // assign the correction for accelerometer
+    for (uint8_t i = 0; i < 3; i++)
+    {
+        m_accelerometer_correction[i] = accelerometer_correction[i];
+    }
+}
+
 
 // Do complementary filter for x(pitch) and y(roll) and z(yaw). Combine accelerometer and gyro to get a more usable gyro value. Please make sure the coefficient is scaled by refresh rate. It helps a lot.
 void convert_angular_rotation_to_degrees(float* gyro_angular, float* gyro_degrees, float rotation_around_x, float rotation_around_y, float rotation_around_z, int64_t time){
@@ -239,7 +337,7 @@ void convert_angular_rotation_to_degrees(float* gyro_angular, float* gyro_degree
         return;
     }
 
-    double elapsed_time_sec= (((double)time/1000.0)-((double)m_previous_time/1000.0)) / 1000.0;
+    double elapsed_time_sec= (((double)time/1000.0)-((double)m_previous_time/1000.0));
     m_previous_time = time;
 
     // Convert degrees per second and add the complementary filter with accelerometer degrees
@@ -278,7 +376,7 @@ void convert_angular_rotation_to_degrees_x_y(float* gyro_angular, float* gyro_de
         return;
     }
 
-    double elapsed_time_sec= (((double)time/1000.0)-((double)m_previous_time/1000.0)) / 1000.0;
+    double elapsed_time_sec= (((double)time/1000.0)-((double)m_previous_time/1000.0));
     if(set_timestamp == 1){
         m_previous_time = time;
     }
@@ -333,7 +431,7 @@ void convert_angular_rotation_to_degrees_z(float* gyro_angular, float* gyro_degr
         return;
     }
 
-    double elapsed_time_sec= (((double)time/1000.0)-((double)m_previous_time/1000.0)) / 1000.0;
+    double elapsed_time_sec = (((double)time/1000.0)-((double)m_previous_time/1000.0));
     m_previous_time = time;
 
     // Gyro without magnetometer

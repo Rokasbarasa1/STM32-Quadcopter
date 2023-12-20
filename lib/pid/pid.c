@@ -51,7 +51,7 @@ double pid_get_error(struct pid* pid_instance, double value, uint32_t time){
 
     double error = (pid_instance->m_desired_value - value);
 
-    double elapsed_time_sec= (((double)time/1000.0)-((double)pid_instance->m_previous_time/1000.0)) / 1000.0;
+    double elapsed_time_sec = ((double)time-(double)pid_instance->m_previous_time)/1000.0;
 
     // proportional
     {
@@ -120,7 +120,7 @@ double pid_get_error_own_error(struct pid* pid_instance, double error, uint32_t 
 
     double error_p = 0, error_i = 0, error_d = 0;
 
-    double elapsed_time_sec= (((double)time/1000.0)-((double)pid_instance->m_previous_time/1000.0)) / 1000.0;
+    double elapsed_time_sec = ((double)time-(double)pid_instance->m_previous_time)/1000.0;
 
     // proportional
     {

@@ -45,13 +45,15 @@ static void MX_TIM2_Init(void);
 void init_STM32_peripherals();
 void calibrate_escs();
 void fix_mag_axis(float *magnetometer_data);
+void fix_gyro_axis(float *accelerometer_data_temp);
 uint16_t setServoActivationPercent(float percent, uint16_t minValue, uint16_t maxValue);
 double mapValue(double value, double input_min, double input_max, double output_min, double output_max);
 void extract_request_values(char *request, uint8_t request_size, uint8_t *throttle, uint8_t *yaw, uint8_t *pitch, uint8_t *roll);
 double get_sensor_fusion_altitude(double gps_altitude, double barometer_altitude);
-void init_sensors();
+u_int8_t init_sensors();
 void init_loop_timer();
 void check_calibrations();
+void calibrate_gyro();
 void get_initial_position();
 void handle_loop_timing();
 
@@ -124,8 +126,8 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
     // make sure the dma is initialized before uart for this to work
     // and that dma is initialized after GPIO.
 
-    // If the stm32 is restarted and while it is initializing dma the
-    // data arrives from the uart it fucks up. So you have to restart it a few times
+    // If the stm32 is restarted  while it is initializing dma the
+    // data arrives from the uart and it fucks up. So you have to restart it a few times
 
     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 1);
 
@@ -171,6 +173,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 
 // When calculating this remember that these values are already
 // correcting and that the axis of the magnetometer are switched.
+
 // float hard_iron_correction[3] = {
 //     0, 0, 0
 // };
@@ -181,21 +184,22 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 //     {0,0,1}
 // };
 
-const float hard_iron_correction[3] = {
-    205.801249, -329.544434, -51.579693
+
+float hard_iron_correction[3] = {
+    -26.418969, 308.296635, 189.949606
 };
 
-const float soft_iron_correction[3][3] = {
-    {0.178946, 0.001568, -0.007812},
-    {0.001568, 0.181964, 0.002300},
-    {-0.007812, 0.002300, 0.186567}
+float soft_iron_correction[3][3] = {
+    {3.650759,0.250193,-0.058046},
+    {0.250193,4.132441,-0.245339},
+    {-0.058046,-0.245339,3.733419}
 };
 
-const float accelerometer_correction[3] = {
-    0.014628, -0.023036, 1.139034
+float accelerometer_correction[3] = {
+    0.024980, -0.020180, 1.144808
 };
-const float gyro_correction[3] = {
-    -2.410027, 3.079669, 0.590763
+float gyro_correction[3] = {
+    -2.651069, 3.157305, 0.638099
 };
 
 
@@ -225,10 +229,10 @@ double error_altitude = 0;
 // const double base_pitch_gain_p = 0.0; // 0.35
 // const double base_pitch_gain_i = 0.0; // 0.0
 // const double base_pitch_gain_d = 0.0; // 130.0
-#define BASE_PITCH_MASTER_GAIN 550
-#define BASE_PITCH_GAIN_P 550
-#define BASE_PITCH_GAIN_I 550
-#define BASE_PITCH_GAIN_D 550
+#define BASE_PITCH_ROLL_MASTER_GAIN 0.4
+#define BASE_PITCH_ROLL_GAIN_P 0.0
+#define BASE_PITCH_ROLL_GAIN_I 0.0
+#define BASE_PITCH_ROLL_GAIN_D 0.0
 
 // Before idle motors
 // const double gain_p = 0.41; 
@@ -242,11 +246,6 @@ double error_altitude = 0;
 // to float in the air. If you are testing with drone constrained add a base motor speed to account for this.
 
 
-// PID for roll
-const float roll_gain_p = 0.0; 
-const float roll_gain_i = 0.0;
-const float roll_gain_d = 0.0;
-
 // PID for yaw
 const float yaw_gain_p = 0.0; 
 const float yaw_gain_i = 0.0;
@@ -259,22 +258,21 @@ const float altitude_gain_d = 0.0;
 
 // Used for smooth changes to PID while using remote control. Do not touch this
 
+double pitch_roll_master_gain = BASE_PITCH_ROLL_MASTER_GAIN; // Dont you just love the STM#2 compiler?
+double pitch_roll_gain_p = BASE_PITCH_ROLL_GAIN_P;
+double pitch_roll_gain_i = BASE_PITCH_ROLL_GAIN_I;
+double pitch_roll_gain_d = BASE_PITCH_ROLL_GAIN_D;
 
-
-double pitch_master_gain = BASE_PITCH_MASTER_GAIN; // Dont you just love the STM#2 compiler?
-double pitch_gain_p = BASE_PITCH_GAIN_P;
-double pitch_gain_i = BASE_PITCH_GAIN_I;
-double pitch_gain_d = BASE_PITCH_GAIN_D;
-double added_pitch_master_gain = 0;
-double added_pitch_gain_p = 0;
-double added_pitch_gain_i = 0;
-double added_pitch_gain_d = 0;
+double added_pitch_roll_master_gain = 0;
+double added_pitch_roll_gain_p = 0;
+double added_pitch_roll_gain_i = 0;
+double added_pitch_roll_gain_d = 0;
 
 // Refresh rate ##############################################################################################
 
 // remember that the stm32 is not as fast as the esp32 and it cannot print lines at the same speed
 // const float refresh_rate_hz = 400;
-#define REFRESH_RATE_HZ 50
+#define REFRESH_RATE_HZ 300
 
 // Sensor stuff ##############################################################################################
 float complementary_ratio = 1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ)); // Depends on how often the loop runs. 1 second / (1 second + one loop time)
@@ -297,9 +295,12 @@ double motor_power[] = {0.0, 0.0, 0.0, 0.0};
 
 
 // Remote control settings ############################################################################################
-double max_yaw_attack = 40.0;
-double max_pitch_attack = 1.5;
+double max_yaw_attack = 20.0;
+double max_pitch_attack = 10;
 double pitch_attack_step = 0.1;
+
+double max_roll_attack = 10;
+double roll_attack_step = 0.1;
 
 uint8_t throttle = 0;
 uint8_t yaw = 50;
@@ -307,41 +308,40 @@ uint8_t last_yaw = 50;
 uint8_t pitch = 50;
 uint8_t roll = 50;
 
-uint8_t shit_encoder_mode = 1;
+uint8_t shit_encoder_mode = 0;
 uint8_t slowing_lock = 0;
 
 double last_raw_yaw = 0;
 double delta_yaw = 0;
 
+float minimum_signal_timing_seconds = 0.2; // Seconds
+uint32_t last_signal_timestamp = 0;
+
 int main(void){
     init_STM32_peripherals();
     printf("STARTING PROGRAM\n"); 
-    // calibrate_escs();
-    init_sensors();
+    calibrate_escs();
+    if(init_sensors() == 0){
+        return 0; // exit if initialization failed
+    }
     init_loop_timer();
-    check_calibrations();
+    // check_calibrations();
+    // calibrate_gyro();
     get_initial_position();
 
-    // For radio
-    uint8_t throttle = 0;
-    uint8_t yaw = 50;
-    uint8_t pitch = 50;
-    uint8_t roll = 50;
-
-    struct pid pitch_pid = pid_init(pitch_master_gain * pitch_gain_p, pitch_master_gain * pitch_gain_i, pitch_master_gain * pitch_gain_d, 0.0, HAL_GetTick(), 100.0, -100.0, 1);
-    struct pid roll_pid = pid_init(pitch_master_gain * pitch_gain_p, pitch_master_gain * pitch_gain_i, pitch_master_gain * pitch_gain_d, 0.0, HAL_GetTick(), 100.0, -100.0, 1);
+    struct pid pitch_pid = pid_init(pitch_roll_master_gain * pitch_roll_gain_p, pitch_roll_master_gain * pitch_roll_gain_i, pitch_roll_master_gain * pitch_roll_gain_d, 0.0, HAL_GetTick(), 20.0, -20.0, 1);
+    struct pid roll_pid = pid_init(pitch_roll_master_gain * pitch_roll_gain_p, pitch_roll_master_gain * pitch_roll_gain_i, pitch_roll_master_gain * pitch_roll_gain_d, 0.0, HAL_GetTick(), 20.0, -20.0, 1);
     struct pid yaw_pid = pid_init(yaw_gain_p, yaw_gain_i, yaw_gain_d, 0.0, HAL_GetTick(), 0, 0, 0);
-    struct pid altitude_pid = pid_init(yaw_gain_p, yaw_gain_i, yaw_gain_d, 0.0, HAL_GetTick(), 0, 0, 0);
+    struct pid altitude_pid = pid_init(altitude_gain_p, altitude_gain_i, altitude_gain_d, 0.0, HAL_GetTick(), 0, 0, 0);
 
-    // struct pid x_pid = pid_init(gain_p, gain_i, gain_d, 0.0, HAL_GetTick(), 180.0, -180.0, 1);
-    // struct pid y_pid = pid_init(gain_p, gain_i, gain_d, 45.0, HAL_GetTick(), 180.0, -180.0, 1);
-    // struct pid altitude_pid = pid_init(gain_p, gain_i, gain_d, 1.5, HAL_GetTick(), 0.0, 100.0, 1);
-
+    printf("Looping\n");
     while (1){
+        // printf("Loop ");
+
         // Read sensor data ######################################################################################################################
-        gps_latitude = bn357_get_latitude_decimal_format();
-        gps_longitude = bn357_get_longitude_decimal_format();
-        //temperature = bmp280_get_temperature_celsius();
+        // gps_latitude = bn357_get_latitude_decimal_format();
+        // gps_longitude = bn357_get_longitude_decimal_format();
+        // temperature = bmp280_get_temperature_celsius();
 
         // calculate the altitude using gps altitude and a bmp280 reference altitude
         // Reset the reference on bmp280 every time the gps gets updated
@@ -389,30 +389,30 @@ int main(void){
         // I trust the magnetometer more than the gyro in this case.
         gyro_degrees[2] = magnetometer_z_rotation;
 
-        // Receive remote control data ###########################################################################################################
-        uint8_t data_received = 0;
+        fix_gyro_axis(gyro_degrees); // switch the x and y axis of gyro
 
+        // Receive remote control data ###########################################################################################################
         if(nrf24_data_available(1)){
             
             nrf24_receive(rx_data);
-            data_received = 1;
             // Get the type of request
             extract_request_type(rx_data, strlen(rx_data), rx_type);
 
             if(strcmp(rx_type, "joystick") == 0){
-
+                last_signal_timestamp = HAL_GetTick();
 
                 extract_joystick_request_values(rx_data, strlen(rx_data), &throttle, &yaw, &roll, &pitch);
+                // Throttle does not need to be handled
 
+
+                // Pitch ##################################################################################################################
                 // Check if pitch is neutral
                 if(pitch == 50){
-
                     // Had some issues with floats not being zero.
                     // If value is between pitch attack and negative pitch attack then just set it to zero
                     if(target_pitch < pitch_attack_step/2 && target_pitch > -pitch_attack_step/2){
                         target_pitch = 0.0;
                     }
-
                     // If value is above pitch attack values 
                     // Start slowing going back to zero
                     if(target_pitch > 0 && target_pitch != 0){
@@ -422,7 +422,6 @@ int main(void){
                     }
                 }else if (pitch != 50){
                     // If pitch is not neutral start increasing into some direction.
-
                     if(shit_encoder_mode){
                         // Because my encoder is shit it prefers to have the extremes of pitch as 
                         // that doesn't overwhelm the pid of it.
@@ -443,12 +442,48 @@ int main(void){
                     target_pitch = -max_pitch_attack;
                 }
 
-                // Handle the yaw value
+
+                // Roll ##################################################################################################################
+                // Check if roll is neutral
+                if(roll == 50){
+                    // Had some issues with floats not being zero.
+                    // If value is between roll attack and negative roll attack then just set it to zero
+                    if(target_roll < roll_attack_step/2 && target_roll > -roll_attack_step/2){
+                        target_roll = 0.0;
+                    }
+                    // If value is above roll attack values 
+                    // Start slowing going back to zero
+                    if(target_roll > 0 && target_roll != 0){
+                        target_roll = target_roll - roll_attack_step;
+                    }else if(target_roll < 0  && target_roll != 0){
+                        target_roll = target_roll + roll_attack_step;
+                    }
+                }else if (roll != 50){
+                    // If roll is not neutral start increasing into some direction.
+                    if(shit_encoder_mode){
+                        // Because my encoder is shit it prefers to have the extremes of roll as 
+                        // that doesn't overwhelm the pid of it.
+                        if(roll > 60){
+                            target_roll = target_roll + roll_attack_step;
+                        }else if(pitch < 40){
+                            target_roll = target_roll - roll_attack_step;
+                        }
+                    }else{
+                        target_roll = target_roll + map_value(roll, 0.0, 100.0, -roll_attack_step, roll_attack_step);
+                    }
+                }
+
+                // Make sure that the value is in the boundaries
+                if(target_roll > max_roll_attack){
+                    target_roll = max_roll_attack;
+                }else if(target_roll < -max_roll_attack){
+                    target_roll = -max_roll_attack;
+                }
+
+                // Yaw ##################################################################################################################
                 if(yaw != 50){
                     // There is an issue with the remote sometimes sending a 0 yaw
-
                     target_yaw = gyro_degrees[2] + map_value(yaw, 0.0, 100.0, -max_yaw_attack, max_yaw_attack);
-                    
                     // handle the switch from -180 to 180 degrees
                     if(target_yaw > 180.0){
                         target_yaw = target_yaw - 360.0;
@@ -463,7 +498,10 @@ int main(void){
                 }
 
                 last_yaw = yaw;
+
             }else if(strcmp(rx_type, "pid") == 0){
+                // printf("\nGot pid");
+
                 double added_proportional = 0;
                 double added_integral = 0;
                 double added_derivative = 0;
@@ -471,23 +509,33 @@ int main(void){
 
                 extract_pid_request_values(rx_data, strlen(rx_data), &added_proportional, &added_integral, &added_derivative, &added_master_gain);
 
-                pitch_gain_p = BASE_PITCH_GAIN_P + added_proportional;
-                pitch_gain_i = BASE_PITCH_GAIN_I + added_integral;
-                pitch_gain_d = BASE_PITCH_GAIN_D + added_derivative;
-                pitch_master_gain = BASE_PITCH_MASTER_GAIN + added_master_gain;
+                pitch_roll_gain_p = BASE_PITCH_ROLL_GAIN_P + added_proportional;
+                pitch_roll_gain_i = BASE_PITCH_ROLL_GAIN_I + added_integral;
+                pitch_roll_gain_d = BASE_PITCH_ROLL_GAIN_D + added_derivative;
+                pitch_roll_master_gain = BASE_PITCH_ROLL_MASTER_GAIN + added_master_gain;
 
-                added_pitch_gain_p = added_proportional;
-                added_pitch_gain_i = added_integral;
-                added_pitch_gain_d = added_derivative;
-                added_pitch_master_gain = added_master_gain;
+                added_pitch_roll_gain_p = added_proportional;
+                added_pitch_roll_gain_i = added_integral;
+                added_pitch_roll_gain_d = added_derivative;
+                added_pitch_roll_master_gain = added_master_gain;
 
-                pid_set_proportional_gain(&pitch_pid, pitch_gain_p * pitch_master_gain);
-                pid_set_integral_gain(&pitch_pid, pitch_gain_i * pitch_master_gain);
-                pid_set_derivative_gain(&pitch_pid, pitch_gain_d * pitch_master_gain);
+                // Configure the pitch pid 
+                pid_set_proportional_gain(&pitch_pid, pitch_roll_gain_p * pitch_roll_master_gain);
+                pid_set_integral_gain(&pitch_pid, pitch_roll_gain_i * pitch_roll_master_gain);
+                pid_set_derivative_gain(&pitch_pid, pitch_roll_gain_d * pitch_roll_master_gain);
                 pid_reset_integral_sum(&pitch_pid);
+
+                // Configure the roll pid 
+                pid_set_proportional_gain(&roll_pid, pitch_roll_gain_p * pitch_roll_master_gain);
+                pid_set_integral_gain(&roll_pid, pitch_roll_gain_i * pitch_roll_master_gain);
+                pid_set_derivative_gain(&roll_pid, pitch_roll_gain_d * pitch_roll_master_gain);
+                pid_reset_integral_sum(&roll_pid);
+
             }else if(strcmp(rx_type, "remoteSyncBase") == 0){
+                // printf("\nGot remoteSyncBase");
                 send_pid_base_info_to_remote();
             }else if(strcmp(rx_type, "remoteSyncAdded") == 0){
+                // printf("\nGot remoteSyncAdded");
                 send_pid_added_info_to_remote();
             }
 
@@ -497,38 +545,31 @@ int main(void){
         // double error_altitude = mapValue(pid_get_error(&altitude_pid, altitude, HAL_GetTick()), -180.0, 180.0, -100.0, 100.0);
         // printf("Altitude error %6.2f ", error_altitude);
         
-        if(data_received){
-        // if(1){
-
+        if(((double)HAL_GetTick() - (double)last_signal_timestamp) / 1000.0 < minimum_signal_timing_seconds){
             pid_set_desired_value(&pitch_pid, target_pitch);
-            pid_set_desired_value(&yaw_pid, target_roll);
+            pid_set_desired_value(&roll_pid, target_roll);
             pid_set_desired_value(&yaw_pid, target_yaw);
-            pid_set_desired_value(&yaw_pid, target_altitude);
+            pid_set_desired_value(&altitude_pid, target_altitude);
 
             // pitch is facing to the sides
             // roll is facing forwards and backwards
             error_pitch = pid_get_error(&pitch_pid, gyro_degrees[0], HAL_GetTick());
             error_roll = pid_get_error(&roll_pid, gyro_degrees[1], HAL_GetTick());
-            error_yaw = pid_get_error(&roll_pid, gyro_degrees[2], HAL_GetTick());
-            error_altitude = pid_get_error(&roll_pid, altitude, HAL_GetTick());
+            // error_yaw = pid_get_error(&roll_pid, gyro_degrees[2], HAL_GetTick());
+            // error_altitude = pid_get_error(&roll_pid, altitude, HAL_GetTick());
 
-            error_altitude = 15;
-            error_pitch = 0;
-
-            motor_power[0] = error_altitude + (-error_roll) + (-error_pitch);
-            motor_power[1] = error_altitude + (-error_roll) +  (error_pitch);
-            motor_power[2] = error_altitude +  (error_roll) +  (error_pitch);
-            motor_power[3] = error_altitude +  (error_roll) + (-error_pitch);
+            motor_power[0] = error_altitude + (-error_pitch) +  (-error_roll);
+            motor_power[1] = error_altitude + (-error_pitch) +  ( error_roll);
+            motor_power[2] = error_altitude + ( error_pitch) +  ( error_roll);
+            motor_power[3] = error_altitude + ( error_pitch) +  (-error_roll);
 
             // GPS side
-            TIM2->CCR1 = setServoActivationPercent(motor_power[2], min_esc_pwm_value, max_esc_pwm_value);
-            TIM2->CCR2 = setServoActivationPercent(motor_power[3], min_esc_pwm_value, max_esc_pwm_value);
+            TIM2->CCR1 = setServoActivationPercent(motor_power[2], min_esc_pwm_value, max_esc_pwm_value-60);
+            TIM2->CCR2 = setServoActivationPercent(motor_power[3], min_esc_pwm_value, max_esc_pwm_value-60);
 
             // No gps side
-            TIM1->CCR1 = setServoActivationPercent(motor_power[0], min_esc_pwm_value, max_esc_pwm_value);
-            TIM1->CCR4 = setServoActivationPercent(motor_power[1], min_esc_pwm_value, max_esc_pwm_value);
-            
-            // printf(" ACTIVATION: motor0- %6.2f, motor1- %6.2f, motor2- %6.2f, motor3- %6.2f ", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
+            TIM1->CCR1 = setServoActivationPercent(motor_power[0], min_esc_pwm_value, max_esc_pwm_value-60);
+            TIM1->CCR4 = setServoActivationPercent(motor_power[1], min_esc_pwm_value, max_esc_pwm_value-60);
         }else{
             // GPS side
             TIM2->CCR1 = setServoActivationPercent(0, min_esc_pwm_value, max_esc_pwm_value);
@@ -538,21 +579,22 @@ int main(void){
             TIM1->CCR1 = setServoActivationPercent(0, min_esc_pwm_value, max_esc_pwm_value);
             TIM1->CCR4 = setServoActivationPercent(0, min_esc_pwm_value, max_esc_pwm_value);
         }
-        
+
         // Print out for debugging
-        printf("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+        // printf("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
         // printf("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
-        // printf("AXIS, %6.2f, %6.2f, %6.2f, ", accelerometer_x_rotation, accelerometer_y_rotation, magnetometer_z_rotation);
+        // printf("GY %6.2f ", gyro_degrees[0]);
+
         // printf("MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
-        // printf("NORTH, %6.2f, %6.2f, %6.2f, ", north_direction[0], north_direction[1], north_direction[2]);
+        // printf("MOTOR 1=%6.2f 2=%6.2f 3=%6.2f 4=%6.2f, ", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
         // printf("TEMP %6.5f, ", temperature);
         // printf("ALT %6.2f, ", altitude);
         // printf("GPS %f, %f, ", gps_longitude, gps_latitude);
-        // printf("ERROR x=%6.2f y=%6.2f, ", error_x, error_y);
-        // printf("MOTOR 1=%6.2f 2=%6.2f 3=%6.2f 4=%6.2f, ", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
-        // printf("ERROR x=%6.2f y=%6.2f ", error_x, error_y);
-        printf("\n");
-        // printf("Loop\n");
+        // printf("ERROR pitch %6.2f, roll %6.2f, pitch %6.2f, yaw %6.2f, altitude %6.2f, ", error_pitch, error_roll, error_yaw, error_altitude);
+        // printf("%6.5f %6.5f %6.5f", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);  
+        // printf("\n");
+
+        fix_gyro_axis(gyro_degrees); // switch back the x and y axis of gyro to how they were before
 
         handle_loop_timing();
     }
@@ -617,13 +659,12 @@ void calibrate_escs(){
     // This is if it is starting from 0
 }
 
-void init_sensors(){
+uint8_t init_sensors(){
     printf("-----------------------------INITIALIZING MODULES...\n");
 
     uint8_t mpu6050 = init_mpu6050(&hi2c1, 1, accelerometer_correction, gyro_correction, REFRESH_RATE_HZ, complementary_ratio);
     uint8_t qmc5883l = init_qmc5883l(&hi2c1, 1, hard_iron_correction, soft_iron_correction);
 
-    // uint8_t bmp280 = 0;
     uint8_t bmp280 = init_bmp280(&hi2c1);
     // uint8_t bme280 = init_bme280(&hi2c1);
     // uint8_t bmp680 = init_bmp680(&hi2c1);
@@ -640,10 +681,13 @@ void init_sensors(){
         printf("OK\n");
     }else{
         printf("NOT OK\n");
+        return 0;
     }
 
     // Continue initializing
     nrf24_rx_mode(tx_address, 10);
+
+    return 1;
 }
 
 void init_loop_timer(){
@@ -653,8 +697,20 @@ void init_loop_timer(){
 void check_calibrations(){
     // Checking errors of mpu6050
     find_accelerometer_error(1000);
-    find_gyro_error(300);
+    find_gyro_error(1000);
 }
+
+void calibrate_gyro(){
+    // Gyro can be calibrated when it is standing still. Not necessarily on flat ground.
+    float gyro_correction_temp[3] = {
+        0, 0, 0
+    };  
+
+    find_and_return_gyro_error(1000, gyro_correction_temp);
+    mpu6050_apply_calibrations(accelerometer_correction, gyro_correction_temp);
+}
+
+
 
 void get_initial_position(){
     // Find the initial position in degrees and apply it to the gyro measurement integral
@@ -781,14 +837,26 @@ void extract_joystick_request_values(char *request, uint8_t request_size, uint8_
 }
 
 // Switch magnetometer axis. x-> y and y->x
-void fix_mag_axis(float *magnetometer_data)
+void fix_mag_axis(float *magnetometer_data_temp)
 {
     float temp = 0.0;
-    temp = magnetometer_data[0];
+    temp = magnetometer_data_temp[0];
     // y is x
-    magnetometer_data[0] = magnetometer_data[1];
+    magnetometer_data_temp[0] = magnetometer_data_temp[1];
     // x is -y
-    magnetometer_data[1] = -temp;
+    magnetometer_data_temp[1] = -temp;
+}
+
+
+void fix_gyro_axis(float *gyro_data_temp){
+    float temp = 0.0;
+    temp = gyro_data_temp[0];
+    // y is x
+    gyro_data_temp[0] = gyro_data_temp[1];
+    // x is -y
+    gyro_data_temp[1] = temp;
+
+    // gyro_data_temp[0] = -gyro_data_temp[0];
 }
 
 // Extract specifically the request type from a slash separated string
@@ -906,10 +974,10 @@ void send_pid_base_info_to_remote(){
 
     // Make a slash separated value
     char *string = generate_message_pid_values_nrf24(
-        BASE_PITCH_GAIN_P, 
-        BASE_PITCH_GAIN_I, 
-        BASE_PITCH_GAIN_D,
-        BASE_PITCH_MASTER_GAIN
+        BASE_PITCH_ROLL_GAIN_P, 
+        BASE_PITCH_ROLL_GAIN_I, 
+        BASE_PITCH_ROLL_GAIN_D,
+        BASE_PITCH_ROLL_MASTER_GAIN
     );
     
 
@@ -935,10 +1003,10 @@ void send_pid_added_info_to_remote(){
 
     // Make a slash separated value
     char *string = generate_message_pid_values_nrf24(
-        added_pitch_gain_p, 
-        added_pitch_gain_i, 
-        added_pitch_gain_d,
-        added_pitch_master_gain
+        added_pitch_roll_gain_p, 
+        added_pitch_roll_gain_i, 
+        added_pitch_roll_gain_d,
+        added_pitch_roll_master_gain
     );
     
     // The remote always receives data as a gibberish with corrupted characters. Sending many of them will mean the remote can reconstruct the message
