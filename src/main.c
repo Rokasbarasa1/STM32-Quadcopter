@@ -57,7 +57,8 @@ void calibrate_gyro();
 void get_initial_position();
 void handle_loop_timing();
 
-void extract_joystick_request_values(char *request, uint8_t request_size, uint8_t *throttle, uint8_t *yaw, uint8_t *roll, uint8_t *pitch);
+void extract_joystick_request_values_uint(char *request, uint8_t request_size, uint8_t *throttle, uint8_t *yaw, uint8_t *roll, uint8_t *pitch);
+void extract_joystick_request_values_float(char *request, uint8_t request_size, float *throttle, float *yaw, float *roll, float *pitch);
 void extract_request_type(char *request, uint8_t request_size, char *type_output);
 void extract_pid_request_values(char *request, uint8_t request_size, double *added_proportional, double *added_integral, double *added_derivative, double *added_master);
 void track_time();
@@ -112,6 +113,7 @@ char* generate_message_pid_values_nrf24(double base_proportional, double base_in
  * 1.94ms/20ms * 4000 = 388
  */
 const uint16_t max_esc_pwm_value = 388;
+const uint16_t actual_max_esc_pwm_value = 370; // (max lipo amp rating / max draw of a bldc motor being used x 4) 0.917 * (max_pwm - min_pwm) + min_pwm = 371.4
 const uint16_t min_esc_pwm_value = 188;
 
 #define GPS_OUTPUT_BUFFER_SIZE 550
@@ -246,6 +248,8 @@ double error_altitude = 0;
 // to float in the air. If you are testing with drone constrained add a base motor speed to account for this.
 
 
+// With quadcopter got 1.4 on P and it balanced for a bit but still wobbly
+
 // PID for yaw
 const float yaw_gain_p = 0.0; 
 const float yaw_gain_i = 0.0;
@@ -302,11 +306,17 @@ double pitch_attack_step = 0.1;
 double max_roll_attack = 10;
 double roll_attack_step = 0.1;
 
-uint8_t throttle = 0;
-uint8_t yaw = 50;
-uint8_t last_yaw = 50;
-uint8_t pitch = 50;
-uint8_t roll = 50;
+// uint8_t throttle = 0;
+// uint8_t yaw = 50;
+// uint8_t last_yaw = 50;
+// uint8_t pitch = 50;
+// uint8_t roll = 50;
+
+float throttle = 0.0;
+float yaw = 50.0;
+float last_yaw = 50.0;
+float pitch = 50.0;
+float roll = 50.0;
 
 uint8_t shit_encoder_mode = 0;
 uint8_t slowing_lock = 0;
@@ -314,7 +324,7 @@ uint8_t slowing_lock = 0;
 double last_raw_yaw = 0;
 double delta_yaw = 0;
 
-float minimum_signal_timing_seconds = 0.2; // Seconds
+float minimum_signal_timing_seconds = 0.4; // Seconds
 uint32_t last_signal_timestamp = 0;
 
 int main(void){
@@ -326,7 +336,7 @@ int main(void){
     }
     init_loop_timer();
     // check_calibrations();
-    // calibrate_gyro();
+    calibrate_gyro(); // Recalibrate the gyro as the temperature affects the calibration
     get_initial_position();
 
     struct pid pitch_pid = pid_init(pitch_roll_master_gain * pitch_roll_gain_p, pitch_roll_master_gain * pitch_roll_gain_i, pitch_roll_master_gain * pitch_roll_gain_d, 0.0, HAL_GetTick(), 20.0, -20.0, 1);
@@ -398,12 +408,15 @@ int main(void){
             // Get the type of request
             extract_request_type(rx_data, strlen(rx_data), rx_type);
 
-            if(strcmp(rx_type, "joystick") == 0){
+            if(strcmp(rx_type, "js") == 0){
                 last_signal_timestamp = HAL_GetTick();
 
-                extract_joystick_request_values(rx_data, strlen(rx_data), &throttle, &yaw, &roll, &pitch);
-                // Throttle does not need to be handled
+                // extract_joystick_request_values_uint(rx_data, strlen(rx_data), &throttle, &yaw, &roll, &pitch);
+                extract_joystick_request_values_float(rx_data, strlen(rx_data), &throttle, &yaw, &roll, &pitch);
 
+
+                // Throttle does not need to be handled
+                printf("readings: %3.1f, %3.1f, %3.1f, %3.1f\n", throttle, yaw, roll, pitch);
 
                 // Pitch ##################################################################################################################
                 // Check if pitch is neutral
@@ -500,7 +513,7 @@ int main(void){
                 last_yaw = yaw;
 
             }else if(strcmp(rx_type, "pid") == 0){
-                // printf("\nGot pid");
+                printf("\nGot pid");
 
                 double added_proportional = 0;
                 double added_integral = 0;
@@ -532,10 +545,10 @@ int main(void){
                 pid_reset_integral_sum(&roll_pid);
 
             }else if(strcmp(rx_type, "remoteSyncBase") == 0){
-                // printf("\nGot remoteSyncBase");
+                printf("\nGot remoteSyncBase");
                 send_pid_base_info_to_remote();
             }else if(strcmp(rx_type, "remoteSyncAdded") == 0){
-                // printf("\nGot remoteSyncAdded");
+                printf("\nGot remoteSyncAdded");
                 send_pid_added_info_to_remote();
             }
 
@@ -545,7 +558,7 @@ int main(void){
         // double error_altitude = mapValue(pid_get_error(&altitude_pid, altitude, HAL_GetTick()), -180.0, 180.0, -100.0, 100.0);
         // printf("Altitude error %6.2f ", error_altitude);
         
-        if(((double)HAL_GetTick() - (double)last_signal_timestamp) / 1000.0 < minimum_signal_timing_seconds){
+        if(((double)HAL_GetTick() - (double)last_signal_timestamp) / 1000.0 <= minimum_signal_timing_seconds){
             pid_set_desired_value(&pitch_pid, target_pitch);
             pid_set_desired_value(&roll_pid, target_roll);
             pid_set_desired_value(&yaw_pid, target_yaw);
@@ -558,26 +571,30 @@ int main(void){
             // error_yaw = pid_get_error(&roll_pid, gyro_degrees[2], HAL_GetTick());
             // error_altitude = pid_get_error(&roll_pid, altitude, HAL_GetTick());
 
+            error_altitude = throttle*0.9;
+
             motor_power[0] = error_altitude + (-error_pitch) +  (-error_roll);
             motor_power[1] = error_altitude + (-error_pitch) +  ( error_roll);
             motor_power[2] = error_altitude + ( error_pitch) +  ( error_roll);
             motor_power[3] = error_altitude + ( error_pitch) +  (-error_roll);
 
             // GPS side
-            TIM2->CCR1 = setServoActivationPercent(motor_power[2], min_esc_pwm_value, max_esc_pwm_value-60);
-            TIM2->CCR2 = setServoActivationPercent(motor_power[3], min_esc_pwm_value, max_esc_pwm_value-60);
+            TIM2->CCR1 = setServoActivationPercent(motor_power[2], min_esc_pwm_value, actual_max_esc_pwm_value);
+            TIM2->CCR2 = setServoActivationPercent(motor_power[3], min_esc_pwm_value, actual_max_esc_pwm_value);
 
             // No gps side
-            TIM1->CCR1 = setServoActivationPercent(motor_power[0], min_esc_pwm_value, max_esc_pwm_value-60);
-            TIM1->CCR4 = setServoActivationPercent(motor_power[1], min_esc_pwm_value, max_esc_pwm_value-60);
+            TIM1->CCR1 = setServoActivationPercent(motor_power[0], min_esc_pwm_value, actual_max_esc_pwm_value);
+            TIM1->CCR4 = setServoActivationPercent(motor_power[1], min_esc_pwm_value, actual_max_esc_pwm_value);
+            printf("1 %f\n", throttle);
         }else{
             // GPS side
-            TIM2->CCR1 = setServoActivationPercent(0, min_esc_pwm_value, max_esc_pwm_value);
-            TIM2->CCR2 = setServoActivationPercent(0, min_esc_pwm_value, max_esc_pwm_value);
+            TIM2->CCR1 = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
+            TIM2->CCR2 = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
 
             // No gps side
-            TIM1->CCR1 = setServoActivationPercent(0, min_esc_pwm_value, max_esc_pwm_value);
-            TIM1->CCR4 = setServoActivationPercent(0, min_esc_pwm_value, max_esc_pwm_value);
+            TIM1->CCR1 = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
+            TIM1->CCR4 = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
+            printf("0\n");
         }
 
         // Print out for debugging
@@ -789,7 +806,7 @@ double get_sensor_fusion_altitude(double gps_altitude, double barometer_altitude
 }
 
 // Extract the values form a slash separated stirng into specific variables for motion control parameters 
-void extract_joystick_request_values(char *request, uint8_t request_size, uint8_t *throttle, uint8_t *yaw, uint8_t *roll, uint8_t *pitch)
+void extract_joystick_request_values_uint(char *request, uint8_t request_size, uint8_t *throttle, uint8_t *yaw, uint8_t *roll, uint8_t *pitch)
 {
     // Skip the request type
     char* start = strchr(request, '/') + 1;
@@ -834,6 +851,55 @@ void extract_joystick_request_values(char *request, uint8_t request_size, uint8_
     pitch_string[length] = '\0';
     *pitch = atoi(pitch_string);
     //printf("'%s'\n", pitch_string);
+}
+
+// Extract the values from a slash-separated string into specific variables for motion control parameters
+void extract_joystick_request_values_float(char *request, uint8_t request_size, float *throttle, float *yaw, float *roll, float *pitch) {
+    // Skip the request type
+    char* start = strchr(request, '/') + 1;
+    char* end = strchr(start, '/');
+
+    printf("The string: %s\n", request);
+
+    // Parse throttle
+    start = strchr(end, '/') + 1;
+    end = strchr(start, '/');
+    if(start == NULL || end == NULL ) return;
+    int length = end - start;
+    char throttle_string[length + 1];
+    strncpy(throttle_string, start, length);
+    throttle_string[length] = '\0';
+    *throttle = atof(throttle_string);
+
+    // Parse yaw
+    start = strchr(end, '/') + 1;
+    end = strchr(start, '/');
+    if(start == NULL || end == NULL ) return;
+    length = end - start;
+    char yaw_string[length + 1];
+    strncpy(yaw_string, start, length);
+    yaw_string[length] = '\0';
+    *yaw = atof(yaw_string);
+
+    // Parse roll
+    start = strchr(end, '/') + 1;
+    end = strchr(start, '/');
+    if(start == NULL || end == NULL ) return;
+    length = end - start;
+    char roll_string[length + 1];
+    strncpy(roll_string, start, length);
+    roll_string[length] = '\0';
+    *roll = atof(roll_string);
+
+    // Parse pitch
+    start = strchr(end, '/') + 1;
+    end = strchr(start, '/');
+    if(start == NULL || end == NULL ) return;
+    length = end - start;
+    char pitch_string[length + 1];
+    strncpy(pitch_string, start, length);
+    pitch_string[length] = '\0';
+    *pitch = atof(pitch_string);
 }
 
 // Switch magnetometer axis. x-> y and y->x
