@@ -2,6 +2,8 @@
 
 #define SD_CARD_DEBUG 1
 
+uint8_t driver_initialized = 0;
+
 SPI_HandleTypeDef * m_device_handle;
 GPIO_TypeDef* m_slave_select_port = GPIOB;
 uint16_t m_slave_select_pin = GPIO_PIN_11;
@@ -12,11 +14,11 @@ uint16_t m_slave_ready_pin = GPIO_PIN_11;
 #define STRING_BUFFER_SIZE 300
 uint8_t string_buffer[STRING_BUFFER_SIZE];
 
-uint8_t slave_ready = 0;
+volatile uint8_t slave_ready = 0;
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-    if(GPIO_Pin == m_slave_ready_pin && slave_ready == 0){
+    if(GPIO_Pin == m_slave_ready_pin && slave_ready == 0 && driver_initialized == 1){
         // Falling 
         slave_ready = 1;
     }
@@ -64,6 +66,7 @@ uint8_t sd_card_initialize_spi(SPI_HandleTypeDef * device_handle, GPIO_TypeDef* 
         m_slave_ready_port = slave_ready_port;
         m_slave_ready_pin = slave_ready_pin;
 
+        driver_initialized = 1;
         return 1;
     }else{
         return 0;
@@ -111,6 +114,7 @@ uint8_t sd_card_initialize(){
 
         HAL_StatusTypeDef status;
         slave_select();
+        start_waiting_for_slave_ready();
         status = HAL_SPI_Transmit(m_device_handle, &command, 1, 5000);
         wait_for_slave_ready(1000);
         status = HAL_SPI_Receive(m_device_handle, response, 1, 5000);
