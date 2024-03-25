@@ -453,7 +453,6 @@ void HAL_UART_MspInit(UART_HandleTypeDef* huart)
     HAL_NVIC_EnableIRQ(USART2_IRQn);
   /* USER CODE BEGIN USART2_MspInit 1 */
 
-    HAL_UART_RegisterCallback(huart, HAL_UART_ERROR_CB_ID, HAL_UART_ErrorCallback);
   /* USER CODE END USART2_MspInit 1 */
   }
 
