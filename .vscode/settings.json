@@ -16,6 +16,20 @@
         "qmc5883l.h": "c",
         "bmp680.h": "c",
         "mpl3115a2.h": "c",
-        "bn357.h": "c"
-    }
+        "bn357.h": "c",
+        "ff.h": "c",
+        "ff_gen_drv.h": "c",
+        "fatfs_sd.h": "c",
+        "fatfs.h": "c",
+        "diskio.h": "c",
+        "integer.h": "c",
+        "stm32_hal_legacy.h": "c",
+        "sd_card_spi.h": "c",
+        "sd_card.h": "c"
+    },
+    "cSpell.words": [
+        "FATFS",
+        "FILINFO",
+        "FRESULT"
+    ]
 }

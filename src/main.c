@@ -1,9 +1,11 @@
 /* Auto generated shit -----------------------------------------------*/
 #include "main.h"
+// #include "./FATFS/App/fatfs.h"
 
 I2C_HandleTypeDef hi2c1;
 
 SPI_HandleTypeDef hspi1;
+SPI_HandleTypeDef hspi3;
 
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
@@ -19,6 +21,7 @@ static void MX_USART1_UART_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_SPI1_Init(void);
+static void MX_SPI3_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 /* Actual functional code -----------------------------------------------*/
@@ -37,6 +40,9 @@ static void MX_TIM2_Init(void);
 #include "../lib/ms5611/ms5611.h"
 #include "../lib/bn357/bn357.h"
 #include "../lib/nrf24l01/nrf24l01.h"
+// #include "../lib/sd_card/sd_card.h"
+#include "../lib/sd_card/sd_card_spi.h"
+
 
 // Other imports
 #include "../lib/utils/ned_coordinates/ned_coordinates.h"
@@ -131,7 +137,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
     // If the stm32 is restarted  while it is initializing dma the
     // data arrives from the uart and it fucks up. So you have to restart it a few times
 
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 1);
+    // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 1);
 
     if (huart->Instance == USART2)
     {
@@ -276,7 +282,7 @@ double added_pitch_roll_gain_d = 0;
 
 // remember that the stm32 is not as fast as the esp32 and it cannot print lines at the same speed
 // const float refresh_rate_hz = 400;
-#define REFRESH_RATE_HZ 300
+#define REFRESH_RATE_HZ 1
 
 // Sensor stuff ##############################################################################################
 float complementary_ratio = 1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ)); // Depends on how often the loop runs. 1 second / (1 second + one loop time)
@@ -324,19 +330,28 @@ uint8_t slowing_lock = 0;
 double last_raw_yaw = 0;
 double delta_yaw = 0;
 
-float minimum_signal_timing_seconds = 0.4; // Seconds
+float minimum_signal_timing_seconds = 0.2; // Seconds
 uint32_t last_signal_timestamp = 0;
+
+
+// For deciding which log file to log to
+uint16_t log_file_index = 1;
+char log_file_base_name[] = "Quadcopter.txt";
+#define LOG_FILE_NAME_MAX 45
+char log_file_name[LOG_FILE_NAME_MAX];
+uint8_t log_file_location_found = 0;
+uint8_t sd_card_initialized = 0;
+uint8_t log_loop_count = 0;
 
 int main(void){
     init_STM32_peripherals();
     printf("STARTING PROGRAM\n"); 
-    calibrate_escs();
+    // calibrate_escs();
     if(init_sensors() == 0){
         return 0; // exit if initialization failed
     }
-    init_loop_timer();
     // check_calibrations();
-    calibrate_gyro(); // Recalibrate the gyro as the temperature affects the calibration
+    // calibrate_gyro(); // Recalibrate the gyro as the temperature affects the calibration
     get_initial_position();
 
     struct pid pitch_pid = pid_init(pitch_roll_master_gain * pitch_roll_gain_p, pitch_roll_master_gain * pitch_roll_gain_i, pitch_roll_master_gain * pitch_roll_gain_d, 0.0, HAL_GetTick(), 20.0, -20.0, 1);
@@ -344,10 +359,179 @@ int main(void){
     struct pid yaw_pid = pid_init(yaw_gain_p, yaw_gain_i, yaw_gain_d, 0.0, HAL_GetTick(), 0, 0, 0);
     struct pid altitude_pid = pid_init(altitude_gain_p, altitude_gain_i, altitude_gain_d, 0.0, HAL_GetTick(), 0, 0, 0);
 
+
+
+    sd_card_initialized = 1;
+
+
+    #define SPI_BIT_BANG_TRANSMIT_BUFFER_SIZE 100
+    uint8_t transmit_buffer[SPI_BIT_BANG_TRANSMIT_BUFFER_SIZE];
+    uint8_t transmit_buffer_index = 0;
+
+transmit_buffer[0] = 0b01010101;
+
+    uint8_t bit_index_counter = 0;
+    while(1){
+        uint8_t MISO_state = (transmit_buffer[transmit_buffer_index] >> (7 - bit_index_counter)) & 0x01;
+
+        printf("Number %d\n", MISO_state);
+
+        bit_index_counter++;
+        bit_index_counter = bit_index_counter % 8;
+
+        if(bit_index_counter == 0){
+            break;
+        }
+    }
+
+
+    uint8_t sd_status = 0;
+    sd_status = sd_card_initialize_spi(&hspi3, GPIOA, GPIO_PIN_15, GPIOA, GPIO_PIN_12);
+    if(!sd_test_interface()){
+        printf("FAILED SD INTERFACE TEST\n");
+        while (1)
+        {
+        //     sd_test_interface();
+        //     HAL_Delay(500);
+        }
+        
+    }
+    
+    sd_status = sd_card_initialize();
+    // sd_status = sd_card_initialize();
+    // sd_status = sd_card_initialize();
+    // sd_status = sd_card_initialize();
+    // sd_status = sd_card_initialize();
+    // sd_status = sd_card_initialize();
+
+    sd_status = sd_open_file("Quadcopter.txt", FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
+    // sd_status = sd_open_file("Quadcopter.txt", FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
+    // sd_status = sd_open_file("Quadcopter.txt", FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
+    // sd_status = sd_open_file("Quadcopter.txt", FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
+    // sd_status = sd_open_file("Quadcopter.txt", FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
+    sd_status = sd_close_file();
+    // sd_status = sd_set_file_cursor_offset(sd_card_get_selected_file_size());
+    // HAL_Delay(30);
+    // sd_status = sd_write_data_to_file("Quadcopter restarted\n");
+    // HAL_Delay(30);
+    // sd_status = sd_write_data_to_file("Quadcopter data2\n");
+    // HAL_Delay(30);
+    // sd_status = sd_write_data_to_file("Quadcopter data3\n");
+    // HAL_Delay(30);
+    // sd_status = sd_write_data_to_file("Quadcopter data4\n");
+    // HAL_Delay(30);
+    // sd_status = sd_close_file();
+    // HAL_Delay(30);
+    // sd_status = sd_open_file("Quadcopter.txt", FA_READ);
+    // HAL_Delay(30);
+    // sd_status = sd_read_data_from_file();
+    // char* data = sd_card_get_buffer_pointer();
+    // HAL_Delay(30);
+    // sd_status = printf("Read Data : %s\n", sd_card_get_buffer_pointer());
+    // free(data);
+    // sd_buffer_clear();
+    // HAL_Delay(30);
+    // sd_status = sd_close_file();
+    // HAL_Delay(30);
+    // sd_status = sd_open_file("Quadcopter.txt", FA_WRITE);
+    // HAL_Delay(30);
+    // sd_status = sd_set_file_cursor_offset(sd_card_get_selected_file_size()); // set cursor to end of file to so data is not overwritten
+    // HAL_Delay(30);
+    // sd_status = sd_write_data_to_file("Quadcopter restarted\n");
+    // HAL_Delay(30);
+    // sd_status = sd_write_data_to_file("Quadcopter data2\n");
+    // HAL_Delay(30);
+    // sd_status = sd_write_data_to_file("Quadcopter data3\n");
+    // HAL_Delay(30);
+    // sd_status = sd_write_data_to_file("Quadcopter data4\n");
+    // HAL_Delay(30);
+    // sd_status = sd_close_file();
+    // HAL_Delay(30);
+    // sd_status = sd_open_file("Quadcopter.txt", FA_READ);
+    // HAL_Delay(30);
+    // sd_status = sd_read_data_from_file();
+    // HAL_Delay(30);
+    // char* data1 = sd_card_get_buffer_pointer();
+    // HAL_Delay(30);
+    // sd_status = printf("Read Data : %s\n", data1);
+    // free(data1);
+    // sd_buffer_clear();
+    // HAL_Delay(30);
+    // sd_status = sd_close_file();
+    // HAL_Delay(30);
+    // sd_status = sd_card_deinitialize();
+
+    uint8_t command = 0x00000001;
+
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+
     printf("Looping\n");
+    while(1){
+        // printf("Loop\n");
+        HAL_Delay(2000);
+        // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
+
+        // if(command == 1){
+        //     command = 0;
+        // }else{
+        //     command = 1;
+        // }
+        // HAL_StatusTypeDef result = HAL_SPI_Transmit(&hspi3, &command, 1, 10);
+        // uint8_t response[1] = {0};
+        // wait_for_slave_ready();
+        // HAL_SPI_Receive(&hspi3, response, 1, 10);
+
+        
+        // if(response[0] == 1 && command == 1){
+        //     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+        // }else if(response[0] == 1 && command == 0){
+        //     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+        // }else{
+        //     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+        // }
+
+        // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
+
+    }
+
+    // Try to initialize the file and test some 
+
+    // sd_card_initialized = sd_card_initialize();
+    // if(sd_card_initialized){
+    //     printf("Looking for viable log file.\n");
+    //     do{
+    //         uint16_t log_file_name_length = sprintf(log_file_name, "%d%s", log_file_index, log_file_base_name);
+
+    //         // Quit of the string is too big
+    //         if(log_file_name_length > LOG_FILE_NAME_MAX){
+    //             printf("Log file string too long\n");
+    //             return 0;
+    //         }
+    //         printf("Looking for viable log file. Testing file name: %s\n", log_file_name);
+    //         log_file_location_found = !sd_file_exists(log_file_name);
+    //         log_file_index++;
+    //     }
+    //     while(!log_file_location_found);
+    //     printf("Found viable log file.\n");
+    //     sd_open_file(log_file_name, FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
+    //     sd_close_file();
+    // }
+    // sd_card_initialized = sd_open_file(log_file_name, FA_WRITE);
+    // sd_set_file_cursor_offset(sd_card_get_selected_file_size());
+
+
+        
+
+
+
+
+
+    printf("Looping\n");
+    init_loop_timer();
     while (1){
         // printf("Loop ");
-
+        
+        // Gathering data from sensors and transforming it: 2 ms at most
         // Read sensor data ######################################################################################################################
         // gps_latitude = bn357_get_latitude_decimal_format();
         // gps_longitude = bn357_get_longitude_decimal_format();
@@ -375,15 +559,15 @@ int main(void){
         // Get raw yaw. The results of this adjustment have to modify the values of gyro degrees before complementary filter. So only the non tilt adjusted yaw is available
         calculate_yaw(magnetometer_data, &magnetometer_z_rotation);
 
-        if(yaw != 50){ // This is not an issue when not rotating.
-            // Joop Brokings method did not work for me and it didn't make sense subtracting scaled total yaw. I subtract delta yaw instead
-            delta_yaw = angle_difference(magnetometer_z_rotation, last_raw_yaw); // Helper function to handle wrapping
+        // if(yaw != 50){ // This is not an issue when not rotating.
+        //     // Joop Brokings method did not work for me and it didn't make sense subtracting scaled total yaw. I subtract delta yaw instead
+        //     delta_yaw = angle_difference(magnetometer_z_rotation, last_raw_yaw); // Helper function to handle wrapping
 
-            // gyro_angular[0] -= delta_yaw * -16.5; 
-            gyro_angular[0] -= delta_yaw * -5.0; 
+        //     // gyro_angular[0] -= delta_yaw * -16.5; 
+        //     gyro_angular[0] -= delta_yaw * -5.0; 
 
-            // This robot doesn't use the y axis so i ignore it 
-        }
+        //     // This robot doesn't use the y axis so i ignore it 
+        // }
 
         // Save the raw yaw for next loop. No mater if yaw changes or not. Need to know the latest one
         last_raw_yaw = magnetometer_z_rotation;
@@ -402,9 +586,8 @@ int main(void){
         fix_gyro_axis(gyro_degrees); // switch the x and y axis of gyro
 
         // Receive remote control data ###########################################################################################################
-        if(nrf24_data_available(1)){
-            
-            nrf24_receive(rx_data);
+        if(nrf24_data_available(1)){ // takes 3-4 ms
+            nrf24_receive(rx_data); // takes 8-9 ms
             // Get the type of request
             extract_request_type(rx_data, strlen(rx_data), rx_type);
 
@@ -416,7 +599,6 @@ int main(void){
 
 
                 // Throttle does not need to be handled
-                printf("readings: %3.1f, %3.1f, %3.1f, %3.1f\n", throttle, yaw, roll, pitch);
 
                 // Pitch ##################################################################################################################
                 // Check if pitch is neutral
@@ -558,11 +740,18 @@ int main(void){
         // double error_altitude = mapValue(pid_get_error(&altitude_pid, altitude, HAL_GetTick()), -180.0, 180.0, -100.0, 100.0);
         // printf("Altitude error %6.2f ", error_altitude);
         
-        if(((double)HAL_GetTick() - (double)last_signal_timestamp) / 1000.0 <= minimum_signal_timing_seconds){
-            pid_set_desired_value(&pitch_pid, target_pitch);
-            pid_set_desired_value(&roll_pid, target_roll);
-            pid_set_desired_value(&yaw_pid, target_yaw);
-            pid_set_desired_value(&altitude_pid, target_altitude);
+        // For the robot to do work it needs to be receiving radio signals and at the correct angles, facing up
+        if(
+            gyro_degrees[0] <  30 && 
+            gyro_degrees[0] > -30 && 
+            gyro_degrees[1] <  30 && 
+            gyro_degrees[1] > -30 && 
+            ((double)HAL_GetTick() - (double)last_signal_timestamp) / 1000.0 <= minimum_signal_timing_seconds
+        ){
+            // pid_set_desired_value(&pitch_pid, target_pitch);
+            // pid_set_desired_value(&roll_pid, target_roll);
+            // pid_set_desired_value(&yaw_pid, target_yaw);
+            // pid_set_desired_value(&altitude_pid, target_altitude);
 
             // pitch is facing to the sides
             // roll is facing forwards and backwards
@@ -578,6 +767,13 @@ int main(void){
             motor_power[2] = error_altitude + ( error_pitch) +  ( error_roll);
             motor_power[3] = error_altitude + ( error_pitch) +  (-error_roll);
 
+
+            // Motor A (4) 13740 rpm or 229 rotations per second
+            // Motor B (1) 14460 rpm or 241
+            // Motor C (2) 14160 rpm or 236
+            // Motor D (3) 14460 rpm or 241
+
+
             // GPS side
             TIM2->CCR1 = setServoActivationPercent(motor_power[2], min_esc_pwm_value, actual_max_esc_pwm_value);
             TIM2->CCR2 = setServoActivationPercent(motor_power[3], min_esc_pwm_value, actual_max_esc_pwm_value);
@@ -585,7 +781,7 @@ int main(void){
             // No gps side
             TIM1->CCR1 = setServoActivationPercent(motor_power[0], min_esc_pwm_value, actual_max_esc_pwm_value);
             TIM1->CCR4 = setServoActivationPercent(motor_power[1], min_esc_pwm_value, actual_max_esc_pwm_value);
-            printf("1 %f\n", throttle);
+            // printf("1 %f\n", throttle);
         }else{
             // GPS side
             TIM2->CCR1 = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
@@ -594,13 +790,13 @@ int main(void){
             // No gps side
             TIM1->CCR1 = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
             TIM1->CCR4 = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
-            printf("0\n");
+            // printf("0\n");
         }
 
         // Print out for debugging
         // printf("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
         // printf("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
-        // printf("GY %6.2f ", gyro_degrees[0]);
+        // printf("GY %6.2f %6.2f", gyro_degrees[0], gyro_degrees[1]);
 
         // printf("MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
         // printf("MOTOR 1=%6.2f 2=%6.2f 3=%6.2f 4=%6.2f, ", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
@@ -609,9 +805,54 @@ int main(void){
         // printf("GPS %f, %f, ", gps_longitude, gps_latitude);
         // printf("ERROR pitch %6.2f, roll %6.2f, pitch %6.2f, yaw %6.2f, altitude %6.2f, ", error_pitch, error_roll, error_yaw, error_altitude);
         // printf("%6.5f %6.5f %6.5f", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);  
-        // printf("\n");
 
-        fix_gyro_axis(gyro_degrees); // switch back the x and y axis of gyro to how they were before
+
+        // if(sd_card_initialized){
+        //     sd_card_append_to_buffer("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+        //     sd_card_append_to_buffer("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
+        //     sd_card_append_to_buffer("MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
+        //     sd_card_append_to_buffer("TEMP %6.5f, ", temperature);
+        //     sd_card_append_to_buffer("ALT %6.2f, ", altitude);
+        //     sd_card_append_to_buffer("GPS %f, %f, ", gps_longitude, gps_latitude);
+        //     sd_card_append_to_buffer("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+        //     sd_card_append_to_buffer("\n");
+            
+        //     // printf(" Logged data to SD buffer. ");
+        //     log_loop_count++;
+        // }
+
+
+        // if(sd_card_initialized && log_loop_count > 0){
+        //     // sd_card_initialize();
+
+        //     // sd_close_file();
+        //     // sd_card_initialized = sd_open_file(log_file_name, FA_WRITE);
+        //     // sd_set_file_cursor_offset(sd_card_get_selected_file_size());
+        //     // sd_card_initialized = sd_write_buffer_to_file();
+        //     // sd_save_file();
+        //     // sd_close_file();
+        //     sd_buffer_clear();
+        //     log_loop_count = 0;
+
+        //     // sd_card_deinitialize();
+            
+        //     // printf(" Logged data from buffer to SD. ");
+        // }
+
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
+
+        if(command == 1){
+            command = 0;
+        }else{
+            command = 1;
+        }
+        HAL_StatusTypeDef result = HAL_SPI_Transmit(&hspi3, &command, 1, 10);
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
+
+        printf("Sent SPI3: %d\n", result);
+        printf("\n");
+
+        fix_gyro_axis(gyro_degrees); // switch back the x and y axis of gyro to how they were before. This is for sensor fusion not to be confused 
 
         handle_loop_timing();
     }
@@ -629,10 +870,12 @@ void init_STM32_peripherals(){
     MX_SPI1_Init();
     MX_TIM1_Init();
     MX_TIM2_Init();
+    MX_SPI3_Init();
     HAL_Delay(1);
     MX_USART2_UART_Init();
     MX_USART1_UART_Init();
     RetargetInit(&huart1);
+    // MX_FATFS_Init();
 
     HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
     HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
@@ -641,7 +884,7 @@ void init_STM32_peripherals(){
 
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
-
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
     // HAL_UART_RegisterCallback(&huart2, HAL_UART_ERROR_CB_ID, HAL_UART_ErrorCallback);
 
     HAL_UARTEx_ReceiveToIdle_DMA(&huart2, receive_buffer, GPS_RECEIVE_BUFFER_SIZE);
@@ -687,7 +930,6 @@ uint8_t init_sensors(){
     // uint8_t bmp680 = init_bmp680(&hi2c1);
     // uint8_t ms5611 = init_ms5611(&hi2c1);
     // uint8_t mpl3115a2 = init_mpl3115a2(&hi2c1);
-
 
     uint8_t bn357 = init_bn357(&huart2, 0);
     uint8_t nrf24 = init_nrf24(&hspi1);
@@ -758,11 +1000,19 @@ void get_initial_position(){
 void handle_loop_timing(){
     loop_end_time = HAL_GetTick();
     delta_loop_time = loop_end_time - loop_start_time;
-    //printf("Tim: %d ms\n", delta_loop_time);
-    if (delta_loop_time < (1000 / REFRESH_RATE_HZ))
+
+    printf("Tb: %dms ", delta_loop_time);
+    
+    int time_to_wait = (1000 / REFRESH_RATE_HZ) - delta_loop_time;
+    if (time_to_wait > 0)
     {
-        HAL_Delay((1000 / REFRESH_RATE_HZ) - delta_loop_time);
+        HAL_Delay(time_to_wait);
     }
+
+    loop_end_time = HAL_GetTick();
+    delta_loop_time = loop_end_time - loop_start_time;
+    printf("Ta: %dms\n", delta_loop_time);
+
     loop_start_time = HAL_GetTick();
 }
 
@@ -858,8 +1108,6 @@ void extract_joystick_request_values_float(char *request, uint8_t request_size, 
     // Skip the request type
     char* start = strchr(request, '/') + 1;
     char* end = strchr(start, '/');
-
-    printf("The string: %s\n", request);
 
     // Parse throttle
     start = strchr(end, '/') + 1;
@@ -1036,7 +1284,7 @@ double apply_dead_zone(double value, double max_value, double min_value, double 
 void send_pid_base_info_to_remote(){
     nrf24_tx_mode(tx_address, 10);
     // Delay a bit to avoid problem
-    HAL_Delay(250);
+    HAL_Delay(30);
 
     // Make a slash separated value
     char *string = generate_message_pid_values_nrf24(
@@ -1065,7 +1313,7 @@ void send_pid_base_info_to_remote(){
 void send_pid_added_info_to_remote(){
     nrf24_tx_mode(tx_address, 10);
     // Delay a bit to avoid problem
-    HAL_Delay(250);
+    HAL_Delay(30);
 
     // Make a slash separated value
     char *string = generate_message_pid_values_nrf24(
@@ -1163,7 +1411,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 13;
-  RCC_OscInitStruct.PLL.PLLN = 100;
+  RCC_OscInitStruct.PLL.PLLN = 75;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = 4;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
@@ -1173,13 +1421,14 @@ void SystemClock_Config(void)
 
   /** Initializes the CPU, AHB and APB buses clocks
   */
-    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-    RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -1201,7 +1450,7 @@ static void MX_I2C1_Init(void)
 
   /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
-  hi2c1.Init.ClockSpeed = 100000;
+  hi2c1.Init.ClockSpeed = 400000;
   hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
   hi2c1.Init.OwnAddress1 = 0;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
@@ -1216,6 +1465,7 @@ static void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
+
 }
 
 /**
@@ -1253,6 +1503,45 @@ static void MX_SPI1_Init(void)
   /* USER CODE BEGIN SPI1_Init 2 */
 
   /* USER CODE END SPI1_Init 2 */
+
+}
+
+/**
+  * @brief SPI3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI3_Init(void)
+{
+
+  /* USER CODE BEGIN SPI3_Init 0 */
+
+  /* USER CODE END SPI3_Init 0 */
+
+  /* USER CODE BEGIN SPI3_Init 1 */
+
+  /* USER CODE END SPI3_Init 1 */
+  /* SPI3 parameter configuration*/
+  hspi3.Instance = SPI3;
+  hspi3.Init.Mode = SPI_MODE_MASTER;
+  hspi3.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi3.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi3.Init.CLKPolarity = SPI_POLARITY_HIGH;
+  hspi3.Init.CLKPhase = SPI_PHASE_2EDGE;
+  hspi3.Init.NSS = SPI_NSS_SOFT;
+  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_256;
+  hspi3.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi3.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi3.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi3.Init.CRCPolynomial = 10;
+  if (HAL_SPI_Init(&hspi3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI3_Init 2 */
+
+  /* USER CODE END SPI3_Init 2 */
+
 }
 
 /**
@@ -1331,6 +1620,7 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 2 */
   HAL_TIM_MspPostInit(&htim1);
+
 }
 
 /**
@@ -1393,6 +1683,7 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 2 */
   HAL_TIM_MspPostInit(&htim2);
+
 }
 
 /**
@@ -1425,6 +1716,7 @@ static void MX_USART1_UART_Init(void)
   /* USER CODE BEGIN USART1_Init 2 */
 
   /* USER CODE END USART1_Init 2 */
+
 }
 
 /**
@@ -1457,6 +1749,7 @@ static void MX_USART2_UART_Init(void)
   /* USER CODE BEGIN USART2_Init 2 */
 
   /* USER CODE END USART2_Init 2 */
+
 }
 
 /**
@@ -1472,6 +1765,7 @@ static void MX_DMA_Init(void)
   /* DMA1_Stream5_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
+
 }
 
 /**
@@ -1493,7 +1787,10 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_1, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_1, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : PC13 */
   GPIO_InitStruct.Pin = GPIO_PIN_13;
@@ -1503,11 +1800,27 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PB0 PB1 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1;
+  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PA15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_15;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PA12 */
+  GPIO_InitStruct.Pin = GPIO_PIN_12;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 }
 
 /* USER CODE BEGIN 4 */
@@ -1522,7 +1835,6 @@ void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
-    printf("-------------------Crashed\n");
   __disable_irq();
   while (1)
   {
@@ -1530,7 +1842,7 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef USE_FULL_ASSERT
+#ifdef  USE_FULL_ASSERT
 /**
   * @brief  Reports the name of the source file and the source line number
   *         where the assert_param error has occurred.
