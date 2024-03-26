@@ -396,57 +396,46 @@ transmit_buffer[0] = 0b01010101;
     sd_status = sd_close_file();
     sd_status = sd_card_deinitialize();
 
-    // sd_status = sd_set_file_cursor_offset(sd_card_get_selected_file_size());
-    // HAL_Delay(30);
-    // sd_status = sd_write_data_to_file("Quadcopter restarted\n");
-    // HAL_Delay(30);
-    // sd_status = sd_write_data_to_file("Quadcopter data2\n");
-    // HAL_Delay(30);
-    // sd_status = sd_write_data_to_file("Quadcopter data3\n");
-    // HAL_Delay(30);
-    // sd_status = sd_write_data_to_file("Quadcopter data4\n");
-    // HAL_Delay(30);
-    // sd_status = sd_close_file();
-    // HAL_Delay(30);
-    // sd_status = sd_open_file("Quadcopter.txt", FA_READ);
-    // HAL_Delay(30);
-    // sd_status = sd_read_data_from_file();
-    // char* data = sd_card_get_buffer_pointer();
-    // HAL_Delay(30);
-    // sd_status = printf("Read Data : %s\n", sd_card_get_buffer_pointer());
-    // free(data);
-    // sd_buffer_clear();
-    // HAL_Delay(30);
-    // sd_status = sd_close_file();
-    // HAL_Delay(30);
-    // sd_status = sd_open_file("Quadcopter.txt", FA_WRITE);
-    // HAL_Delay(30);
-    // sd_status = sd_set_file_cursor_offset(sd_card_get_selected_file_size()); // set cursor to end of file to so data is not overwritten
-    // HAL_Delay(30);
-    // sd_status = sd_write_data_to_file("Quadcopter restarted\n");
-    // HAL_Delay(30);
-    // sd_status = sd_write_data_to_file("Quadcopter data2\n");
-    // HAL_Delay(30);
-    // sd_status = sd_write_data_to_file("Quadcopter data3\n");
-    // HAL_Delay(30);
-    // sd_status = sd_write_data_to_file("Quadcopter data4\n");
-    // HAL_Delay(30);
-    // sd_status = sd_close_file();
-    // HAL_Delay(30);
-    // sd_status = sd_open_file("Quadcopter.txt", FA_READ);
-    // HAL_Delay(30);
-    // sd_status = sd_read_data_from_file();
-    // HAL_Delay(30);
-    // char* data1 = sd_card_get_buffer_pointer();
-    // HAL_Delay(30);
-    // sd_status = printf("Read Data : %s\n", data1);
-    // free(data1);
-    // sd_buffer_clear();
-    // HAL_Delay(30);
-    // sd_status = sd_close_file();
-    // HAL_Delay(30);
-    // sd_status = sd_card_deinitialize();
+    sd_status = sd_card_initialize();
+    sd_status = sd_open_file("Quadcopter.txt", FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
+    sd_status = sd_set_file_cursor_offset(sd_card_get_selected_file_size());
+    sd_status = sd_write_data_to_file("Quadcopter restarted\n");
+    sd_status = sd_write_data_to_file("Quadcopter data2\n");
+    sd_status = sd_write_data_to_file("Quadcopter data3\n");
+    sd_status = sd_write_data_to_file("Quadcopter data4\n");
+    sd_status = sd_close_file();
+    sd_status = sd_open_file("Quadcopter.txt", FA_READ);
+    sd_status = sd_read_data_from_file();
+    char* data = sd_card_get_buffer_pointer();
+    if(data){
+        sd_status = printf("Read Data : %s\n", data);
+    }
+    sd_buffer_clear();
+    sd_status = sd_close_file();
+    sd_status = sd_open_file("Quadcopter.txt", FA_WRITE);
+    sd_status = sd_set_file_cursor_offset(sd_card_get_selected_file_size()); // set cursor to end of file to so data is not overwritten
+    sd_status = sd_write_data_to_file("Quadcopter restarted\n");
+    sd_status = sd_write_data_to_file("Quadcopter data2\n");
+    sd_status = sd_write_data_to_file("Quadcopter data3\n");
+    sd_status = sd_write_data_to_file("Quadcopter data4\n");
+    sd_status = sd_close_file();
+    sd_status = sd_open_file("Quadcopter.txt", FA_READ);
+    sd_status = sd_read_data_from_file();
+    char* data1 = sd_card_get_buffer_pointer();
+    if(data1){
+        sd_status = printf("Read Data : %s\n", data1);
+        free(data1);
+    }
 
+    sd_buffer_clear();
+    sd_status = sd_close_file();
+    sd_status = sd_card_deinitialize();
+
+    while (1)
+    {
+        /* code */
+    }
+    
     // uint8_t command = 0x00000001;
 
     // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
@@ -785,37 +774,37 @@ transmit_buffer[0] = 0b01010101;
         // printf("%6.5f %6.5f %6.5f", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);  
 
 
-        // if(sd_card_initialized){
-        //     sd_card_append_to_buffer("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
-        //     sd_card_append_to_buffer("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
-        //     sd_card_append_to_buffer("MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
-        //     sd_card_append_to_buffer("TEMP %6.5f, ", temperature);
-        //     sd_card_append_to_buffer("ALT %6.2f, ", altitude);
-        //     sd_card_append_to_buffer("GPS %f, %f, ", gps_longitude, gps_latitude);
-        //     sd_card_append_to_buffer("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
-        //     sd_card_append_to_buffer("\n");
+        if(sd_card_initialized){
+            // sd_card_append_to_buffer("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+            sd_card_append_to_buffer("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
+            // sd_card_append_to_buffer("MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
+            // sd_card_append_to_buffer("TEMP %6.5f, ", temperature);
+            // sd_card_append_to_buffer("ALT %6.2f, ", altitude);
+            // sd_card_append_to_buffer("GPS %f, %f, ", gps_longitude, gps_latitude);
+            // sd_card_append_to_buffer("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+            sd_card_append_to_buffer("\n");
             
-        //     // printf(" Logged data to SD buffer. ");
-        //     log_loop_count++;
-        // }
+            // printf(" Logged data to SD buffer. ");
+            log_loop_count++;
+        }
 
 
-        // if(sd_card_initialized && log_loop_count > 0){
-        //     // sd_card_initialize();
+        if(sd_card_initialized && log_loop_count > 4){
+            // sd_card_initialize();
 
-        //     // sd_close_file();
-        //     // sd_card_initialized = sd_open_file(log_file_name, FA_WRITE);
-        //     // sd_set_file_cursor_offset(sd_card_get_selected_file_size());
-        //     // sd_card_initialized = sd_write_buffer_to_file();
-        //     // sd_save_file();
-        //     // sd_close_file();
-        //     sd_buffer_clear();
-        //     log_loop_count = 0;
+            // sd_close_file();
+            // sd_card_initialized = sd_open_file(log_file_name, FA_WRITE);
+            // sd_set_file_cursor_offset(sd_card_get_selected_file_size());
+            sd_card_initialized = sd_write_buffer_to_file();
+            sd_save_file();
+            // sd_close_file();
+            sd_buffer_clear();
+            log_loop_count = 0;
 
-        //     // sd_card_deinitialize();
+            // sd_card_deinitialize();
             
-        //     // printf(" Logged data from buffer to SD. ");
-        // }
+            // printf(" Logged data from buffer to SD. ");
+        }
 
         // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
 
