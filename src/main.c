@@ -359,82 +359,65 @@ int main(void){
     struct pid yaw_pid = pid_init(yaw_gain_p, yaw_gain_i, yaw_gain_d, 0.0, HAL_GetTick(), 0, 0, 0);
     struct pid altitude_pid = pid_init(altitude_gain_p, altitude_gain_i, altitude_gain_d, 0.0, HAL_GetTick(), 0, 0, 0);
 
+    // uint8_t sd_status = 0;
+    // sd_status = sd_card_initialize_spi(&hspi3, GPIOA, GPIO_PIN_15, GPIOA, GPIO_PIN_12);
+    // if(!sd_test_interface()){
+    //     printf("FAILED SD INTERFACE TEST\n");
+    //     while (1);
+    // }
+    // sd_status = sd_card_initialize();
+    // sd_status = sd_open_file("Quadcopter.txt", FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
+    // sd_status = sd_close_file();
+    // sd_status = sd_card_deinitialize();
 
+    // sd_status = sd_card_initialize();
+    // sd_status = sd_open_file("Quadcopter.txt", FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
+    // sd_status = sd_set_file_cursor_offset(sd_card_get_selected_file_size());
+    // sd_status = sd_write_data_to_file("Quadcopter restarted\n");
+    // sd_status = sd_write_data_to_file("Quadcopter data2\n");
+    // sd_status = sd_write_data_to_file("Quadcopter data3\n");
+    // sd_status = sd_write_data_to_file("Quadcopter data4\n");
+    // sd_status = sd_close_file();
+    // sd_status = sd_open_file("Quadcopter.txt", FA_READ);
+    // sd_status = sd_read_data_from_file();
+    // char* data = sd_card_get_buffer_pointer(0);
+    // if(data){
+    //     sd_status = printf("Read Data : %s\n", data);
+    // }
+    // sd_buffer_clear(0);
+    // sd_status = sd_close_file();
+    // sd_status = sd_open_file("Quadcopter.txt", FA_WRITE);
+    // sd_status = sd_set_file_cursor_offset(sd_card_get_selected_file_size()); // set cursor to end of file to so data is not overwritten
+    // sd_status = sd_write_data_to_file("Quadcopter restarted\n");
+    // sd_status = sd_write_data_to_file("Quadcopter data2\n");
+    // sd_status = sd_write_data_to_file("Quadcopter data3\n");
+    // sd_status = sd_write_data_to_file("Quadcopter data4\n");
+    // sd_status = sd_close_file();
+    // sd_status = sd_open_file("Quadcopter.txt", FA_READ);
+    // sd_status = sd_read_data_from_file();
+    // char* data1 = sd_card_get_buffer_pointer(0);
+    // if(data1){
+    //     sd_status = printf("Read Data : %s\n", data1);
+    //     free(data1);
+    // }
 
-    sd_card_initialized = 1;
+    // sd_buffer_clear(0);
+    // sd_status = sd_close_file();
+    // sd_status = sd_card_deinitialize();
 
+    // sd_card_initialize_spi(&hspi3, GPIOA, GPIO_PIN_15, GPIOA, GPIO_PIN_12);
+    // if(!sd_test_interface()){
+    //     printf("FAILED SD INTERFACE TEST\n");
+    //     while (1);
+    // }
 
-    #define SPI_BIT_BANG_TRANSMIT_BUFFER_SIZE 100
-    uint8_t transmit_buffer[SPI_BIT_BANG_TRANSMIT_BUFFER_SIZE];
-    uint8_t transmit_buffer_index = 0;
+    // sd_special_initialize(log_file_base_name);
+    // sd_special_reset();
 
-transmit_buffer[0] = 0b01010101;
-
-    uint8_t bit_index_counter = 0;
-    while(1){
-        uint8_t MISO_state = (transmit_buffer[transmit_buffer_index] >> (7 - bit_index_counter)) & 0x01;
-
-        printf("Number %d\n", MISO_state);
-
-        bit_index_counter++;
-        bit_index_counter = bit_index_counter % 8;
-
-        if(bit_index_counter == 0){
-            break;
-        }
-    }
-
-
-    uint8_t sd_status = 0;
-    sd_status = sd_card_initialize_spi(&hspi3, GPIOA, GPIO_PIN_15, GPIOA, GPIO_PIN_12);
-    if(!sd_test_interface()){
-        printf("FAILED SD INTERFACE TEST\n");
-        while (1);
-    }
-    sd_status = sd_card_initialize();
-    sd_status = sd_open_file("Quadcopter.txt", FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
-    sd_status = sd_close_file();
-    sd_status = sd_card_deinitialize();
-
-    sd_status = sd_card_initialize();
-    sd_status = sd_open_file("Quadcopter.txt", FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
-    sd_status = sd_set_file_cursor_offset(sd_card_get_selected_file_size());
-    sd_status = sd_write_data_to_file("Quadcopter restarted\n");
-    sd_status = sd_write_data_to_file("Quadcopter data2\n");
-    sd_status = sd_write_data_to_file("Quadcopter data3\n");
-    sd_status = sd_write_data_to_file("Quadcopter data4\n");
-    sd_status = sd_close_file();
-    sd_status = sd_open_file("Quadcopter.txt", FA_READ);
-    sd_status = sd_read_data_from_file();
-    char* data = sd_card_get_buffer_pointer();
-    if(data){
-        sd_status = printf("Read Data : %s\n", data);
-    }
-    sd_buffer_clear();
-    sd_status = sd_close_file();
-    sd_status = sd_open_file("Quadcopter.txt", FA_WRITE);
-    sd_status = sd_set_file_cursor_offset(sd_card_get_selected_file_size()); // set cursor to end of file to so data is not overwritten
-    sd_status = sd_write_data_to_file("Quadcopter restarted\n");
-    sd_status = sd_write_data_to_file("Quadcopter data2\n");
-    sd_status = sd_write_data_to_file("Quadcopter data3\n");
-    sd_status = sd_write_data_to_file("Quadcopter data4\n");
-    sd_status = sd_close_file();
-    sd_status = sd_open_file("Quadcopter.txt", FA_READ);
-    sd_status = sd_read_data_from_file();
-    char* data1 = sd_card_get_buffer_pointer();
-    if(data1){
-        sd_status = printf("Read Data : %s\n", data1);
-        free(data1);
-    }
-
-    sd_buffer_clear();
-    sd_status = sd_close_file();
-    sd_status = sd_card_deinitialize();
-
-    while (1)
-    {
-        /* code */
-    }
+    // while (1)
+    // {
+    //     /* code */
+    // }
     
     // uint8_t command = 0x00000001;
 
@@ -470,28 +453,43 @@ transmit_buffer[0] = 0b01010101;
 
     // Try to initialize the file and test some 
 
-    sd_card_initialized = sd_card_initialize();
-    if(sd_card_initialized){
-        printf("Looking for viable log file.\n");
-        do{
-            uint16_t log_file_name_length = sprintf(log_file_name, "%d%s", log_file_index, log_file_base_name);
+    // sd_card_initialized = sd_card_initialize();
+    // if(sd_card_initialized){
+    //     printf("Looking for viable log file.\n");
+    //     do{
+    //         uint16_t log_file_name_length = sprintf(log_file_name, "%d%s", log_file_index, log_file_base_name);
 
-            // Quit of the string is too big
-            if(log_file_name_length > LOG_FILE_NAME_MAX){
-                printf("Log file string too long\n");
-                return 0;
-            }
-            printf("Looking for viable log file. Testing file name: %s\n", log_file_name);
-            log_file_location_found = !sd_file_exists(log_file_name);
-            log_file_index++;
-        }
-        while(!log_file_location_found);
-        printf("Found viable log file.\n");
-        sd_open_file(log_file_name, FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
-        sd_close_file();
-        sd_card_initialized = sd_open_file(log_file_name, FA_WRITE);
-        sd_set_file_cursor_offset(sd_card_get_selected_file_size());
+    //         // Quit of the string is too big
+    //         if(log_file_name_length > LOG_FILE_NAME_MAX){
+    //             printf("Log file string too long\n");
+    //             return 0;
+    //         }
+    //         printf("Looking for viable log file. Testing file name: %s\n", log_file_name);
+    //         log_file_location_found = !sd_file_exists(log_file_name);
+    //         log_file_index++;
+    //     }
+    //     while(!log_file_location_found);
+    //     printf("Found viable log file.\n");
+    //     sd_open_file(log_file_name, FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
+    //     sd_close_file();
+    //     sd_card_initialized = sd_open_file(log_file_name, FA_WRITE);
+    //     sd_set_file_cursor_offset(sd_card_get_selected_file_size());
+    // }
+
+
+    sd_card_initialize_spi(&hspi3, GPIOA, GPIO_PIN_15, GPIOA, GPIO_PIN_12);
+    if(!sd_test_interface()){
+        printf("FAILED SD INTERFACE TEST\n");
+        while (1);
     }
+
+    sd_card_initialized = sd_special_initialize(log_file_base_name);
+    // sd_special_reset();
+
+    // while (1)
+    // {
+    //     /* code */
+    // }
 
     printf("Looping\n");
     init_loop_timer();
@@ -776,15 +774,14 @@ transmit_buffer[0] = 0b01010101;
 
         if(sd_card_initialized){
             // sd_card_append_to_buffer("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
-            sd_card_append_to_buffer("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
+            sd_card_append_to_buffer(1, "GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
             // sd_card_append_to_buffer("MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
             // sd_card_append_to_buffer("TEMP %6.5f, ", temperature);
             // sd_card_append_to_buffer("ALT %6.2f, ", altitude);
             // sd_card_append_to_buffer("GPS %f, %f, ", gps_longitude, gps_latitude);
             // sd_card_append_to_buffer("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
-            sd_card_append_to_buffer("\n");
+            sd_card_append_to_buffer(1, "\n");
             
-            // printf(" Logged data to SD buffer. ");
             log_loop_count++;
         }
 
@@ -795,15 +792,20 @@ transmit_buffer[0] = 0b01010101;
             // sd_close_file();
             // sd_card_initialized = sd_open_file(log_file_name, FA_WRITE);
             // sd_set_file_cursor_offset(sd_card_get_selected_file_size());
-            sd_card_initialized = sd_write_buffer_to_file();
-            sd_save_file();
-            // sd_close_file();
-            sd_buffer_clear();
-            log_loop_count = 0;
+            // sd_card_initialized = sd_write_buffer_to_file();
+            // sd_save_file();
+            // // sd_close_file();
+            // sd_buffer_clear(0);
+            // log_loop_count = 0;
+
+
 
             // sd_card_deinitialize();
             
             // printf(" Logged data from buffer to SD. ");
+            sd_card_initialized = sd_special_write_chunk_of_data(sd_card_get_buffer_pointer(1));
+            sd_buffer_clear(1);
+            log_loop_count = 0;
         }
 
         // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);

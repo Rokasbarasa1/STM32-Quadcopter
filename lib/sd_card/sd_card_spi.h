@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include "stm32f4xx_hal.h"
 
-#define SD_BUFFER_SIZE 1024
+#define SD_BUFFER_SIZE 10000
 
 enum t_logger_commands {
     LOGGER_SD_BUFFER_CLEAR    = 0x02 + 16,
@@ -48,8 +48,8 @@ enum t_logger_commands {
 
 uint8_t wait_for_slave_ready(uint16_t timeout_ms);
 uint8_t sd_card_initialize_spi(SPI_HandleTypeDef * device_handle, GPIO_TypeDef* slave_select_port, uint16_t slave_select_pin, GPIO_TypeDef* slave_ready_port, uint16_t slave_ready_pin);
-uint16_t sd_buffer_size(void);
-uint8_t sd_buffer_clear(void);
+uint16_t sd_buffer_size(uint8_t local);
+uint8_t sd_buffer_clear(uint8_t local);
 uint8_t sd_card_initialize();
 uint8_t sd_open_file(const char *file_name, uint8_t instruction);
 uint8_t sd_write_data_to_file(const char *data);
@@ -57,10 +57,14 @@ uint8_t sd_read_data_from_file();
 uint8_t sd_set_file_cursor_offset(uint32_t cursor);
 uint8_t sd_close_file();
 uint8_t sd_card_deinitialize();
-uint8_t sd_card_append_to_buffer(const char *string_format, ...);
-char* sd_card_get_buffer_pointer();
+uint8_t sd_card_append_to_buffer(uint8_t local, const char *string_format, ...);
+char* sd_card_get_buffer_pointer(uint8_t local);
 uint32_t sd_card_get_selected_file_size();
 uint8_t sd_write_buffer_to_file();
 uint8_t sd_file_exists(const char *file_name);
 uint8_t sd_save_file();
 uint8_t sd_test_interface();
+
+uint8_t sd_special_initialize(const char *file_base_name);
+uint8_t sd_special_reset();
+uint8_t sd_special_write_chunk_of_data(const char *data);

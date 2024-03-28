@@ -11,6 +11,9 @@ uint16_t m_slave_select_pin = GPIO_PIN_11;
 GPIO_TypeDef* m_slave_ready_port = GPIOB;
 uint16_t m_slave_ready_pin = GPIO_PIN_11;
 
+uint8_t sd_buffer[SD_BUFFER_SIZE];
+uint16_t sd_buffer_index = 0;
+
 #define STRING_BUFFER_SIZE 300
 uint8_t string_buffer[STRING_BUFFER_SIZE];
 
@@ -73,7 +76,11 @@ uint8_t sd_card_initialize_spi(SPI_HandleTypeDef * device_handle, GPIO_TypeDef* 
     }
 }
 
-uint16_t sd_buffer_size(void){
+uint16_t sd_buffer_size(uint8_t local){
+    if(local){
+        return strlen(sd_buffer);
+    }
+
     if(m_device_handle){
         uint8_t command = LOGGER_SD_BUFFER_SIZE;
         uint8_t response[2];
@@ -95,7 +102,15 @@ uint16_t sd_buffer_size(void){
         return 0;
 }
 
-uint8_t sd_buffer_clear(void){
+uint8_t sd_buffer_clear(uint8_t local){
+    if(local){
+        for(int i=0; i< SD_BUFFER_SIZE; i++){
+           sd_buffer[i] = 0;
+        }
+        sd_buffer_index = 0;
+        return 1;
+    }
+
     if(m_device_handle){
         uint8_t command = LOGGER_SD_BUFFER_CLEAR;
         uint8_t response[1];
@@ -376,7 +391,20 @@ uint8_t sd_card_deinitialize(){
         return 0;
 }
 
-uint8_t sd_card_append_to_buffer(const char *string_format, ...){
+uint8_t sd_card_append_to_buffer(uint8_t local, const char *string_format, ...){
+    if(local){
+        va_list args;
+        va_start(args, string_format);
+        // Ensure we don't write beyond the buffer
+        int written = vsnprintf(&sd_buffer[sd_buffer_index], SD_BUFFER_SIZE - sd_buffer_index, string_format, args);
+        if (written > 0) {
+            sd_buffer_index += written < (SD_BUFFER_SIZE - sd_buffer_index) ? written : (SD_BUFFER_SIZE - sd_buffer_index - 1);
+        }
+        va_end(args);
+
+        return 1;
+    }
+
     if(m_device_handle){
         uint8_t command = LOGGER_SD_CARD_APPEND_TO_BUFFER;
         uint8_t response[1];
@@ -429,7 +457,11 @@ uint8_t sd_card_append_to_buffer(const char *string_format, ...){
 }
 
 // Check for null results from this
-char* sd_card_get_buffer_pointer(){
+char* sd_card_get_buffer_pointer(uint8_t local){
+    if(local){
+        return sd_buffer;
+    }
+
     if(m_device_handle){
         uint8_t command = LOGGER_SD_GET_BUFFER_POINTER;
         uint8_t receive_size_buffer[2];
@@ -494,6 +526,10 @@ uint32_t sd_card_get_selected_file_size(){
 }
 
 uint8_t sd_write_buffer_to_file(){
+    // if(local){
+        // i dont care now
+        // return 0;
+    // }
 
     if(m_device_handle){
         uint8_t command = LOGGER_SD_WRITE_BUFFER_TO_FILE;
@@ -606,12 +642,11 @@ uint8_t sd_test_interface(){
     if(m_device_handle){
         uint8_t command = LOGGER_TEST_INTERFACE;
         uint8_t response[1];
-        volatile HAL_StatusTypeDef status;
         slave_select();
         start_waiting_for_slave_ready();
-        status = HAL_SPI_Transmit(m_device_handle, &command, 1, 5000);
-        if(!wait_for_slave_ready(1000)) goto error;
-        status = HAL_SPI_Receive(m_device_handle, response, 1, 5000);
+        HAL_SPI_Transmit(m_device_handle, &command, 1, 5000);
+        if(!wait_for_slave_ready(5000)) goto error;
+        HAL_SPI_Receive(m_device_handle, response, 1, 5000);
         slave_deselect();
 
         if(response[0] == LOGGER_INTERFACE_TEST_VALUE){
@@ -620,13 +655,116 @@ uint8_t sd_test_interface(){
             return 0;
         }
     }else{
-        return 1;
+        return 0;
     }
 
     error:
         slave_deselect();
         return 0;
 }
+
+
+uint8_t sd_special_initialize(const char *file_base_name){
+    if(m_device_handle){
+        uint8_t response[1];
+        uint8_t command = LOGGER_INITIALIZE;
+
+        uint16_t file_length = strlen(file_base_name)+1; // \0 character as well
+        uint16_t total_length = file_length;
+
+        uint8_t transmit_length[] = {(total_length >> 8) & 0xFF, total_length & 0xFF};
+
+        slave_select();
+        start_waiting_for_slave_ready();
+        HAL_SPI_Transmit(m_device_handle, &command, 1, 5000); // send command
+        if(!wait_for_slave_ready(5000)) goto error;
+        start_waiting_for_slave_ready();
+        HAL_SPI_Transmit(m_device_handle, transmit_length, 2, 5000); // send how many bytes the dat will be
+        if(!wait_for_slave_ready(5000)) goto error;
+        start_waiting_for_slave_ready();
+        HAL_SPI_Transmit(m_device_handle, file_base_name, total_length, 5000); // send how many bytes the dat will be
+        if(!wait_for_slave_ready(5000)) goto error;
+        HAL_SPI_Receive(m_device_handle, response, 1, 5000);
+        slave_deselect();
+
+        if(!response[0]){
+            goto error;
+        }
+
+        return 1;
+    }else{
+        return 0;
+    }
+
+    error:
+        slave_deselect();
+        return 0;
+}
+
+uint8_t sd_special_reset(){
+    if(m_device_handle){
+        uint8_t response[1];
+        uint8_t command = LOGGER_RESET;
+
+        slave_select();
+        start_waiting_for_slave_ready();
+        HAL_SPI_Transmit(m_device_handle, &command, 1, 5000); // send command
+        if(!wait_for_slave_ready(5000)) goto error;
+        HAL_SPI_Receive(m_device_handle, response, 1, 5000);
+        slave_deselect();
+        
+        if(!response[0]){
+            goto error;
+        }
+
+        return 1;
+    }else{
+        return 0;
+    }
+
+    error:
+        slave_deselect();
+        return 0;
+}
+
+uint8_t sd_special_write_chunk_of_data(const char *data){
+    if(m_device_handle){
+        uint8_t response[1];
+        uint8_t command = LOGGER_WRITE_CHUNK_OF_DATA;
+
+        uint16_t file_length = strlen(data)+1; // \0 character as well
+        uint16_t total_length = file_length;
+
+        uint8_t transmit_length[] = {(total_length >> 8) & 0xFF, total_length & 0xFF};
+
+        slave_select();
+        start_waiting_for_slave_ready();
+        HAL_SPI_Transmit(m_device_handle, &command, 1, 5000); // send command
+        if(!wait_for_slave_ready(1000)) goto error;
+        start_waiting_for_slave_ready();
+        HAL_SPI_Transmit(m_device_handle, transmit_length, 2, 5000); // send how many bytes the dat will be
+        if(!wait_for_slave_ready(1000)) goto error;
+        start_waiting_for_slave_ready();
+        HAL_SPI_Transmit(m_device_handle, data, total_length, 5000); // send how many bytes the dat will be
+        if(!wait_for_slave_ready(1000)) goto error;
+        HAL_SPI_Receive(m_device_handle, response, 1, 5000);
+        slave_deselect();
+
+        if(!response[0]){
+            goto error;
+        }
+
+        return 1;
+    }else{
+        return 0;
+    }
+
+    error:
+        slave_deselect();
+        return 0;
+}
+
+
 
 // Example code ************************************************
     // sd_card_initialize();
