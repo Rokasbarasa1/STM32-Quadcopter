@@ -282,7 +282,7 @@ double added_pitch_roll_gain_d = 0;
 
 // remember that the stm32 is not as fast as the esp32 and it cannot print lines at the same speed
 // const float refresh_rate_hz = 400;
-#define REFRESH_RATE_HZ 1
+#define REFRESH_RATE_HZ 100
 
 // Sensor stuff ##############################################################################################
 float complementary_ratio = 1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ)); // Depends on how often the loop runs. 1 second / (1 second + one loop time)
@@ -773,53 +773,26 @@ int main(void){
 
 
         if(sd_card_initialized){
-            // sd_card_append_to_buffer("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+            sd_card_append_to_buffer(1, "ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
             sd_card_append_to_buffer(1, "GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
-            // sd_card_append_to_buffer("MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
-            // sd_card_append_to_buffer("TEMP %6.5f, ", temperature);
-            // sd_card_append_to_buffer("ALT %6.2f, ", altitude);
-            // sd_card_append_to_buffer("GPS %f, %f, ", gps_longitude, gps_latitude);
-            // sd_card_append_to_buffer("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+            sd_card_append_to_buffer(1, "MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
+            sd_card_append_to_buffer(1, "MOTOR 1=%6.2f 2=%6.2f 3=%6.2f 4=%6.2f, ", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
+            sd_card_append_to_buffer(1, "ERROR pitch %6.2f, roll %6.2f, pitch %6.2f, yaw %6.2f, altitude %6.2f, ", error_pitch, error_roll, error_yaw, error_altitude);
+            sd_card_append_to_buffer(1, "TEMP %6.5f, ", temperature);
+            sd_card_append_to_buffer(1, "ALT %6.2f, ", altitude);
+            sd_card_append_to_buffer(1, "GPS %f, %f, ", gps_longitude, gps_latitude);
+            sd_card_append_to_buffer(1, "ERROR pitch %6.2f, roll %6.2f, pitch %6.2f, yaw %6.2f, altitude %6.2f, ", error_pitch, error_roll, error_yaw, error_altitude);
             sd_card_append_to_buffer(1, "\n");
-            
             log_loop_count++;
         }
 
-
-        if(sd_card_initialized && log_loop_count > 4){
-            // sd_card_initialize();
-
-            // sd_close_file();
-            // sd_card_initialized = sd_open_file(log_file_name, FA_WRITE);
-            // sd_set_file_cursor_offset(sd_card_get_selected_file_size());
-            // sd_card_initialized = sd_write_buffer_to_file();
-            // sd_save_file();
-            // // sd_close_file();
-            // sd_buffer_clear(0);
-            // log_loop_count = 0;
-
-
-
-            // sd_card_deinitialize();
-            
-            // printf(" Logged data from buffer to SD. ");
+        if(sd_card_initialized && log_loop_count > 10){
+            // Get the buffer pointer send it to the sd writer
             sd_card_initialized = sd_special_write_chunk_of_data(sd_card_get_buffer_pointer(1));
+            // Clear the local buffer of data
             sd_buffer_clear(1);
             log_loop_count = 0;
         }
-
-        // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
-
-        // if(command == 1){
-        //     command = 0;
-        // }else{
-        //     command = 1;
-        // }
-        // HAL_StatusTypeDef result = HAL_SPI_Transmit(&hspi3, &command, 1, 10);
-        // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
-
-        // printf("Sent SPI3: %d\n", result);
-
         
         // printf("\n");
 
