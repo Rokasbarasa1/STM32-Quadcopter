@@ -484,12 +484,8 @@ int main(void){
     }
 
     sd_card_initialized = sd_special_initialize(log_file_base_name);
-    // sd_special_reset();
-
-    // while (1)
-    // {
-    //     /* code */
-    // }
+    uint8_t sd_card_async = sd_special_enter_async_mode();
+    // uint8_t sd_card_async = 0;
 
     printf("Looping\n");
     init_loop_timer();
@@ -770,31 +766,36 @@ int main(void){
         // printf("GPS %f, %f, ", gps_longitude, gps_latitude);
         // printf("ERROR pitch %6.2f, roll %6.2f, pitch %6.2f, yaw %6.2f, altitude %6.2f, ", error_pitch, error_roll, error_yaw, error_altitude);
         // printf("%6.5f %6.5f %6.5f", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);  
-
+        // printf("\n");
 
         if(sd_card_initialized){
-            sd_card_append_to_buffer(1, "ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
-            sd_card_append_to_buffer(1, "GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
-            sd_card_append_to_buffer(1, "MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
-            sd_card_append_to_buffer(1, "MOTOR 1=%6.2f 2=%6.2f 3=%6.2f 4=%6.2f, ", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
-            sd_card_append_to_buffer(1, "ERROR pitch %6.2f, roll %6.2f, pitch %6.2f, yaw %6.2f, altitude %6.2f, ", error_pitch, error_roll, error_yaw, error_altitude);
-            sd_card_append_to_buffer(1, "TEMP %6.5f, ", temperature);
-            sd_card_append_to_buffer(1, "ALT %6.2f, ", altitude);
-            sd_card_append_to_buffer(1, "GPS %f, %f, ", gps_longitude, gps_latitude);
-            sd_card_append_to_buffer(1, "ERROR pitch %6.2f, roll %6.2f, pitch %6.2f, yaw %6.2f, altitude %6.2f, ", error_pitch, error_roll, error_yaw, error_altitude);
+            // Log a bit of data
+            // sd_card_append_to_buffer(1, "ACCEL,%.2f,%.2f,%.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+            sd_card_append_to_buffer(1, "GYRO,%.2f,%.2f,%.2f;", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
+            // sd_card_append_to_buffer(1, "MAG,%.2f,%.2f,%.2f;", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
+            sd_card_append_to_buffer(1, "MOTOR,1=%.2f,2=%.2f,3=%.2f,4=%.2f;", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
+            sd_card_append_to_buffer(1, "ERROR,pitch=%.2f,roll=%.2f,yaw=%.2f,altitude=%.2f;", error_pitch, error_roll, error_yaw, error_altitude);
+            // sd_card_append_to_buffer(1, "TEMP,%.2f;", temperature);
+            // sd_card_append_to_buffer(1, "ALT %.2f;", altitude);
+            // sd_card_append_to_buffer(1, "GPS,lon-%f,lat-%f;", gps_longitude, gps_latitude);
             sd_card_append_to_buffer(1, "\n");
             log_loop_count++;
         }
 
-        if(sd_card_initialized && log_loop_count > 10){
+        if(sd_card_initialized && log_loop_count > 0){
             // Get the buffer pointer send it to the sd writer
-            sd_card_initialized = sd_special_write_chunk_of_data(sd_card_get_buffer_pointer(1));
+            
+            if(sd_card_async){
+                sd_special_write_chunk_of_data_async(sd_card_get_buffer_pointer(1));
+            }else{
+                sd_card_initialized = sd_special_write_chunk_of_data(sd_card_get_buffer_pointer(1));
+            }
+            
             // Clear the local buffer of data
             sd_buffer_clear(1);
             log_loop_count = 0;
         }
         
-        // printf("\n");
 
         fix_gyro_axis(gyro_degrees); // switch back the x and y axis of gyro to how they were before. This is for sensor fusion not to be confused 
 

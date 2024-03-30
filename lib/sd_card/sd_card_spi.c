@@ -764,6 +764,96 @@ uint8_t sd_special_write_chunk_of_data(const char *data){
         return 0;
 }
 
+uint8_t sd_special_enter_async_mode(){
+    if(m_device_handle){
+        uint8_t response[1];
+        uint8_t command = LOGGER_ENTER_ASYNC_MODE;
+
+        slave_select();
+        start_waiting_for_slave_ready();
+        HAL_SPI_Transmit(m_device_handle, &command, 1, 5000); // send command
+        if(!wait_for_slave_ready(5000)) goto error;
+        HAL_SPI_Receive(m_device_handle, response, 1, 5000);
+        slave_deselect();
+        
+        if(!response[0]){
+            goto error;
+        }
+
+        return 1;
+    }else{
+        return 0;
+    }
+
+    error:
+        slave_deselect();
+        return 0;
+}
+
+uint8_t sd_special_leave_async_mode(){
+    if(m_device_handle){
+        uint8_t response[1];
+        uint8_t command = LOGGER_LEAVE_ASYNC_MODE;
+
+        slave_select();
+        start_waiting_for_slave_ready();
+        HAL_SPI_Transmit(m_device_handle, &command, 1, 5000); // send command
+        if(!wait_for_slave_ready(5000)) goto error;
+        HAL_SPI_Receive(m_device_handle, response, 1, 5000);
+        slave_deselect();
+        
+        if(!response[0]){
+            goto error;
+        }
+
+        return 1;
+    }else{
+        return 0;
+    }
+
+    error:
+        slave_deselect();
+        return 0;
+}
+
+uint8_t sd_special_write_chunk_of_data_async(const char *data){
+    if(m_device_handle){
+        uint8_t response[1];
+        uint8_t command = LOGGER_WRITE_CHUNK_OF_DATA_ASYNC;
+
+        uint16_t file_length = strlen(data)+1; // \0 character as well
+        uint16_t total_length = file_length;
+
+        uint8_t transmit_length[] = {(total_length >> 8) & 0xFF, total_length & 0xFF};
+
+        slave_select();
+        // start_waiting_for_slave_ready();
+        // HAL_SPI_Transmit(m_device_handle, &command, 1, 5000); // send command
+        // if(!wait_for_slave_ready(1000)) goto error;
+        // start_waiting_for_slave_ready();
+        // HAL_SPI_Transmit(m_device_handle, transmit_length, 2, 5000); // send how many bytes the dat will be
+        // if(!wait_for_slave_ready(1000)) goto error;
+        // start_waiting_for_slave_ready();
+        HAL_SPI_Transmit(m_device_handle, data, total_length, 5000); // send how many bytes the dat will be
+        // if(!wait_for_slave_ready(1000)) goto error;
+        // HAL_SPI_Receive(m_device_handle, response, 1, 5000);
+        slave_deselect();
+
+        // if(!response[0]){
+        //     goto error;
+        // }
+
+        return 1;
+    }else{
+        return 0;
+    }
+
+    error:
+        slave_deselect();
+        return 0;
+}
+
+
 
 
 // Example code ************************************************

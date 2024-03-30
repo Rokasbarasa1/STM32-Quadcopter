@@ -32,6 +32,10 @@ enum t_logger_commands {
     LOGGER_CHECK_READY = 0x15 + 16,
 
     LOGGER_TEST_INTERFACE = 0x16 + 16,
+
+    LOGGER_WRITE_CHUNK_OF_DATA_ASYNC = 0x17 + 16,
+    LOGGER_ENTER_ASYNC_MODE = 0x18 + 16,
+    LOGGER_LEAVE_ASYNC_MODE = 0x19 + 16,
 };
 
 
@@ -68,3 +72,6 @@ uint8_t sd_test_interface();
 uint8_t sd_special_initialize(const char *file_base_name);
 uint8_t sd_special_reset();
 uint8_t sd_special_write_chunk_of_data(const char *data);
+uint8_t sd_special_enter_async_mode();
+uint8_t sd_special_leave_async_mode();
+uint8_t sd_special_write_chunk_of_data_async(const char *data);
