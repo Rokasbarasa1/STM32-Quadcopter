@@ -335,16 +335,26 @@ uint32_t last_signal_timestamp = 0;
 
 
 // For deciding which log file to log to
-uint16_t log_file_index = 1;
 char log_file_base_name[] = "Quadcopter.txt";
-#define LOG_FILE_NAME_MAX 45
-char log_file_name[LOG_FILE_NAME_MAX];
-uint8_t log_file_location_found = 0;
 uint8_t sd_card_initialized = 0;
 uint8_t log_loop_count = 0;
+uint8_t sd_card_async = 0;
+
+
+// Keep track of time in each loop. Since loop start
+uint32_t startup_time = 0;
+uint32_t delta_time = 0;
+uint16_t time_since_startup_ms = 0;
+uint8_t time_since_startup_minutes = 0;
+uint8_t time_since_startup_seconds = 0;
+uint8_t time_since_startup_hours = 0;
 
 int main(void){
     init_STM32_peripherals();
+
+    // Turn off the blue led. Will show the status of sd logging later
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+
     printf("STARTING PROGRAM\n"); 
     // calibrate_escs();
     if(init_sensors() == 0){
@@ -359,136 +369,18 @@ int main(void){
     struct pid yaw_pid = pid_init(yaw_gain_p, yaw_gain_i, yaw_gain_d, 0.0, HAL_GetTick(), 0, 0, 0);
     struct pid altitude_pid = pid_init(altitude_gain_p, altitude_gain_i, altitude_gain_d, 0.0, HAL_GetTick(), 0, 0, 0);
 
-    // uint8_t sd_status = 0;
-    // sd_status = sd_card_initialize_spi(&hspi3, GPIOA, GPIO_PIN_15, GPIOA, GPIO_PIN_12);
-    // if(!sd_test_interface()){
-    //     printf("FAILED SD INTERFACE TEST\n");
-    //     while (1);
-    // }
-    // sd_status = sd_card_initialize();
-    // sd_status = sd_open_file("Quadcopter.txt", FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
-    // sd_status = sd_close_file();
-    // sd_status = sd_card_deinitialize();
-
-    // sd_status = sd_card_initialize();
-    // sd_status = sd_open_file("Quadcopter.txt", FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
-    // sd_status = sd_set_file_cursor_offset(sd_card_get_selected_file_size());
-    // sd_status = sd_write_data_to_file("Quadcopter restarted\n");
-    // sd_status = sd_write_data_to_file("Quadcopter data2\n");
-    // sd_status = sd_write_data_to_file("Quadcopter data3\n");
-    // sd_status = sd_write_data_to_file("Quadcopter data4\n");
-    // sd_status = sd_close_file();
-    // sd_status = sd_open_file("Quadcopter.txt", FA_READ);
-    // sd_status = sd_read_data_from_file();
-    // char* data = sd_card_get_buffer_pointer(0);
-    // if(data){
-    //     sd_status = printf("Read Data : %s\n", data);
-    // }
-    // sd_buffer_clear(0);
-    // sd_status = sd_close_file();
-    // sd_status = sd_open_file("Quadcopter.txt", FA_WRITE);
-    // sd_status = sd_set_file_cursor_offset(sd_card_get_selected_file_size()); // set cursor to end of file to so data is not overwritten
-    // sd_status = sd_write_data_to_file("Quadcopter restarted\n");
-    // sd_status = sd_write_data_to_file("Quadcopter data2\n");
-    // sd_status = sd_write_data_to_file("Quadcopter data3\n");
-    // sd_status = sd_write_data_to_file("Quadcopter data4\n");
-    // sd_status = sd_close_file();
-    // sd_status = sd_open_file("Quadcopter.txt", FA_READ);
-    // sd_status = sd_read_data_from_file();
-    // char* data1 = sd_card_get_buffer_pointer(0);
-    // if(data1){
-    //     sd_status = printf("Read Data : %s\n", data1);
-    //     free(data1);
-    // }
-
-    // sd_buffer_clear(0);
-    // sd_status = sd_close_file();
-    // sd_status = sd_card_deinitialize();
-
-    // sd_card_initialize_spi(&hspi3, GPIOA, GPIO_PIN_15, GPIOA, GPIO_PIN_12);
-    // if(!sd_test_interface()){
-    //     printf("FAILED SD INTERFACE TEST\n");
-    //     while (1);
-    // }
-
-    // sd_special_initialize(log_file_base_name);
-    // sd_special_reset();
-
-    // while (1)
-    // {
-    //     /* code */
-    // }
-    
-    // uint8_t command = 0x00000001;
-
-    // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-
-    // printf("Looping\n");
-    // while(1){
-        // printf("Loop\n");
-        // HAL_Delay(2000);
-        // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
-
-        // if(command == 1){
-        //     command = 0;
-        // }else{
-        //     command = 1;
-        // }
-        // HAL_StatusTypeDef result = HAL_SPI_Transmit(&hspi3, &command, 1, 10);
-        // uint8_t response[1] = {0};
-        // wait_for_slave_ready();
-        // HAL_SPI_Receive(&hspi3, response, 1, 10);
-
-        
-        // if(response[0] == 1 && command == 1){
-        //     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-        // }else if(response[0] == 1 && command == 0){
-        //     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-        // }else{
-        //     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-        // }
-
-        // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
-    // }
-
-    // Try to initialize the file and test some 
-
-    // sd_card_initialized = sd_card_initialize();
-    // if(sd_card_initialized){
-    //     printf("Looking for viable log file.\n");
-    //     do{
-    //         uint16_t log_file_name_length = sprintf(log_file_name, "%d%s", log_file_index, log_file_base_name);
-
-    //         // Quit of the string is too big
-    //         if(log_file_name_length > LOG_FILE_NAME_MAX){
-    //             printf("Log file string too long\n");
-    //             return 0;
-    //         }
-    //         printf("Looking for viable log file. Testing file name: %s\n", log_file_name);
-    //         log_file_location_found = !sd_file_exists(log_file_name);
-    //         log_file_index++;
-    //     }
-    //     while(!log_file_location_found);
-    //     printf("Found viable log file.\n");
-    //     sd_open_file(log_file_name, FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
-    //     sd_close_file();
-    //     sd_card_initialized = sd_open_file(log_file_name, FA_WRITE);
-    //     sd_set_file_cursor_offset(sd_card_get_selected_file_size());
-    // }
-
-
+    // Initialize sd card logging
     sd_card_initialize_spi(&hspi3, GPIOA, GPIO_PIN_15, GPIOA, GPIO_PIN_12);
-    if(!sd_test_interface()){
-        printf("FAILED SD INTERFACE TEST\n");
-        while (1);
+    if(sd_test_interface()){
+        sd_card_initialized = sd_special_initialize(log_file_base_name);
+        if(sd_card_initialized){
+            sd_card_async = sd_special_enter_async_mode();
+        }
     }
-
-    sd_card_initialized = sd_special_initialize(log_file_base_name);
-    uint8_t sd_card_async = sd_special_enter_async_mode();
-    // uint8_t sd_card_async = 0;
-
+    
     printf("Looping\n");
     init_loop_timer();
+    startup_time = HAL_GetTick();
     while (1){
         // printf("Loop ");
         
@@ -754,7 +646,14 @@ int main(void){
             // printf("0\n");
         }
 
+        delta_time = HAL_GetTick() - startup_time;
+        time_since_startup_hours = delta_time / 3600000;
+        time_since_startup_minutes = (delta_time - time_since_startup_hours * 3600000) / 60000;
+        time_since_startup_seconds = (delta_time - time_since_startup_hours * 3600000 - time_since_startup_minutes * 60000) / 1000;
+        time_since_startup_ms = delta_time - time_since_startup_hours * 3600000 - time_since_startup_minutes * 60000 - time_since_startup_seconds * 1000;
+
         // Print out for debugging
+        // printf("%d:%02d:%02d:%03d;", time_since_startup_hours, time_since_startup_minutes, time_since_startup_seconds, time_since_startup_ms);
         // printf("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
         // printf("GYRO, %6.2f, %6.2f, %6.2f, ", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
         // printf("GY %6.2f %6.2f", gyro_degrees[0], gyro_degrees[1]);
@@ -770,6 +669,7 @@ int main(void){
 
         if(sd_card_initialized){
             // Log a bit of data
+            sd_card_append_to_buffer(1, "%d:%02d:%02d:%03d;", time_since_startup_hours, time_since_startup_minutes, time_since_startup_seconds, time_since_startup_ms);
             // sd_card_append_to_buffer(1, "ACCEL,%.2f,%.2f,%.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
             sd_card_append_to_buffer(1, "GYRO,%.2f,%.2f,%.2f;", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
             // sd_card_append_to_buffer(1, "MAG,%.2f,%.2f,%.2f;", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
@@ -795,7 +695,13 @@ int main(void){
             sd_buffer_clear(1);
             log_loop_count = 0;
         }
-        
+
+        // Update the blue led with current sd state
+        if(sd_card_initialized){
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+        }else{
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+        }
 
         fix_gyro_axis(gyro_degrees); // switch back the x and y axis of gyro to how they were before. This is for sensor fusion not to be confused 
 

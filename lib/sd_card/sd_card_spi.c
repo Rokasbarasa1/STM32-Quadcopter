@@ -818,13 +818,13 @@ uint8_t sd_special_leave_async_mode(){
 
 uint8_t sd_special_write_chunk_of_data_async(const char *data){
     if(m_device_handle){
-        uint8_t response[1];
-        uint8_t command = LOGGER_WRITE_CHUNK_OF_DATA_ASYNC;
+        // uint8_t response[1];
+        // uint8_t command = LOGGER_WRITE_CHUNK_OF_DATA_ASYNC;
 
         uint16_t file_length = strlen(data)+1; // \0 character as well
         uint16_t total_length = file_length;
 
-        uint8_t transmit_length[] = {(total_length >> 8) & 0xFF, total_length & 0xFF};
+        // uint8_t transmit_length[] = {(total_length >> 8) & 0xFF, total_length & 0xFF};
 
         slave_select();
         // start_waiting_for_slave_ready();
@@ -847,39 +847,54 @@ uint8_t sd_special_write_chunk_of_data_async(const char *data){
     }else{
         return 0;
     }
-
-    error:
-        slave_deselect();
-        return 0;
 }
 
 
 
 
 // Example code ************************************************
-    // sd_card_initialize();
-    // sd_open_file("Quadcopter.txt", FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
-    // sd_set_file_cursor_offset(sd_card_get_selected_file_size());
-    // sd_write_data_to_file("Quadcopter restarted\n");
-    // sd_write_data_to_file("Quadcopter data2\n");
-    // sd_write_data_to_file("Quadcopter data3\n");
-    // sd_write_data_to_file("Quadcopter data4\n");
-    // sd_close_file();
-    // sd_open_file("Quadcopter.txt", FA_READ);
-    // sd_read_data_from_file();
-    // printf("Read Data : %s\n", sd_card_get_buffer_pointer());
-    // sd_buffer_clear();
-    // sd_close_file();
-    // sd_open_file("Quadcopter.txt", FA_WRITE);
-    // sd_set_file_cursor_offset(sd_card_get_selected_file_size()); // set cursor to end of file to so data is not overwritten
-    // sd_write_data_to_file("Quadcopter restarted\n");
-    // sd_write_data_to_file("Quadcopter data2\n");
-    // sd_write_data_to_file("Quadcopter data3\n");
-    // sd_write_data_to_file("Quadcopter data4\n");
-    // sd_close_file();
-    // sd_open_file("Quadcopter.txt", FA_READ);
-    // sd_read_data_from_file();
-    // printf("Read Data : %s\n", sd_card_get_buffer_pointer());
-    // sd_buffer_clear();
-    // sd_close_file();
-    // sd_card_deinitialize();
+    // uint8_t sd_status = 0;
+    // sd_status = sd_card_initialize_spi(&hspi3, GPIOA, GPIO_PIN_15, GPIOA, GPIO_PIN_12);
+    // if(!sd_test_interface()){
+    //     printf("FAILED SD INTERFACE TEST\n");
+    //     while (1);
+    // }
+    // sd_status = sd_card_initialize();
+    // sd_status = sd_open_file("Quadcopter.txt", FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
+    // sd_status = sd_close_file();
+    // sd_status = sd_card_deinitialize();
+
+    // sd_status = sd_card_initialize();
+    // sd_status = sd_open_file("Quadcopter.txt", FA_WRITE | FA_READ | FA_OPEN_ALWAYS);
+    // sd_status = sd_set_file_cursor_offset(sd_card_get_selected_file_size());
+    // sd_status = sd_write_data_to_file("Quadcopter restarted\n");
+    // sd_status = sd_write_data_to_file("Quadcopter data2\n");
+    // sd_status = sd_write_data_to_file("Quadcopter data3\n");
+    // sd_status = sd_write_data_to_file("Quadcopter data4\n");
+    // sd_status = sd_close_file();
+    // sd_status = sd_open_file("Quadcopter.txt", FA_READ);
+    // sd_status = sd_read_data_from_file();
+    // char* data = sd_card_get_buffer_pointer(0);
+    // if(data){
+    //     sd_status = printf("Read Data : %s\n", data);
+    // }
+    // sd_buffer_clear(0);
+    // sd_status = sd_close_file();
+    // sd_status = sd_open_file("Quadcopter.txt", FA_WRITE);
+    // sd_status = sd_set_file_cursor_offset(sd_card_get_selected_file_size()); // set cursor to end of file to so data is not overwritten
+    // sd_status = sd_write_data_to_file("Quadcopter restarted\n");
+    // sd_status = sd_write_data_to_file("Quadcopter data2\n");
+    // sd_status = sd_write_data_to_file("Quadcopter data3\n");
+    // sd_status = sd_write_data_to_file("Quadcopter data4\n");
+    // sd_status = sd_close_file();
+    // sd_status = sd_open_file("Quadcopter.txt", FA_READ);
+    // sd_status = sd_read_data_from_file();
+    // char* data1 = sd_card_get_buffer_pointer(0);
+    // if(data1){
+    //     sd_status = printf("Read Data : %s\n", data1);
+    //     free(data1);
+    // }
+
+    // sd_buffer_clear(0);
+    // sd_status = sd_close_file();
+    // sd_status = sd_card_deinitialize();
