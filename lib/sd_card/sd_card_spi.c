@@ -810,32 +810,15 @@ uint8_t sd_special_leave_async_mode(){
         return 0;
 }
 
-uint8_t sd_special_write_chunk_of_data_async(const char *data){
+uint8_t sd_special_write_chunk_of_data_async_blocking(const char *data){
     if(m_device_handle){
-        // uint8_t response[1];
-        // uint8_t command = LOGGER_WRITE_CHUNK_OF_DATA_ASYNC;
 
         uint16_t file_length = strlen(data)+1; // \0 character as well
         uint16_t total_length = file_length;
 
-        // uint8_t transmit_length[] = {(total_length >> 8) & 0xFF, total_length & 0xFF};
-
         slave_select();
-        // start_waiting_for_slave_ready();
-        // HAL_SPI_Transmit(m_device_handle, &command, 1, 5000); // send command
-        // if(!wait_for_slave_ready(1000)) goto error;
-        // start_waiting_for_slave_ready();
-        // HAL_SPI_Transmit(m_device_handle, transmit_length, 2, 5000); // send how many bytes the dat will be
-        // if(!wait_for_slave_ready(1000)) goto error;
-        // start_waiting_for_slave_ready();
         HAL_SPI_Transmit(m_device_handle, data, total_length, 5000); // send how many bytes the dat will be
-        // if(!wait_for_slave_ready(1000)) goto error;
-        // HAL_SPI_Receive(m_device_handle, response, 1, 5000);
         slave_deselect();
-
-        // if(!response[0]){
-        //     goto error;
-        // }
 
         return 1;
     }else{
@@ -843,7 +826,41 @@ uint8_t sd_special_write_chunk_of_data_async(const char *data){
     }
 }
 
+void delay_us(uint32_t microseconds) {
+    volatile uint32_t count = 0;
+    const uint32_t delayLoops = (100 * microseconds);  // Adjust multiplier based on clock and loop execution time
 
+    for(count = 0; count < delayLoops; count++) {
+        // empty loop body
+    }
+}
+
+uint8_t sd_special_write_chunk_of_data_async_non_blocking(const char *data){
+    if(m_device_handle){
+
+        uint16_t file_length = strlen(data)+1; // \0 character as well
+        uint16_t total_length = file_length;
+
+        // while (check_spi_transmission_complete() == 0);
+        while (HAL_SPI_GetState(m_device_handle) != HAL_SPI_STATE_READY);
+        slave_deselect();
+        delay_us(25);
+        slave_select();
+
+        // Wait for the previous transmission to complete
+        // spi_start_async_transmit(data, total_length);
+        // HAL_SPI_Transmit(m_device_handle, data, total_length, 5000);
+        // HAL_StatusTypeDef HAL_SPI_Transmit(SPI_HandleTypeDef *hspi, uint8_t *pData, uint16_t Size, uint32_t Timeout)
+
+        HAL_SPI_Transmit_DMA(m_device_handle, data, total_length);
+        // HAL_StatusTypeDef HAL_SPI_Transmit_DMA(SPI_HandleTypeDef *hspi, uint8_t *pData, uint16_t Size)
+
+
+        return 1;
+    }else{
+        return 0;
+    }
+}
 
 
 // Example code ************************************************

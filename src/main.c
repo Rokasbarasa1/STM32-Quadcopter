@@ -13,6 +13,7 @@ TIM_HandleTypeDef htim2;
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 DMA_HandleTypeDef hdma_usart2_rx;
+DMA_HandleTypeDef hdma_spi3_tx;
 
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
@@ -688,7 +689,8 @@ int main(void){
             // Get the buffer pointer send it to the sd writer
             
             if(sd_card_async){
-                sd_special_write_chunk_of_data_async(sd_card_get_buffer_pointer(1));
+                // sd_special_write_chunk_of_data_async_blocking(sd_card_get_buffer_pointer(1));
+                sd_special_write_chunk_of_data_async_non_blocking(sd_card_get_buffer_pointer(1));
             }else{
                 sd_card_initialized = sd_special_write_chunk_of_data(sd_card_get_buffer_pointer(1));
             }
@@ -1618,6 +1620,9 @@ static void MX_DMA_Init(void)
   /* DMA1_Stream5_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
+  /* DMA1_Stream7_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream7_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream7_IRQn);
 
 }
 
