@@ -282,7 +282,7 @@ double added_pitch_roll_gain_d = 0;
 
 // remember that the stm32 is not as fast as the esp32 and it cannot print lines at the same speed
 // const float refresh_rate_hz = 400;
-#define REFRESH_RATE_HZ 100
+#define REFRESH_RATE_HZ 200
 
 // Sensor stuff ##############################################################################################
 float complementary_ratio = 1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ)); // Depends on how often the loop runs. 1 second / (1 second + one loop time)
@@ -376,6 +376,8 @@ int main(void){
         if(sd_card_initialized){
             sd_card_async = sd_special_enter_async_mode();
         }
+    }else{
+        printf("Failed to initialize the sd card interface\n");
     }
     
     printf("Looping\n");
@@ -669,7 +671,7 @@ int main(void){
 
         if(sd_card_initialized){
             // Log a bit of data
-            sd_card_append_to_buffer(1, "%d:%02d:%02d:%03d;", time_since_startup_hours, time_since_startup_minutes, time_since_startup_seconds, time_since_startup_ms);
+            sd_card_append_to_buffer(1, "%02d:%02d:%02d:%03d;", time_since_startup_hours, time_since_startup_minutes, time_since_startup_seconds, time_since_startup_ms);
             // sd_card_append_to_buffer(1, "ACCEL,%.2f,%.2f,%.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
             sd_card_append_to_buffer(1, "GYRO,%.2f,%.2f,%.2f;", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
             // sd_card_append_to_buffer(1, "MAG,%.2f,%.2f,%.2f;", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
@@ -1380,7 +1382,7 @@ static void MX_SPI3_Init(void)
   hspi3.Init.CLKPolarity = SPI_POLARITY_HIGH;
   hspi3.Init.CLKPhase = SPI_PHASE_2EDGE;
   hspi3.Init.NSS = SPI_NSS_SOFT;
-  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_256;
+  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_128;
   hspi3.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi3.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi3.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;

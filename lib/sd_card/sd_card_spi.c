@@ -38,12 +38,6 @@ uint8_t wait_for_slave_ready(uint16_t timeout_ms) {
     // Wait for it to be busy
     while (slave_ready == 0 && (delta_time = (HAL_GetTick() - start_time)) < timeout_ms );
 
-    // // Wait for it to be busy
-    // while (HAL_GPIO_ReadPin(m_slave_ready_port, m_slave_ready_pin) == GPIO_PIN_SET && (delta_time = (HAL_GetTick() - start_time)) < timeout_ms );
-
-    // // Wait to not be busy anymore
-    // while (HAL_GPIO_ReadPin(m_slave_ready_port, m_slave_ready_pin) == GPIO_PIN_RESET && (delta_time = (HAL_GetTick() - start_time)) < timeout_ms );
-
     if(delta_time >= timeout_ms){
         return 0;
     }
@@ -137,7 +131,7 @@ uint8_t sd_card_initialize(){
         uint8_t response[1];
 
         HAL_StatusTypeDef status;
-        slave_select();
+                slave_select();
         start_waiting_for_slave_ready();
         status = HAL_SPI_Transmit(m_device_handle, &command, 1, 5000);
         if(!wait_for_slave_ready(1000)) goto error;
@@ -177,7 +171,7 @@ uint8_t sd_open_file(const char *file_name, uint8_t instruction){
 
         printf("open file: data '%s' instruction %d length %d\n", (char*)transmit_buffer, instruction, total_length);
         volatile HAL_StatusTypeDef status;
-        slave_select();
+                slave_select();
         start_waiting_for_slave_ready();
         status = HAL_SPI_Transmit(m_device_handle, &command, 1, 5000); // send command
         if(!wait_for_slave_ready(1000)) goto error;
@@ -224,7 +218,7 @@ uint8_t sd_write_data_to_file(const char *data){
         memcpy(&transmit_buffer[0], data, total_length); // include string terminator
 
         HAL_StatusTypeDef status;
-        slave_select();
+                slave_select();
         start_waiting_for_slave_ready();
         status = HAL_SPI_Transmit(m_device_handle, &command, 1, 5000); // send command
         if(!wait_for_slave_ready(1000)) goto error;
@@ -262,7 +256,7 @@ uint8_t sd_read_data_from_file(){
         uint8_t response[1];
 
         HAL_StatusTypeDef status;
-        slave_select();
+                slave_select();
         start_waiting_for_slave_ready();
         status = HAL_SPI_Transmit(m_device_handle, &command, 1, 5000);
         if(!wait_for_slave_ready(1000)) goto error;
