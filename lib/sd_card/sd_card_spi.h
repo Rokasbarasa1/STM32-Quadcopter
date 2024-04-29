@@ -74,4 +74,7 @@ uint8_t sd_special_reset();
 uint8_t sd_special_write_chunk_of_data(const char *data);
 uint8_t sd_special_enter_async_mode();
 uint8_t sd_special_leave_async_mode();
+uint8_t sd_special_write_chunk_of_data_no_slave_response(const char *data);
 uint8_t sd_special_write_chunk_of_data_async(const char *data);
+void sd_special_wait_until_async_write_done();
+void sd_buffer_swap();

@@ -13,6 +13,7 @@ TIM_HandleTypeDef htim2;
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 DMA_HandleTypeDef hdma_usart2_rx;
+DMA_HandleTypeDef hdma_spi3_tx;
 
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
@@ -282,7 +283,7 @@ double added_pitch_roll_gain_d = 0;
 
 // remember that the stm32 is not as fast as the esp32 and it cannot print lines at the same speed
 // const float refresh_rate_hz = 400;
-#define REFRESH_RATE_HZ 200
+#define REFRESH_RATE_HZ 250
 
 // Sensor stuff ##############################################################################################
 float complementary_ratio = 1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ)); // Depends on how often the loop runs. 1 second / (1 second + one loop time)
@@ -349,6 +350,8 @@ uint8_t time_since_startup_minutes = 0;
 uint8_t time_since_startup_seconds = 0;
 uint8_t time_since_startup_hours = 0;
 
+const uint8_t use_simple_async = 0;
+
 int main(void){
     init_STM32_peripherals();
 
@@ -379,11 +382,31 @@ int main(void){
     }else{
         printf("Failed to initialize the sd card interface\n");
     }
+
+    // if(sd_card_async){
+    //     // Reinitialize the slave ready pin 
+        
+    //     GPIO_InitTypeDef GPIO_InitStruct = {0};
+    //     GPIO_InitStruct.Pin = GPIO_PIN_12;
+    //     GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+    //     GPIO_InitStruct.Pull = GPIO_NOPULL;
+    //     HAL_GPIO_DeInit(GPIOA, GPIO_PIN_12);
+
+    //     GPIO_InitStruct.Pin = GPIO_PIN_12;
+    //     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    //     GPIO_InitStruct.Pull = GPIO_NOPULL;
+    //     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+
+    //     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+        
+    // }
     
     printf("Looping\n");
     init_loop_timer();
     startup_time = HAL_GetTick();
     while (1){
+        // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, 0);
+
         // printf("Loop ");
         
         // Gathering data from sensors and transforming it: 2 ms at most
@@ -654,6 +677,7 @@ int main(void){
         time_since_startup_seconds = (delta_time - time_since_startup_hours * 3600000 - time_since_startup_minutes * 60000) / 1000;
         time_since_startup_ms = delta_time - time_since_startup_hours * 3600000 - time_since_startup_minutes * 60000 - time_since_startup_seconds * 1000;
 
+
         // Print out for debugging
         // printf("%d:%02d:%02d:%03d;", time_since_startup_hours, time_since_startup_minutes, time_since_startup_seconds, time_since_startup_ms);
         // printf("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
@@ -670,6 +694,7 @@ int main(void){
         // printf("\n");
 
         if(sd_card_initialized){
+
             // Log a bit of data
             sd_card_append_to_buffer(1, "%02d:%02d:%02d:%03d;", time_since_startup_hours, time_since_startup_minutes, time_since_startup_seconds, time_since_startup_ms);
             // sd_card_append_to_buffer(1, "ACCEL,%.2f,%.2f,%.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
@@ -686,15 +711,21 @@ int main(void){
 
         if(sd_card_initialized && log_loop_count > 0){
             // Get the buffer pointer send it to the sd writer
-            
+            // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, 1);
             if(sd_card_async){
-                sd_special_write_chunk_of_data_async(sd_card_get_buffer_pointer(1));
+                if(use_simple_async){
+                    sd_special_write_chunk_of_data_no_slave_response(sd_card_get_buffer_pointer(1));
+                    sd_buffer_clear(1);
+                }else{
+                    sd_special_write_chunk_of_data_async(sd_card_get_buffer_pointer(1));
+                    sd_buffer_swap();
+                    sd_buffer_clear(1);
+                }
             }else{
                 sd_card_initialized = sd_special_write_chunk_of_data(sd_card_get_buffer_pointer(1));
             }
             
             // Clear the local buffer of data
-            sd_buffer_clear(1);
             log_loop_count = 0;
         }
 
@@ -707,7 +738,7 @@ int main(void){
 
         fix_gyro_axis(gyro_degrees); // switch back the x and y axis of gyro to how they were before. This is for sensor fusion not to be confused 
 
-        handle_loop_timing();
+        // handle_loop_timing();
     }
 }
 
@@ -854,19 +885,17 @@ void handle_loop_timing(){
     loop_end_time = HAL_GetTick();
     delta_loop_time = loop_end_time - loop_start_time;
 
-    printf("Tb: %dms ", delta_loop_time);
+    printf("b%d", delta_loop_time);
     
-    int time_to_wait = (1000 / REFRESH_RATE_HZ) - delta_loop_time;
-    if (time_to_wait > 0)
-    {
-        HAL_Delay(time_to_wait);
-    }
+    // This one is more precise than using HAL_Delay
+    while((1000 / REFRESH_RATE_HZ) > HAL_GetTick()-loop_start_time);
+
+    uint32_t temp_loop_start_time = loop_start_time;
+    loop_start_time = HAL_GetTick();
 
     loop_end_time = HAL_GetTick();
-    delta_loop_time = loop_end_time - loop_start_time;
-    printf("Ta: %dms\n", delta_loop_time);
-
-    loop_start_time = HAL_GetTick();
+    delta_loop_time = loop_end_time - temp_loop_start_time;
+    printf("a%d\n", delta_loop_time);
 }
 
 // 0.5ms to 2ms = range is 1.5
@@ -1618,6 +1647,9 @@ static void MX_DMA_Init(void)
   /* DMA1_Stream5_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
+  /* DMA1_Stream7_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream7_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream7_IRQn);
 
 }
 
