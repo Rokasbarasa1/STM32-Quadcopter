@@ -383,29 +383,29 @@ int main(void){
         printf("Failed to initialize the sd card interface\n");
     }
 
-    if(sd_card_async){
-        // Reinitialize the slave ready pin 
+    // if(sd_card_async){
+    //     // Reinitialize the slave ready pin 
         
-        GPIO_InitTypeDef GPIO_InitStruct = {0};
-        GPIO_InitStruct.Pin = GPIO_PIN_12;
-        GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-        GPIO_InitStruct.Pull = GPIO_NOPULL;
-        HAL_GPIO_DeInit(GPIOA, GPIO_PIN_12);
+    //     GPIO_InitTypeDef GPIO_InitStruct = {0};
+    //     GPIO_InitStruct.Pin = GPIO_PIN_12;
+    //     GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+    //     GPIO_InitStruct.Pull = GPIO_NOPULL;
+    //     HAL_GPIO_DeInit(GPIOA, GPIO_PIN_12);
 
-        GPIO_InitStruct.Pin = GPIO_PIN_12;
-        GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-        GPIO_InitStruct.Pull = GPIO_NOPULL;
-        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    //     GPIO_InitStruct.Pin = GPIO_PIN_12;
+    //     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    //     GPIO_InitStruct.Pull = GPIO_NOPULL;
+    //     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
 
-        HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+    //     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
         
-    }
+    // }
     
     printf("Looping\n");
     init_loop_timer();
     startup_time = HAL_GetTick();
     while (1){
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, 0);
+        // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, 0);
 
         // printf("Loop ");
         
@@ -711,7 +711,7 @@ int main(void){
 
         if(sd_card_initialized && log_loop_count > 0){
             // Get the buffer pointer send it to the sd writer
-            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, 1);
+            // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, 1);
             if(sd_card_async){
                 if(use_simple_async){
                     sd_special_write_chunk_of_data_no_slave_response(sd_card_get_buffer_pointer(1));
