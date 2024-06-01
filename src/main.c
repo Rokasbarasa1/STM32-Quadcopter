@@ -43,7 +43,7 @@ static void MX_TIM2_Init(void);
 #include "../lib/nrf24l01/nrf24l01.h"
 // #include "../lib/sd_card/sd_card.h"
 #include "../lib/sd_card/sd_card_spi.h"
-
+#include "../lib/betaflight_blackbox_wrapper/betaflight_blackbox_wrapper.h"
 
 // Other imports
 #include "../lib/utils/ned_coordinates/ned_coordinates.h"
@@ -54,9 +54,9 @@ void calibrate_escs();
 void fix_mag_axis(float *magnetometer_data);
 void fix_gyro_axis(float *accelerometer_data_temp);
 uint16_t setServoActivationPercent(float percent, uint16_t minValue, uint16_t maxValue);
-double mapValue(double value, double input_min, double input_max, double output_min, double output_max);
+float mapValue(float value, float input_min, float input_max, float output_min, float output_max);
 void extract_request_values(char *request, uint8_t request_size, uint8_t *throttle, uint8_t *yaw, uint8_t *pitch, uint8_t *roll);
-double get_sensor_fusion_altitude(double gps_altitude, double barometer_altitude);
+float get_sensor_fusion_altitude(float gps_altitude, float barometer_altitude);
 u_int8_t init_sensors();
 void init_loop_timer();
 void check_calibrations();
@@ -67,13 +67,13 @@ void handle_loop_timing();
 void extract_joystick_request_values_uint(char *request, uint8_t request_size, uint8_t *throttle, uint8_t *yaw, uint8_t *roll, uint8_t *pitch);
 void extract_joystick_request_values_float(char *request, uint8_t request_size, float *throttle, float *yaw, float *roll, float *pitch);
 void extract_request_type(char *request, uint8_t request_size, char *type_output);
-void extract_pid_request_values(char *request, uint8_t request_size, double *added_proportional, double *added_integral, double *added_derivative, double *added_master);
+void extract_pid_request_values(char *request, uint8_t request_size, float *added_proportional, float *added_integral, float *added_derivative, float *added_master);
 void track_time();
-double map_value(double value, double input_min, double input_max, double output_min, double output_max);
-double apply_dead_zone(double value, double max_value, double min_value, double dead_zone);
+float map_value(float value, float input_min, float input_max, float output_min, float output_max);
+float apply_dead_zone(float value, float max_value, float min_value, float dead_zone);
 void send_pid_base_info_to_remote();
 void send_pid_added_info_to_remote();
-char* generate_message_pid_values_nrf24(double base_proportional, double base_integral, double base_derivative, double base_master);
+char* generate_message_pid_values_nrf24(float base_proportional, float base_integral, float base_derivative, float base_master);
 
 // PWM pins
 // PA8  - 1 TIM1
@@ -91,17 +91,25 @@ char* generate_message_pid_values_nrf24(double base_proportional, double base_in
 // PB7  I2C1 SDA
 // PB6  I2C1 SCL
 
-// SPI pins
-// PA5  SPI1 SCK
-// PA6  SPI1 MISO
-// PA7  SPI1 MOSI
-
 // GPIO
 // PC13 Internal LED
 // PB5  SPI RADIO
 // PB4  SPI RADIO
 // PA12 LED
 
+// SPI1 SD card logger
+// PB5 MOSI
+// PB4 MISO
+// PB3 SCK
+// PA15 CS
+// PA12 Slave ready. Falling interrupt
+
+// SPI3 Radio module
+// PA5 SCK
+// PA6 MISO
+// PA7 MOSI
+// PB1 CS 
+// PB0 CE
 
 /**
  * Timer peripheral clock: 50000000Hz
@@ -228,34 +236,23 @@ char rx_data[32];
 char rx_type[32];
 
 // PID errors ##############################################################################################
-double error_pitch = 0;
-double error_roll = 0;
-double error_yaw = 0;
-double error_altitude = 0;
+float error_pitch = 0;
+float error_roll = 0;
+float error_yaw = 0;
+float error_altitude = 0;
 
 // Actual PID adjustment for pitch
-// const double base_pitch_master_gain = 1.0;
-// const double base_pitch_gain_p = 0.0; // 0.35
-// const double base_pitch_gain_i = 0.0; // 0.0
-// const double base_pitch_gain_d = 0.0; // 130.0
 #define BASE_PITCH_ROLL_MASTER_GAIN 0.4
-#define BASE_PITCH_ROLL_GAIN_P 0.0
-#define BASE_PITCH_ROLL_GAIN_I 0.0
-#define BASE_PITCH_ROLL_GAIN_D 0.0
+#define BASE_PITCH_ROLL_GAIN_P 1.0 // 0.35
+#define BASE_PITCH_ROLL_GAIN_I 1.0 // 0.0
+#define BASE_PITCH_ROLL_GAIN_D 1.0 // 130.0
 
-// Before idle motors
-// const double gain_p = 0.41; 
-// const double gain_i = 0.1;
-// const double gain_d = 0.0;
 
 // Notes for PID
 // 1) It is important that the natural state without power of the drone is not stable, otherwise 
 // some offset of center off mass or pid desired point needs to introduced
 // 2) Remember that the drone when in the air has motors spinning at idle power, just enough 
 // to float in the air. If you are testing with drone constrained add a base motor speed to account for this.
-
-
-// With quadcopter got 1.4 on P and it balanced for a bit but still wobbly
 
 // PID for yaw
 const float yaw_gain_p = 0.0; 
@@ -269,21 +266,21 @@ const float altitude_gain_d = 0.0;
 
 // Used for smooth changes to PID while using remote control. Do not touch this
 
-double pitch_roll_master_gain = BASE_PITCH_ROLL_MASTER_GAIN; // Dont you just love the STM#2 compiler?
-double pitch_roll_gain_p = BASE_PITCH_ROLL_GAIN_P;
-double pitch_roll_gain_i = BASE_PITCH_ROLL_GAIN_I;
-double pitch_roll_gain_d = BASE_PITCH_ROLL_GAIN_D;
+float pitch_roll_master_gain = BASE_PITCH_ROLL_MASTER_GAIN; // Dont you just love the STM#2 compiler?
+float pitch_roll_gain_p = BASE_PITCH_ROLL_GAIN_P;
+float pitch_roll_gain_i = BASE_PITCH_ROLL_GAIN_I;
+float pitch_roll_gain_d = BASE_PITCH_ROLL_GAIN_D;
 
-double added_pitch_roll_master_gain = 0;
-double added_pitch_roll_gain_p = 0;
-double added_pitch_roll_gain_i = 0;
-double added_pitch_roll_gain_d = 0;
+float added_pitch_roll_master_gain = 0;
+float added_pitch_roll_gain_p = 0;
+float added_pitch_roll_gain_i = 0;
+float added_pitch_roll_gain_d = 0;
 
 // Refresh rate ##############################################################################################
 
 // remember that the stm32 is not as fast as the esp32 and it cannot print lines at the same speed
 // const float refresh_rate_hz = 400;
-#define REFRESH_RATE_HZ 250
+#define REFRESH_RATE_HZ 200
 
 // Sensor stuff ##############################################################################################
 float complementary_ratio = 1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ)); // Depends on how often the loop runs. 1 second / (1 second + one loop time)
@@ -291,27 +288,27 @@ float acceleration_data[] = {0,0,0};
 float gyro_angular[] = {0,0,0};
 float gyro_degrees[] = {0,0,0};
 float magnetometer_data[] = {0,0,0};
-double gps_longitude = 0.0;
-double gps_latitude = 0.0;
+float gps_longitude = 0.0;
+float gps_latitude = 0.0;
 float pressure = 0.0;
 float temperature = 0.0;
 float altitude = 0.0;
 
-double target_pitch = 0.0;
-double target_roll = 0.0;
-double target_yaw = 0.0;
-double target_altitude = 0.0;
+float target_pitch = 0.0;
+float target_roll = 0.0;
+float target_yaw = 0.0;
+float target_altitude = 0.0;
 
-double motor_power[] = {0.0, 0.0, 0.0, 0.0};
+float motor_power[] = {0.0, 0.0, 0.0, 0.0};
 
 
 // Remote control settings ############################################################################################
-double max_yaw_attack = 20.0;
-double max_pitch_attack = 10;
-double pitch_attack_step = 0.1;
+float max_yaw_attack = 20.0;
+float max_pitch_attack = 10;
+float pitch_attack_step = 0.1;
 
-double max_roll_attack = 10;
-double roll_attack_step = 0.1;
+float max_roll_attack = 10;
+float roll_attack_step = 0.1;
 
 // uint8_t throttle = 0;
 // uint8_t yaw = 50;
@@ -328,8 +325,8 @@ float roll = 50.0;
 uint8_t shit_encoder_mode = 0;
 uint8_t slowing_lock = 0;
 
-double last_raw_yaw = 0;
-double delta_yaw = 0;
+float last_raw_yaw = 0;
+float delta_yaw = 0;
 
 float minimum_signal_timing_seconds = 0.2; // Seconds
 uint32_t last_signal_timestamp = 0;
@@ -337,9 +334,12 @@ uint32_t last_signal_timestamp = 0;
 
 // For deciding which log file to log to
 char log_file_base_name[] = "Quadcopter.txt";
+char log_file_blackbox_base_name[] = "Quadcopter.BBL";
 uint8_t sd_card_initialized = 0;
 uint8_t log_loop_count = 0;
 uint8_t sd_card_async = 0;
+const uint8_t use_simple_async = 0;
+const uint8_t use_blackbox_logging = 1;
 
 
 // Keep track of time in each loop. Since loop start
@@ -350,7 +350,27 @@ uint8_t time_since_startup_minutes = 0;
 uint8_t time_since_startup_seconds = 0;
 uint8_t time_since_startup_hours = 0;
 
-const uint8_t use_simple_async = 0;
+
+// Stuff that is needed blackbox logging 
+uint32_t loop_iteration = 1;
+float PID_proportional[3];
+float PID_integral[3];
+float PID_derivative[2];
+float PID_feed_forward[3];
+
+float PID_set_points[4];
+
+float remote_control[4];
+
+void blink(uint8_t times, uint16_t time_interval, uint16_t light_up_time){
+
+    for(uint16_t i = 0; i < times; i++){
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+        HAL_Delay(light_up_time);
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+        HAL_Delay(time_interval);
+    }
+}
 
 int main(void){
     init_STM32_peripherals();
@@ -375,32 +395,71 @@ int main(void){
     // Initialize sd card logging
     sd_card_initialize_spi(&hspi3, GPIOA, GPIO_PIN_15, GPIOA, GPIO_PIN_12);
     if(sd_test_interface()){
-        sd_card_initialized = sd_special_initialize(log_file_base_name);
-        if(sd_card_initialized){
-            sd_card_async = sd_special_enter_async_mode();
+        if(use_blackbox_logging){
+            sd_card_initialized = sd_special_initialize(log_file_blackbox_base_name);
+            printf("SD logging: Initialized blackbox logging\n");
+        }else{
+            sd_card_initialized = sd_special_initialize(log_file_base_name);
+            printf("SD logging: Initialized txt logging\n");
         }
+
+        if(sd_card_initialized){
+            if(use_blackbox_logging){
+                sd_card_async = sd_special_enter_async_byte_mode();
+                printf("SD logging: entered async byte mode\n");
+            }else{
+                sd_card_async = sd_special_enter_async_string_mode();
+                printf("SD logging: entered async string mode\n");
+            }
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+            HAL_Delay(250);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+            HAL_Delay(250);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+            HAL_Delay(250);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+            HAL_Delay(250);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+            HAL_Delay(250);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+            HAL_Delay(250);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+            HAL_Delay(250);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+            HAL_Delay(250);
+        }
+
     }else{
         printf("Failed to initialize the sd card interface\n");
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+        HAL_Delay(1000);
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+        HAL_Delay(1000);
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+        HAL_Delay(1000);
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+        HAL_Delay(1000);
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+        HAL_Delay(1000);
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+        HAL_Delay(1000);
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+        HAL_Delay(1000);
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+        HAL_Delay(1000);
     }
 
-    // if(sd_card_async){
-    //     // Reinitialize the slave ready pin 
-        
-    //     GPIO_InitTypeDef GPIO_InitStruct = {0};
-    //     GPIO_InitStruct.Pin = GPIO_PIN_12;
-    //     GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-    //     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    //     HAL_GPIO_DeInit(GPIOA, GPIO_PIN_12);
+    if(use_blackbox_logging && sd_card_initialized){
+        uint16_t betaflight_header_length = 0;
+        char* betaflight_header = betaflight_blackbox_wrapper_get_header(min_esc_pwm_value, actual_max_esc_pwm_value, &betaflight_header_length);
+        HAL_Delay(100); // wait a bit for it to sort its shit out
+        sd_special_write_chunk_of_byte_data_no_slave_response(betaflight_header, betaflight_header_length);
+        free(betaflight_header);
+        HAL_Delay(500); // wait a bit for it to sort its shit out
+        printf("SD logging: sent blackbox header\n");
+    }
 
-    //     GPIO_InitStruct.Pin = GPIO_PIN_12;
-    //     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-    //     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    //     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-
-    //     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-        
-    // }
-    
+    altitude = 10;
     printf("Looping\n");
     init_loop_timer();
     startup_time = HAL_GetTick();
@@ -420,7 +479,7 @@ int main(void){
         // So the barometer keeps track in between the gps updates and does so with the 
         // origin of the precise altitude value from gps
 
-        // altitude = get_sensor_fusion_altitude(bn357_get_altitude_meters() ,(double)bmp280_get_height_meters_from_reference(bn357_get_status_up_to_date(1)));
+        // altitude = get_sensor_fusion_altitude(bn357_get_altitude_meters() ,(float)bmp280_get_height_meters_from_reference(bn357_get_status_up_to_date(1)));
 
 
         mpu6050_get_accelerometer_readings_gravity(acceleration_data);
@@ -475,6 +534,11 @@ int main(void){
                 // extract_joystick_request_values_uint(rx_data, strlen(rx_data), &throttle, &yaw, &roll, &pitch);
                 extract_joystick_request_values_float(rx_data, strlen(rx_data), &throttle, &yaw, &roll, &pitch);
 
+                // For the blackbox log
+                remote_control[0] = roll-50;
+                remote_control[1] = pitch-50;
+                remote_control[2] = yaw-50;
+                remote_control[3] = throttle+100;
 
                 // Throttle does not need to be handled
 
@@ -575,10 +639,10 @@ int main(void){
             }else if(strcmp(rx_type, "pid") == 0){
                 printf("\nGot pid");
 
-                double added_proportional = 0;
-                double added_integral = 0;
-                double added_derivative = 0;
-                double added_master_gain = 0;
+                float added_proportional = 0;
+                float added_integral = 0;
+                float added_derivative = 0;
+                float added_master_gain = 0;
 
                 extract_pid_request_values(rx_data, strlen(rx_data), &added_proportional, &added_integral, &added_derivative, &added_master_gain);
 
@@ -615,7 +679,7 @@ int main(void){
             rx_type[0] = '\0'; // Clear out the string by setting its first char to string terminator
         }
 
-        // double error_altitude = mapValue(pid_get_error(&altitude_pid, altitude, HAL_GetTick()), -180.0, 180.0, -100.0, 100.0);
+        // float error_altitude = mapValue(pid_get_error(&altitude_pid, altitude, HAL_GetTick()), -180.0, 180.0, -100.0, 100.0);
         // printf("Altitude error %6.2f ", error_altitude);
         
         // For the robot to do work it needs to be receiving radio signals and at the correct angles, facing up
@@ -624,18 +688,34 @@ int main(void){
             gyro_degrees[0] > -30 && 
             gyro_degrees[1] <  30 && 
             gyro_degrees[1] > -30 && 
-            ((double)HAL_GetTick() - (double)last_signal_timestamp) / 1000.0 <= minimum_signal_timing_seconds
+            ((float)HAL_GetTick() - (float)last_signal_timestamp) / 1000.0 <= minimum_signal_timing_seconds
         ){
-            // pid_set_desired_value(&pitch_pid, target_pitch);
-            // pid_set_desired_value(&roll_pid, target_roll);
+            pid_set_desired_value(&pitch_pid, target_pitch);
+            pid_set_desired_value(&roll_pid, target_roll);
             // pid_set_desired_value(&yaw_pid, target_yaw);
             // pid_set_desired_value(&altitude_pid, target_altitude);
+
+            PID_set_points[0] = target_pitch;
+            PID_set_points[1] = target_roll;
+            PID_set_points[2] = target_yaw;
 
             // pitch is facing to the sides
             // roll is facing forwards and backwards
             error_pitch = pid_get_error(&pitch_pid, gyro_degrees[0], HAL_GetTick());
+            PID_proportional[0] = pid_get_last_proportional_error(&pitch_pid);
+            PID_integral[0] = pid_get_last_integral_error(&pitch_pid);
+            PID_derivative[0] = pid_get_last_derivative_error(&pitch_pid);
+
             error_roll = pid_get_error(&roll_pid, gyro_degrees[1], HAL_GetTick());
-            // error_yaw = pid_get_error(&roll_pid, gyro_degrees[2], HAL_GetTick());
+            PID_proportional[1] = pid_get_last_proportional_error(&roll_pid);
+            PID_integral[1] = pid_get_last_integral_error(&roll_pid);
+            PID_derivative[1] = pid_get_last_derivative_error(&roll_pid);
+            
+            // error_yaw = pid_get_error(&yaw_pid, gyro_degrees[2], HAL_GetTick());
+            PID_proportional[2] = pid_get_last_proportional_error(&yaw_pid);
+            PID_integral[2] = pid_get_last_integral_error(&yaw_pid);
+            // PID_derivative[2] = pid_get_last_derivative_error(&yaw_pid);
+
             // error_altitude = pid_get_error(&roll_pid, altitude, HAL_GetTick());
 
             error_altitude = throttle*0.9;
@@ -659,7 +739,12 @@ int main(void){
             // No gps side
             TIM1->CCR1 = setServoActivationPercent(motor_power[0], min_esc_pwm_value, actual_max_esc_pwm_value);
             TIM1->CCR4 = setServoActivationPercent(motor_power[1], min_esc_pwm_value, actual_max_esc_pwm_value);
-            // printf("1 %f\n", throttle);
+            
+            // For logging
+            motor_power[0] = setServoActivationPercent(motor_power[0], min_esc_pwm_value, actual_max_esc_pwm_value);
+            motor_power[1] = setServoActivationPercent(motor_power[1], min_esc_pwm_value, actual_max_esc_pwm_value);
+            motor_power[2] = setServoActivationPercent(motor_power[2], min_esc_pwm_value, actual_max_esc_pwm_value);
+            motor_power[3] = setServoActivationPercent(motor_power[3], min_esc_pwm_value, actual_max_esc_pwm_value);
         }else{
             // GPS side
             TIM2->CCR1 = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
@@ -668,7 +753,28 @@ int main(void){
             // No gps side
             TIM1->CCR1 = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
             TIM1->CCR4 = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
-            // printf("0\n");
+            
+            // Reset the remote control set points also
+            remote_control[0] = 0;
+            remote_control[1] = 50;
+            remote_control[2] = 50;
+            remote_control[3] = 50;
+
+            motor_power[0] = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
+            motor_power[1] = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
+            motor_power[2] = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
+            motor_power[3] = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
+
+            PID_proportional[0] = 0;
+            PID_proportional[1] = 0;
+            PID_proportional[2] = 0;
+
+            PID_integral[0] = 0;
+            PID_integral[1] = 0;
+            PID_integral[2] = 0;
+
+            PID_derivative[0] = 0;
+            PID_derivative[1] = 0;
         }
 
         delta_time = HAL_GetTick() - startup_time;
@@ -677,6 +783,7 @@ int main(void){
         time_since_startup_seconds = (delta_time - time_since_startup_hours * 3600000 - time_since_startup_minutes * 60000) / 1000;
         time_since_startup_ms = delta_time - time_since_startup_hours * 3600000 - time_since_startup_minutes * 60000 - time_since_startup_seconds * 1000;
 
+        uint32_t time_blackbox = ((time_since_startup_hours * 60 + time_since_startup_minutes * 60) + time_since_startup_seconds) * 1000000 + time_since_startup_ms * 1000; 
 
         // Print out for debugging
         // printf("%d:%02d:%02d:%03d;", time_since_startup_hours, time_since_startup_minutes, time_since_startup_seconds, time_since_startup_ms);
@@ -693,40 +800,69 @@ int main(void){
         // printf("%6.5f %6.5f %6.5f", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);  
         // printf("\n");
 
+        uint16_t data_size = 0;
+
         if(sd_card_initialized){
-
-            // Log a bit of data
-            sd_card_append_to_buffer(1, "%02d:%02d:%02d:%03d;", time_since_startup_hours, time_since_startup_minutes, time_since_startup_seconds, time_since_startup_ms);
-            // sd_card_append_to_buffer(1, "ACCEL,%.2f,%.2f,%.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
-            sd_card_append_to_buffer(1, "GYRO,%.2f,%.2f,%.2f;", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
-            // sd_card_append_to_buffer(1, "MAG,%.2f,%.2f,%.2f;", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
-            sd_card_append_to_buffer(1, "MOTOR,1=%.2f,2=%.2f,3=%.2f,4=%.2f;", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
-            sd_card_append_to_buffer(1, "ERROR,pitch=%.2f,roll=%.2f,yaw=%.2f,altitude=%.2f;", error_pitch, error_roll, error_yaw, error_altitude);
-            // sd_card_append_to_buffer(1, "TEMP,%.2f;", temperature);
-            // sd_card_append_to_buffer(1, "ALT %.2f;", altitude);
-            // sd_card_append_to_buffer(1, "GPS,lon-%f,lat-%f;", gps_longitude, gps_latitude);
-            sd_card_append_to_buffer(1, "\n");
-            log_loop_count++;
-        }
-
-        if(sd_card_initialized && log_loop_count > 0){
-            // Get the buffer pointer send it to the sd writer
-            // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, 1);
-            if(sd_card_async){
-                if(use_simple_async){
-                    sd_special_write_chunk_of_data_no_slave_response(sd_card_get_buffer_pointer(1));
-                    sd_buffer_clear(1);
-                }else{
-                    sd_special_write_chunk_of_data_async(sd_card_get_buffer_pointer(1));
-                    sd_buffer_swap();
-                    sd_buffer_clear(1);
+            if(use_blackbox_logging){
+                char* betaflight_data_string = betaflight_blackbox_get_encoded_data_string(
+                    loop_iteration,
+                    time_blackbox,
+                    PID_proportional,
+                    PID_integral,
+                    PID_derivative,
+                    PID_feed_forward,
+                    remote_control,
+                    PID_set_points,
+                    gyro_angular,
+                    acceleration_data,
+                    motor_power,
+                    magnetometer_data,
+                    gyro_degrees,
+                    altitude,
+                    &data_size
+                );
+                char* sd_card_buffer = sd_card_get_buffer_pointer(1);
+                for(uint16_t i = 0; i< data_size; i++){
+                    sd_card_buffer[i] = betaflight_data_string[i];
+                    sd_card_buffer_increment_index();
                 }
+                free(betaflight_data_string);
             }else{
-                sd_card_initialized = sd_special_write_chunk_of_data(sd_card_get_buffer_pointer(1));
+                // Log a bit of data
+                sd_card_append_to_buffer(1, "%02d:%02d:%02d:%03d;", time_since_startup_hours, time_since_startup_minutes, time_since_startup_seconds, time_since_startup_ms);
+                // sd_card_append_to_buffer(1, "ACCEL,%.2f,%.2f,%.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+                sd_card_append_to_buffer(1, "GYRO,%.2f,%.2f,%.2f;", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
+                // sd_card_append_to_buffer(1, "MAG,%.2f,%.2f,%.2f;", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
+                sd_card_append_to_buffer(1, "MOTOR,1=%.2f,2=%.2f,3=%.2f,4=%.2f;", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
+                sd_card_append_to_buffer(1, "ERROR,pitch=%.2f,roll=%.2f,yaw=%.2f,altitude=%.2f;", error_pitch, error_roll, error_yaw, error_altitude);
+                // sd_card_append_to_buffer(1, "TEMP,%.2f;", temperature);
+                // sd_card_append_to_buffer(1, "ALT %.2f;", altitude);
+                // sd_card_append_to_buffer(1, "GPS,lon-%f,lat-%f;", gps_longitude, gps_latitude);
+                // sd_card_append_to_buffer(1, "\n");
             }
             
-            // Clear the local buffer of data
-            log_loop_count = 0;
+            if(sd_card_async){
+                if(use_simple_async){
+                    sd_special_write_chunk_of_string_data_no_slave_response(sd_card_get_buffer_pointer(1));
+                    sd_buffer_clear(1);
+                }else{
+                    if(use_blackbox_logging){
+                        sd_special_write_chunk_of_byte_data_async(sd_card_get_buffer_pointer(1), data_size);
+                        sd_buffer_swap();
+                        sd_buffer_clear(1);
+                    }else{
+                        sd_special_write_chunk_of_string_data_async(sd_card_get_buffer_pointer(1));
+                        sd_buffer_swap();
+                        sd_buffer_clear(1);
+                    }
+                }
+            }else{
+                if(use_blackbox_logging){
+                    sd_card_initialized = sd_special_write_chunk_of_byte_data(sd_card_get_buffer_pointer(1), data_size);
+                }else{
+                    sd_card_initialized = sd_special_write_chunk_of_string_data(sd_card_get_buffer_pointer(1));
+                }
+            }
         }
 
         // Update the blue led with current sd state
@@ -738,7 +874,8 @@ int main(void){
 
         fix_gyro_axis(gyro_degrees); // switch back the x and y axis of gyro to how they were before. This is for sensor fusion not to be confused 
 
-        // handle_loop_timing();
+        loop_iteration++;
+        handle_loop_timing();
     }
 }
 
@@ -759,7 +896,6 @@ void init_STM32_peripherals(){
     MX_USART2_UART_Init();
     MX_USART1_UART_Init();
     RetargetInit(&huart1);
-    // MX_FATFS_Init();
 
     HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
     HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
@@ -769,7 +905,6 @@ void init_STM32_peripherals(){
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
-    // HAL_UART_RegisterCallback(&huart2, HAL_UART_ERROR_CB_ID, HAL_UART_ErrorCallback);
 
     HAL_UARTEx_ReceiveToIdle_DMA(&huart2, receive_buffer, GPS_RECEIVE_BUFFER_SIZE);
     __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
@@ -885,7 +1020,7 @@ void handle_loop_timing(){
     loop_end_time = HAL_GetTick();
     delta_loop_time = loop_end_time - loop_start_time;
 
-    printf("b%d", delta_loop_time);
+    // printf("b%d", delta_loop_time);
     
     // This one is more precise than using HAL_Delay
     while((1000 / REFRESH_RATE_HZ) > HAL_GetTick()-loop_start_time);
@@ -895,7 +1030,7 @@ void handle_loop_timing(){
 
     loop_end_time = HAL_GetTick();
     delta_loop_time = loop_end_time - temp_loop_start_time;
-    printf("a%d\n", delta_loop_time);
+    // printf("a%d\n", delta_loop_time);
 }
 
 // 0.5ms to 2ms = range is 1.5
@@ -916,24 +1051,24 @@ uint16_t setServoActivationPercent(float percent, uint16_t minValue, uint16_t ma
     return percent * (maxValue - minValue) + minValue;
 }
 
-double mapValue(double value, double input_min, double input_max, double output_min, double output_max) {
+float mapValue(float value, float input_min, float input_max, float output_min, float output_max) {
     // Calculate the input and output ranges' lengths
-    double input_range = input_max - input_min;
-    double output_range = output_max - output_min;
+    float input_range = input_max - input_min;
+    float output_range = output_max - output_min;
 
     // Normalize the input value relative to the input range
-    double normalized_value = (value - input_min) / input_range;
+    float normalized_value = (value - input_min) / input_range;
 
 // Scale the normalized value according to the output range
-    double scaled_value = normalized_value * output_range;
+    float scaled_value = normalized_value * output_range;
 
     // Add the output range's minimum value to the scaled value
-    double output_value = output_min + scaled_value;
+    float output_value = output_min + scaled_value;
 
     return output_value;
 }
 
-double get_sensor_fusion_altitude(double gps_altitude, double barometer_altitude){
+float get_sensor_fusion_altitude(float gps_altitude, float barometer_altitude){
     return gps_altitude + barometer_altitude;
 }
 
@@ -1069,7 +1204,7 @@ void extract_request_type(char *request, uint8_t request_size, char *type_output
 }
 
 // Extract the values form a slash separated stirng into specific variables for pid control parameters 
-void extract_pid_request_values(char *request, uint8_t request_size, double *added_proportional, double *added_integral, double *added_derivative, double *added_master){
+void extract_pid_request_values(char *request, uint8_t request_size, float *added_proportional, float *added_integral, float *added_derivative, float *added_master){
     // Skip the request type
     char* start = strchr(request, '/') + 1;
     char* end = strchr(start, '/');
@@ -1123,32 +1258,32 @@ void track_time(){
 }
 
 // Map value from a specified range to a new range
-double map_value(double value, double input_min, double input_max, double output_min, double output_max) {
+float map_value(float value, float input_min, float input_max, float output_min, float output_max) {
     // Calculate the input and output ranges' lengths
-    double input_range = input_max - input_min;
-    double output_range = output_max - output_min;
+    float input_range = input_max - input_min;
+    float output_range = output_max - output_min;
 
     // Normalize the input value relative to the input range
-    double normalized_value = (value - input_min) / input_range;
+    float normalized_value = (value - input_min) / input_range;
 
     // Scale the normalized value according to the output range
-    double scaled_value = normalized_value * output_range;
+    float scaled_value = normalized_value * output_range;
 
     // Add the output range's minimum value to the scaled value
-    double output_value = output_min + scaled_value;
+    float output_value = output_min + scaled_value;
 
     return output_value;
 }
 
 // Apply a dead zone to a value 
-double apply_dead_zone(double value, double max_value, double min_value, double dead_zone){
-    double mid_point = (max_value + min_value) / 2;
-    double half_range = (max_value - min_value) / 2;
-    double normalized_value = (value - mid_point) / half_range; // this will be -1 at min_value, +1 at max_value
+float apply_dead_zone(float value, float max_value, float min_value, float dead_zone){
+    float mid_point = (max_value + min_value) / 2;
+    float half_range = (max_value - min_value) / 2;
+    float normalized_value = (value - mid_point) / half_range; // this will be -1 at min_value, +1 at max_value
 
-    double dead_zone_normalized = dead_zone / half_range;
+    float dead_zone_normalized = dead_zone / half_range;
 
-    double return_value;
+    float return_value;
 
     // remove the deadzone
     if (normalized_value > dead_zone_normalized) {
@@ -1219,7 +1354,7 @@ void send_pid_added_info_to_remote(){
     nrf24_rx_mode(tx_address, 10);
 }
 
-char* generate_message_pid_values_nrf24(double base_proportional, double base_integral, double base_derivative, double base_master){
+char* generate_message_pid_values_nrf24(float base_proportional, float base_integral, float base_derivative, float base_master){
     // calculate the length of the resulting string
 
     // the s is there for reasons... I just ran out of space on the 32 byte buffer for sending. It was originally supposed to be a full name
@@ -1700,7 +1835,7 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin : PA15 */
   GPIO_InitStruct.Pin = GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 

@@ -76,8 +76,8 @@ uint8_t sd_card_initialize_spi(SPI_HandleTypeDef * device_handle, GPIO_TypeDef* 
 
 uint16_t sd_buffer_size(uint8_t local){
     if(local){
-        if(selected_buffer == 0) return strlen(sd_buffer0);
-        if(selected_buffer == 1) return strlen(sd_buffer1);
+        if(selected_buffer == 0) return sd_buffer0_index - 1;
+        if(selected_buffer == 1) return sd_buffer1_index - 1;
     }
 
     if(m_device_handle){
@@ -519,6 +519,11 @@ char* sd_card_get_buffer_pointer(uint8_t local){
         return NULL;
 }
 
+void sd_card_buffer_increment_index(){
+    if(selected_buffer == 0) sd_buffer0_index++;
+    else if(selected_buffer == 1) sd_buffer1_index++;
+}
+
 uint32_t sd_card_get_selected_file_size(){
     if(m_device_handle){
         uint8_t command = LOGGER_SD_GET_SELECTED_FILE_SIZE;
@@ -665,9 +670,10 @@ uint8_t sd_test_interface(){
         uint8_t response[1];
         slave_select();
         start_waiting_for_slave_ready();
-        HAL_SPI_Transmit(m_device_handle, &command, 1, 5000);
+        volatile HAL_StatusTypeDef status;
+        status = HAL_SPI_Transmit(m_device_handle, &command, 1, 5000);
         if(!wait_for_slave_ready(5000)) goto error;
-        HAL_SPI_Receive(m_device_handle, response, 1, 5000);
+        status = HAL_SPI_Receive(m_device_handle, response, 1, 5000);
         slave_deselect();
 
         if(response[0] == LOGGER_INTERFACE_TEST_VALUE){
@@ -748,10 +754,10 @@ uint8_t sd_special_reset(){
         return 0;
 }
 
-uint8_t sd_special_write_chunk_of_data(const char *data){
+uint8_t sd_special_write_chunk_of_string_data(const char *data){
     if(m_device_handle){
         uint8_t response[1];
-        uint8_t command = LOGGER_WRITE_CHUNK_OF_DATA;
+        uint8_t command = LOGGER_WRITE_CHUNK_OF_STRING_DATA;
 
         uint16_t file_length = strlen(data)+1; // \0 character as well
         uint16_t total_length = file_length;
@@ -785,10 +791,71 @@ uint8_t sd_special_write_chunk_of_data(const char *data){
         return 0;
 }
 
-uint8_t sd_special_enter_async_mode(){
+
+uint8_t sd_special_write_chunk_of_byte_data(const char *data, uint16_t length){
     if(m_device_handle){
         uint8_t response[1];
-        uint8_t command = LOGGER_ENTER_ASYNC_MODE;
+        uint8_t command = LOGGER_WRITE_CHUNK_OF_BYTE_DATA;
+
+        uint8_t transmit_length[] = {(length >> 8) & 0xFF, length & 0xFF};
+
+        slave_select();
+        start_waiting_for_slave_ready();
+        HAL_SPI_Transmit(m_device_handle, &command, 1, 5000); // send command
+        if(!wait_for_slave_ready(1000)) goto error;
+        start_waiting_for_slave_ready();
+        HAL_SPI_Transmit(m_device_handle, transmit_length, 2, 5000); // send how many bytes the dat will be
+        if(!wait_for_slave_ready(1000)) goto error;
+        start_waiting_for_slave_ready();
+        HAL_SPI_Transmit(m_device_handle, (uint8_t*)data, length, 5000); // send how many bytes the dat will be
+        if(!wait_for_slave_ready(1000)) goto error;
+        HAL_SPI_Receive(m_device_handle, response, 1, 5000);
+        slave_deselect();
+
+        if(!response[0]){
+            goto error;
+        }
+
+        return 1;
+    }else{
+        return 0;
+    }
+
+    error:
+        slave_deselect();
+        return 0;
+}
+
+uint8_t sd_special_enter_async_string_mode(){
+    if(m_device_handle){
+        uint8_t response[1];
+        uint8_t command = LOGGER_ENTER_ASYNC_STRING_MODE;
+
+        slave_select();
+        start_waiting_for_slave_ready();
+        HAL_SPI_Transmit(m_device_handle, &command, 1, 5000); // send command
+        if(!wait_for_slave_ready(5000)) goto error;
+        HAL_SPI_Receive(m_device_handle, response, 1, 5000);
+        slave_deselect();
+        
+        if(!response[0]){
+            goto error;
+        }
+
+        return 1;
+    }else{
+        return 0;
+    }
+
+    error:
+        slave_deselect();
+        return 0;
+}
+
+uint8_t sd_special_enter_async_byte_mode(){
+    if(m_device_handle){
+        uint8_t response[1];
+        uint8_t command = LOGGER_ENTER_ASYNC_BYTE_MODE;
 
         slave_select();
         start_waiting_for_slave_ready();
@@ -837,7 +904,7 @@ uint8_t sd_special_leave_async_mode(){
         return 0;
 }
 
-uint8_t sd_special_write_chunk_of_data_no_slave_response(const char *data){
+uint8_t sd_special_write_chunk_of_string_data_no_slave_response(const char *data){
     if(m_device_handle){
 
         uint16_t file_length = strlen(data)+1; // \0 character as well
@@ -845,6 +912,19 @@ uint8_t sd_special_write_chunk_of_data_no_slave_response(const char *data){
 
         slave_select();
         HAL_SPI_Transmit(m_device_handle, data, total_length, 5000); // send how many bytes the dat will be
+        slave_deselect();
+
+        return 1;
+    }else{
+        return 0;
+    }
+}
+
+uint8_t sd_special_write_chunk_of_byte_data_no_slave_response(const char *data, uint16_t length){
+    if(m_device_handle){
+
+        slave_select();
+        HAL_SPI_Transmit(m_device_handle, data, length, 5000); // send how many bytes the dat will be
         slave_deselect();
 
         return 1;
@@ -862,7 +942,7 @@ void delay_us(uint32_t microseconds) {
     }
 }
 
-uint8_t sd_special_write_chunk_of_data_async(const char *data){
+uint8_t sd_special_write_chunk_of_string_data_async(const char *data){
     if(m_device_handle){
 
         uint16_t file_length = strlen(data)+1; // \0 character as well
@@ -874,7 +954,26 @@ uint8_t sd_special_write_chunk_of_data_async(const char *data){
         slave_select(); 
 
         // Use DMA to not block 
-        HAL_SPI_Transmit_DMA(m_device_handle, data, total_length);
+        HAL_SPI_Transmit_DMA(m_device_handle, (uint8_t*)data, total_length);
+
+        // Do not deselect the slave as it needs to be active in the background
+
+        return 1;
+    }else{
+        return 0;
+    }
+}
+
+uint8_t sd_special_write_chunk_of_byte_data_async(const char *data, uint16_t length){
+    if(m_device_handle){
+
+        sd_special_wait_until_async_write_done();
+        slave_deselect();
+        delay_us(25); // Need small delay for the slave to do internal reorganizing of buffers when it is ready to write new data
+        slave_select(); 
+
+        // Use DMA to not block 
+        HAL_SPI_Transmit_DMA(m_device_handle, (uint8_t*)data, length);
 
         // Do not deselect the slave as it needs to be active in the background
 
@@ -893,7 +992,7 @@ void sd_special_wait_until_async_write_done(){
     while (HAL_SPI_GetState(m_device_handle) != HAL_SPI_STATE_READY){
         wait_count++;
     };
-    printf("%d\n", wait_count);
+    // printf("%d\n", wait_count);
 }
 
 void sd_buffer_swap(){

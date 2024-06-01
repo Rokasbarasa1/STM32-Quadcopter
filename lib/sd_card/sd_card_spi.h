@@ -10,32 +10,35 @@
 #define SD_BUFFER_SIZE 10000
 
 enum t_logger_commands {
-    LOGGER_SD_BUFFER_CLEAR    = 0x02 + 16,
-    LOGGER_SD_CARD_INITIALIZE    = 0x03 + 16,
-    LOGGER_SD_OPEN_FILE    = 0x04 + 16,
-    LOGGER_SD_WRITE_DATA_TO_FILE    = 0x05 + 16,
-    LOGGER_SD_READ_DATA_FORM_FILE    = 0x06 + 16,
-    LOGGER_SD_SET_FILE_CURSOR_OFFSET    = 0x07 + 16,
-    LOGGER_SD_CLOSE_FILE    = 0x08 + 16,
-    LOGGER_SD_CARD_DEINITIALIZE    = 0x09 + 16,
-    LOGGER_SD_CARD_APPEND_TO_BUFFER    = 0x0A + 16,
-    LOGGER_SD_GET_BUFFER_POINTER    = 0x0B + 16,
-    LOGGER_SD_GET_SELECTED_FILE_SIZE    = 0x0C + 16,
-    LOGGER_SD_WRITE_BUFFER_TO_FILE    = 0x0D + 16,
-    LOGGER_SD_FILE_EXISTS    = 0x0E + 16,
-    LOGGER_SD_SAVE_FILE    = 0x0F + 16,
-    LOGGER_SD_BUFFER_SIZE    = 0x11 + 16,
+    LOGGER_SD_BUFFER_CLEAR = 1,
+    LOGGER_SD_CARD_INITIALIZE = 2,
+    LOGGER_SD_OPEN_FILE = 3,
+    LOGGER_SD_WRITE_DATA_TO_FILE = 4,
+    LOGGER_SD_READ_DATA_FORM_FILE = 5,
+    LOGGER_SD_SET_FILE_CURSOR_OFFSET = 6,
+    LOGGER_SD_CLOSE_FILE = 7,
+    LOGGER_SD_CARD_DEINITIALIZE = 8,
+    LOGGER_SD_CARD_APPEND_TO_BUFFER = 10,
+    LOGGER_SD_GET_BUFFER_POINTER = 11,
+    LOGGER_SD_GET_SELECTED_FILE_SIZE = 12,
+    LOGGER_SD_WRITE_BUFFER_TO_FILE = 13,
+    LOGGER_SD_FILE_EXISTS = 14,
+    LOGGER_SD_SAVE_FILE = 15,
+    LOGGER_SD_BUFFER_SIZE = 16,
 
-    LOGGER_INITIALIZE    = 0x12 + 16,
-    LOGGER_RESET    = 0x13 + 16,
-    LOGGER_WRITE_CHUNK_OF_DATA = 0x14 + 16,
-    LOGGER_CHECK_READY = 0x15 + 16,
+    LOGGER_INITIALIZE = 17,
+    LOGGER_RESET = 18,
+    LOGGER_WRITE_CHUNK_OF_STRING_DATA = 20,
+    LOGGER_WRITE_CHUNK_OF_BYTE_DATA = 21,
+    LOGGER_TEST_INTERFACE = 19,
+    LOGGER_TEST_INTERFACE_BROKEN = 9,
 
-    LOGGER_TEST_INTERFACE = 0x16 + 16,
+    LOGGER_WRITE_CHUNK_OF_STRING_DATA_ASYNC = 22,
+    LOGGER_WRITE_CHUNK_OF_BYTE_DATA_ASYNC = 23,
 
-    LOGGER_WRITE_CHUNK_OF_DATA_ASYNC = 0x17 + 16,
-    LOGGER_ENTER_ASYNC_MODE = 0x18 + 16,
-    LOGGER_LEAVE_ASYNC_MODE = 0x19 + 16,
+    LOGGER_ENTER_ASYNC_STRING_MODE = 24,
+    LOGGER_ENTER_ASYNC_BYTE_MODE = 25,
+    LOGGER_LEAVE_ASYNC_MODE = 26
 };
 
 
@@ -63,6 +66,8 @@ uint8_t sd_close_file();
 uint8_t sd_card_deinitialize();
 uint8_t sd_card_append_to_buffer(uint8_t local, const char *string_format, ...);
 char* sd_card_get_buffer_pointer(uint8_t local);
+void sd_card_buffer_increment_index();
+
 uint32_t sd_card_get_selected_file_size();
 uint8_t sd_write_buffer_to_file();
 uint8_t sd_file_exists(const char *file_name);
@@ -71,10 +76,17 @@ uint8_t sd_test_interface();
 
 uint8_t sd_special_initialize(const char *file_base_name);
 uint8_t sd_special_reset();
-uint8_t sd_special_write_chunk_of_data(const char *data);
-uint8_t sd_special_enter_async_mode();
+uint8_t sd_special_write_chunk_of_string_data(const char *data);
+uint8_t sd_special_write_chunk_of_byte_data(const char *data, uint16_t length);
+uint8_t sd_special_enter_async_string_mode();
+uint8_t sd_special_enter_async_byte_mode();
+
 uint8_t sd_special_leave_async_mode();
-uint8_t sd_special_write_chunk_of_data_no_slave_response(const char *data);
-uint8_t sd_special_write_chunk_of_data_async(const char *data);
+uint8_t sd_special_write_chunk_of_string_data_no_slave_response(const char *data);
+uint8_t sd_special_write_chunk_of_byte_data_no_slave_response(const char *data, uint16_t length);
+
+uint8_t sd_special_write_chunk_of_string_data_async(const char *data);
+uint8_t sd_special_write_chunk_of_byte_data_async(const char *data, uint16_t length);
+
 void sd_special_wait_until_async_write_done();
 void sd_buffer_swap();

@@ -337,7 +337,7 @@ void convert_angular_rotation_to_degrees(float* gyro_angular, float* gyro_degree
         return;
     }
 
-    double elapsed_time_sec= (((double)time/1000.0)-((double)m_previous_time/1000.0));
+    float elapsed_time_sec= (((float)time/1000.0)-((float)m_previous_time/1000.0));
     m_previous_time = time;
 
     // Convert degrees per second and add the complementary filter with accelerometer degrees
@@ -376,7 +376,7 @@ void convert_angular_rotation_to_degrees_x_y(float* gyro_angular, float* gyro_de
         return;
     }
 
-    double elapsed_time_sec= (((double)time/1000.0)-((double)m_previous_time/1000.0));
+    float elapsed_time_sec= (((float)time/1000.0)-((float)m_previous_time/1000.0));
     if(set_timestamp == 1){
         m_previous_time = time;
     }
@@ -431,7 +431,7 @@ void convert_angular_rotation_to_degrees_z(float* gyro_angular, float* gyro_degr
         return;
     }
 
-    double elapsed_time_sec = (((double)time/1000.0)-((double)m_previous_time/1000.0));
+    float elapsed_time_sec = (((float)time/1000.0)-((float)m_previous_time/1000.0));
     m_previous_time = time;
 
     // Gyro without magnetometer

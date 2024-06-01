@@ -11,13 +11,13 @@
  * @return struct pid 
  */
 struct pid pid_init(
-    double gain_proportional, 
-    double gain_integral, 
-    double gain_derivative, 
-    double desired_value,
+    float gain_proportional, 
+    float gain_integral, 
+    float gain_derivative, 
+    float desired_value,
     uint32_t time,
-    double max_value,
-    double min_value,
+    float max_value,
+    float min_value,
     uint8_t stop_windup
 ){
     struct pid new_pid;
@@ -32,6 +32,9 @@ struct pid pid_init(
     new_pid.m_max_value = max_value;
     new_pid.m_min_value = min_value;
     new_pid.m_stop_windup = stop_windup;
+    new_pid.m_last_proportional_error = 0;
+    new_pid.m_last_integral_error = 0;
+    new_pid.m_last_derivative_error = 0;
 
     return new_pid;
 }
@@ -43,15 +46,15 @@ struct pid pid_init(
  * @param pid_instance pid config
  * @param value current value that the error will be calculated for 
  * @param time current time in ticks. Stm32 tick 
- * @return double error result
+ * @return float error result
  */
-double pid_get_error(struct pid* pid_instance, double value, uint32_t time){
+float pid_get_error(struct pid* pid_instance, float value, uint32_t time){
 
-    double error_p = 0, error_i = 0, error_d = 0;
+    float error_p = 0, error_i = 0, error_d = 0;
 
-    double error = (pid_instance->m_desired_value - value);
+    float error = (pid_instance->m_desired_value - value);
 
-    double elapsed_time_sec = ((double)time-(double)pid_instance->m_previous_time)/1000.0;
+    float elapsed_time_sec = ((float)time-(float)pid_instance->m_previous_time)/1000.0;
 
     // proportional
     {
@@ -90,6 +93,9 @@ double pid_get_error(struct pid* pid_instance, double value, uint32_t time){
     }
 
 
+    pid_instance->m_last_proportional_error = pid_instance->m_gain_proportional * error_p;
+    pid_instance->m_last_integral_error = pid_instance->m_gain_integral * error_i;
+    pid_instance->m_last_derivative_error = pid_instance->m_gain_derivative * error_d;
     // printf("p: %8.4f, ", pid_instance->m_gain_proportional * error_p);
     // printf("i: %8.4f, ", pid_instance->m_gain_integral * error_i);
     // printf("d: %8.4f, ", pid_instance->m_gain_derivative * error_d);
@@ -98,7 +104,7 @@ double pid_get_error(struct pid* pid_instance, double value, uint32_t time){
 
 
     // end result
-    double total_error = (pid_instance->m_gain_proportional * error_p) + 
+    float total_error = (pid_instance->m_gain_proportional * error_p) + 
                 (pid_instance->m_gain_integral * error_i) + 
                 (pid_instance->m_gain_derivative * error_d) ;
 
@@ -114,13 +120,13 @@ double pid_get_error(struct pid* pid_instance, double value, uint32_t time){
  * @param pid_instance pid config
  * @param error your own calculated error that will be used to get pid error
  * @param time current time in ticks. Stm32 tick 
- * @return double error result
+ * @return float error result
  */
-double pid_get_error_own_error(struct pid* pid_instance, double error, uint32_t time){
+float pid_get_error_own_error(struct pid* pid_instance, float error, uint32_t time){
 
-    double error_p = 0, error_i = 0, error_d = 0;
+    float error_p = 0, error_i = 0, error_d = 0;
 
-    double elapsed_time_sec = ((double)time-(double)pid_instance->m_previous_time)/1000.0;
+    float elapsed_time_sec = ((float)time-(float)pid_instance->m_previous_time)/1000.0;
 
     // proportional
     {
@@ -164,7 +170,7 @@ double pid_get_error_own_error(struct pid* pid_instance, double error, uint32_t 
     // printf("d: %8.4f, ", pid_instance->m_gain_derivative * error_d);
 
     // end result
-    double total_error = (pid_instance->m_gain_proportional * error_p) + 
+    float total_error = (pid_instance->m_gain_proportional * error_p) + 
                 (pid_instance->m_gain_integral * error_i) + 
                 (pid_instance->m_gain_derivative * error_d) ;
 
@@ -179,19 +185,19 @@ double pid_get_error_own_error(struct pid* pid_instance, double error, uint32_t 
  * @param pid_instance pid config
  * @param value new desired value
  */
-void pid_set_desired_value(struct pid* pid_instance, double value){
+void pid_set_desired_value(struct pid* pid_instance, float value){
     pid_instance->m_desired_value = value;
 }
 
-void pid_set_proportional_gain(struct pid* pid_instance, double proportional_gain){
+void pid_set_proportional_gain(struct pid* pid_instance, float proportional_gain){
     pid_instance->m_gain_proportional = proportional_gain;
 }
 
-void pid_set_integral_gain(struct pid* pid_instance, double integral_gain){
+void pid_set_integral_gain(struct pid* pid_instance, float integral_gain){
     pid_instance->m_gain_integral = integral_gain;
 }
 
-void pid_set_derivative_gain(struct pid* pid_instance, double derivative_gain){
+void pid_set_derivative_gain(struct pid* pid_instance, float derivative_gain){
     pid_instance->m_gain_derivative = derivative_gain;
 }
 
@@ -201,4 +207,16 @@ void pid_reset_integral_sum(struct pid* pid_instance){
 
 void pid_set_previous_time(struct pid* pid_instance, uint32_t time){
     pid_instance->m_previous_time = time;
+}
+
+float pid_get_last_proportional_error(struct pid* pid_instance){
+    return pid_instance->m_last_proportional_error;
+}
+
+float pid_get_last_integral_error(struct pid* pid_instance){
+    return pid_instance->m_last_integral_error;
+}
+
+float pid_get_last_derivative_error(struct pid* pid_instance){
+    return pid_instance->m_last_derivative_error;
 }

@@ -41,3 +41,4 @@ TODO after test 3:
 * X remove comments from both remote and quadcopter.
 * X add loop timing to remote to have constant refresh rate
 * ! Implement logging to sd card and log in a format that can be understood by something like betaflight blackbox analyzer
+* ! Make sure the motors never stop spinning at even at the lowest setting when controlled by the remote. This will help responsiveness.

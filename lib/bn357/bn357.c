@@ -2,11 +2,11 @@
 
 UART_HandleTypeDef *uart;
 
-volatile double m_latitude = 0.0;
-volatile double m_longitude = 0.0;
-volatile double m_altitude = 0.0;
-volatile double m_altitude_geoid = 0.0;
-volatile double m_accuracy = 0.0;
+volatile float m_latitude = 0.0;
+volatile float m_longitude = 0.0;
+volatile float m_altitude = 0.0;
+volatile float m_altitude_geoid = 0.0;
+volatile float m_accuracy = 0.0;
 volatile uint8_t m_satellites_quantity = 0.0;
 volatile uint8_t m_fix_quality = 0;
 volatile uint8_t m_time_utc_hours = 0;
@@ -81,7 +81,7 @@ void bn357_parse_and_store(unsigned char *gps_output_buffer, uint16_t size_of_bu
     latitude_string[length] = '\0';
     uint16_t latitude_temp = atoi(latitude_string);
     uint16_t latitude_degrees = ((latitude_temp % 10000) - (latitude_temp % 100)) / 100;
-    m_latitude = (double)latitude_degrees + ((atof(latitude_string) - (double)latitude_degrees * 100)/60);
+    m_latitude = (float)latitude_degrees + ((atof(latitude_string) - (float)latitude_degrees * 100)/60);
     if(m_logging == 1){
         printf("Latitude: %f\n", m_latitude);
     }
@@ -96,7 +96,7 @@ void bn357_parse_and_store(unsigned char *gps_output_buffer, uint16_t size_of_bu
     longitude_string[length] = '\0';
     uint16_t longitude_temp = atoi(longitude_string);
     uint16_t longitude_degrees = ((longitude_temp % 10000) - (longitude_temp % 100)) / 100;
-    m_longitude = (double)longitude_degrees + ((atof(longitude_string) - (double)longitude_degrees * 100)/60);
+    m_longitude = (float)longitude_degrees + ((atof(longitude_string) - (float)longitude_degrees * 100)/60);
     if(m_logging == 1){
         printf("Longitude: %f\n", m_longitude);
     }
@@ -172,23 +172,23 @@ void bn357_parse_and_store(unsigned char *gps_output_buffer, uint16_t size_of_bu
     }
 }
 
-double bn357_get_latitude_decimal_format(){
+float bn357_get_latitude_decimal_format(){
     return m_latitude;
 }
 
-double bn357_get_longitude_decimal_format(){
+float bn357_get_longitude_decimal_format(){
     return m_longitude;
 }
 
-double bn357_get_altitude_meters(){
+float bn357_get_altitude_meters(){
     return m_altitude;
 }
 
-double bn357_get_geoid_altitude_meters(){
+float bn357_get_geoid_altitude_meters(){
     return m_altitude_geoid;
 }
 
-double bn357_get_accuracy(){
+float bn357_get_accuracy(){
     return m_accuracy;
 }
 
