@@ -35,10 +35,10 @@ static void MX_TIM2_Init(void);
 #include "../lib/mpu6050/mpu6050.h"
 #include "../lib/qmc5883l/qmc5883l.h"
 #include "../lib/bmp280/bmp280.h"
-#include "../lib/bme280/bme280.h"
-#include "../lib/bmp680/bmp680.h"
-#include "../lib/mpl3115a2/mpl3115a2.h"
-#include "../lib/ms5611/ms5611.h"
+// #include "../lib/bme280/bme280.h"
+// #include "../lib/bmp680/bmp680.h"
+// #include "../lib/mpl3115a2/mpl3115a2.h"
+// #include "../lib/ms5611/ms5611.h"
 #include "../lib/bn357/bn357.h"
 #include "../lib/nrf24l01/nrf24l01.h"
 // #include "../lib/sd_card/sd_card.h"
@@ -112,14 +112,14 @@ char* generate_message_pid_values_nrf24(float base_proportional, float base_inte
 // PB0 CE
 
 /**
- * Timer peripheral clock: 50000000Hz
- * Pre scaler value: 250
- * Counter period: 4000
- * Timer clock divided by pre scaler: 200000.0Hz
- * Frequency: 50.0Hz
- * Max duty cycle: 20.0ms
- * Pwm value range: 0-4000
- * Resolution per pwm step: 0.005ms
+ * Timer peripheral clock: 75000000Hz
+ * Pre scaler value: 72
+ * Counter period: 19997
+ * Timer clock divided by pre scaler: 1041666.6666666666Hz
+ * Frequency: 52.09114700538414Hz (Actually it is like 50.08Hz)
+ * Max duty cycle: 19.19712ms
+ * Pwm value range: 0-19997
+ * Resolution per pwm step: 0.0009600000000000001ms
  *
 
  * 
@@ -127,9 +127,11 @@ char* generate_message_pid_values_nrf24(float base_proportional, float base_inte
  * 1.08ms/20ms * 4000(Counter period) = 216
  * 1.94ms/20ms * 4000 = 388
  */
-const uint16_t max_esc_pwm_value = 388;
-const uint16_t actual_max_esc_pwm_value = 370; // (max lipo amp rating / max draw of a bldc motor being used x 4) 0.917 * (max_pwm - min_pwm) + min_pwm = 371.4
-const uint16_t min_esc_pwm_value = 188;
+
+const uint16_t max_esc_pwm_value = 2000;
+const uint16_t actual_max_esc_pwm_value = 1917; // (max lipo amp rating / max draw of a bldc motor being used x 4) 0.917 * (max_pwm - min_pwm) + min_pwm = 371.4
+const uint16_t min_esc_pwm_value = 1000;
+const uint16_t esc_lowest_motor_spin = 1033;
 
 #define GPS_OUTPUT_BUFFER_SIZE 550
 #define GPS_RECEIVE_BUFFER_SIZE 550
@@ -243,9 +245,9 @@ float error_altitude = 0;
 
 // Actual PID adjustment for pitch
 #define BASE_PITCH_ROLL_MASTER_GAIN 0.4
-#define BASE_PITCH_ROLL_GAIN_P 1.0 // 0.35
-#define BASE_PITCH_ROLL_GAIN_I 1.0 // 0.0
-#define BASE_PITCH_ROLL_GAIN_D 1.0 // 130.0
+#define BASE_PITCH_ROLL_GAIN_P 0.0 // 0.35
+#define BASE_PITCH_ROLL_GAIN_I 0.0 // 0.0
+#define BASE_PITCH_ROLL_GAIN_D 0.0 // 130.0
 
 
 // Notes for PID
@@ -310,12 +312,6 @@ float pitch_attack_step = 0.1;
 float max_roll_attack = 10;
 float roll_attack_step = 0.1;
 
-// uint8_t throttle = 0;
-// uint8_t yaw = 50;
-// uint8_t last_yaw = 50;
-// uint8_t pitch = 50;
-// uint8_t roll = 50;
-
 float throttle = 0.0;
 float yaw = 50.0;
 float last_yaw = 50.0;
@@ -338,7 +334,7 @@ char log_file_blackbox_base_name[] = "Quadcopter.BBL";
 uint8_t sd_card_initialized = 0;
 uint8_t log_loop_count = 0;
 uint8_t sd_card_async = 0;
-const uint8_t use_simple_async = 0;
+const uint8_t use_simple_async = 0; // 0 is the complex async
 const uint8_t use_blackbox_logging = 1;
 
 
@@ -362,16 +358,6 @@ float PID_set_points[4];
 
 float remote_control[4];
 
-void blink(uint8_t times, uint16_t time_interval, uint16_t light_up_time){
-
-    for(uint16_t i = 0; i < times; i++){
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-        HAL_Delay(light_up_time);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-        HAL_Delay(time_interval);
-    }
-}
-
 int main(void){
     init_STM32_peripherals();
 
@@ -379,12 +365,12 @@ int main(void){
     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
 
     printf("STARTING PROGRAM\n"); 
-    // calibrate_escs();
+    calibrate_escs();
     if(init_sensors() == 0){
         return 0; // exit if initialization failed
     }
     // check_calibrations();
-    // calibrate_gyro(); // Recalibrate the gyro as the temperature affects the calibration
+    calibrate_gyro(); // Recalibrate the gyro as the temperature affects the calibration
     get_initial_position();
 
     struct pid pitch_pid = pid_init(pitch_roll_master_gain * pitch_roll_gain_p, pitch_roll_master_gain * pitch_roll_gain_i, pitch_roll_master_gain * pitch_roll_gain_d, 0.0, HAL_GetTick(), 20.0, -20.0, 1);
@@ -487,8 +473,8 @@ int main(void){
         
         // Gathering data from sensors and transforming it: 2 ms at most
         // Read sensor data ######################################################################################################################
-        // gps_latitude = bn357_get_latitude_decimal_format();
-        // gps_longitude = bn357_get_longitude_decimal_format();
+        gps_latitude = bn357_get_latitude_decimal_format();
+        gps_longitude = bn357_get_longitude_decimal_format();
         // temperature = bmp280_get_temperature_celsius();
 
         // calculate the altitude using gps altitude and a bmp280 reference altitude
@@ -496,6 +482,7 @@ int main(void){
         // So the barometer keeps track in between the gps updates and does so with the 
         // origin of the precise altitude value from gps
 
+        altitude = bmp280_get_height_meters_from_reference(0);
         // altitude = get_sensor_fusion_altitude(bn357_get_altitude_meters() ,(float)bmp280_get_height_meters_from_reference(bn357_get_status_up_to_date(1)));
 
 
@@ -748,20 +735,19 @@ int main(void){
             // Motor C (2) 14160 rpm or 236
             // Motor D (3) 14460 rpm or 241
 
-
             // GPS side
-            TIM2->CCR1 = setServoActivationPercent(motor_power[2], min_esc_pwm_value, actual_max_esc_pwm_value);
-            TIM2->CCR2 = setServoActivationPercent(motor_power[3], min_esc_pwm_value, actual_max_esc_pwm_value);
+            TIM2->CCR1 = setServoActivationPercent(motor_power[2], esc_lowest_motor_spin, actual_max_esc_pwm_value);
+            TIM2->CCR2 = setServoActivationPercent(motor_power[3], esc_lowest_motor_spin, actual_max_esc_pwm_value);
 
             // No gps side
-            TIM1->CCR1 = setServoActivationPercent(motor_power[0], min_esc_pwm_value, actual_max_esc_pwm_value);
-            TIM1->CCR4 = setServoActivationPercent(motor_power[1], min_esc_pwm_value, actual_max_esc_pwm_value);
+            TIM1->CCR1 = setServoActivationPercent(motor_power[0], esc_lowest_motor_spin, actual_max_esc_pwm_value);
+            TIM1->CCR4 = setServoActivationPercent(motor_power[1], esc_lowest_motor_spin, actual_max_esc_pwm_value);
             
             // For logging
-            motor_power[0] = setServoActivationPercent(motor_power[0], min_esc_pwm_value, actual_max_esc_pwm_value);
-            motor_power[1] = setServoActivationPercent(motor_power[1], min_esc_pwm_value, actual_max_esc_pwm_value);
-            motor_power[2] = setServoActivationPercent(motor_power[2], min_esc_pwm_value, actual_max_esc_pwm_value);
-            motor_power[3] = setServoActivationPercent(motor_power[3], min_esc_pwm_value, actual_max_esc_pwm_value);
+            motor_power[0] = setServoActivationPercent(motor_power[0], esc_lowest_motor_spin, actual_max_esc_pwm_value);
+            motor_power[1] = setServoActivationPercent(motor_power[1], esc_lowest_motor_spin, actual_max_esc_pwm_value);
+            motor_power[2] = setServoActivationPercent(motor_power[2], esc_lowest_motor_spin, actual_max_esc_pwm_value);
+            motor_power[3] = setServoActivationPercent(motor_power[3], esc_lowest_motor_spin, actual_max_esc_pwm_value);
         }else{
             // GPS side
             TIM2->CCR1 = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
@@ -817,9 +803,10 @@ int main(void){
         // printf("%6.5f %6.5f %6.5f", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);  
         // printf("\n");
 
-        uint16_t data_size = 0;
 
         if(sd_card_initialized){
+            uint16_t data_size = 0;
+
             if(use_blackbox_logging){
                 char* betaflight_data_string = betaflight_blackbox_get_encoded_data_string(
                     loop_iteration,
@@ -847,16 +834,16 @@ int main(void){
             }else{
                 // Log a bit of data
                 sd_card_append_to_buffer(1, "%02d:%02d:%02d:%03d;", time_since_startup_hours, time_since_startup_minutes, time_since_startup_seconds, time_since_startup_ms);
-                // sd_card_append_to_buffer(1, "ACCEL,%.2f,%.2f,%.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+                sd_card_append_to_buffer(1, "ACCEL,%.2f,%.2f,%.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
                 sd_card_append_to_buffer(1, "GYRO,%.2f,%.2f,%.2f;", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
-                // sd_card_append_to_buffer(1, "MAG,%.2f,%.2f,%.2f;", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
+                sd_card_append_to_buffer(1, "MAG,%.2f,%.2f,%.2f;", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
                 sd_card_append_to_buffer(1, "MOTOR,1=%.2f,2=%.2f,3=%.2f,4=%.2f;", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
                 sd_card_append_to_buffer(1, "ERROR,pitch=%.2f,roll=%.2f,yaw=%.2f,altitude=%.2f;", error_pitch, error_roll, error_yaw, error_altitude);
                 // sd_card_append_to_buffer(1, "TEMP,%.2f;", temperature);
-                // sd_card_append_to_buffer(1, "ALT %.2f;", altitude);
+                sd_card_append_to_buffer(1, "ALT %.2f;", altitude);
                 // sd_card_append_to_buffer(1, "GPS,lon-%f,lat-%f;", gps_longitude, gps_latitude);
-                // sd_card_append_to_buffer(1, "\n");
-            }
+                sd_card_append_to_buffer(1, "\n");
+            } 
             
             if(sd_card_async){
                 if(use_simple_async){
@@ -949,7 +936,7 @@ void calibrate_escs(){
     TIM2->CCR2 = min_pwm;
 
     // 10 Seconds of min value init just to make sure
-    HAL_Delay(10000);
+    HAL_Delay(6000);
 
     // After calibration remember that the 1 percent throttle might not do anything and it only starts moving at 3 percent throttle
     // This is if it is starting from 0
@@ -1050,9 +1037,9 @@ void handle_loop_timing(){
     // printf("a%d\n", delta_loop_time);
 }
 
-// 0.5ms to 2ms = range is 1.5
-// 0.5 is 2.5%  and is 25
-// 2   is 10%   amd is 100
+// 0.5ms to 2ms = range is 1.5ms
+// 0.5 is 2.5%  and is 25 in the float value passed to this
+// 2   is 10%   amd is 100 in the float value passed to this
 // 100 - 25 = 75
 
 // default min and max is 25 and 75
@@ -1599,9 +1586,9 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 250-1;
+  htim1.Init.Prescaler = 72-1;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 4000-1;
+  htim1.Init.Period = 19997-1;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -1677,9 +1664,9 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 250-1;
+  htim2.Init.Prescaler = 72-1;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 4000-1;
+  htim2.Init.Period = 19997-1;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)

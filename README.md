@@ -22,6 +22,9 @@ YT link: https://www.youtube.com/shorts/ODtNJZJHQQQ
 ![Test 3 picture](./images/test3_image.png)
 
 
+ESC name "Cheetah HW30A Brushless ESC"
+BEC from ESC powers the flight controller
+
 ## TODO lists
 
 TODO after test 1:
@@ -40,5 +43,10 @@ TODO after test 3:
 * ! figure out how to use integral without super windup
 * X remove comments from both remote and quadcopter.
 * X add loop timing to remote to have constant refresh rate
-* ! Implement logging to sd card and log in a format that can be understood by something like betaflight blackbox analyzer
-* ! Make sure the motors never stop spinning at even at the lowest setting when controlled by the remote. This will help responsiveness.
+* X Implement logging to sd card and log in a format that can be understood by something like betaflight blackbox analyzer
+* X Make sure the motors never stop spinning at even at the lowest setting when controlled by the remote. This will help responsiveness.
+
+TODO after test 4:
+* ! Add blackbox logging for gps data
+* ! Find out how to adjust what pwm frequency the esc accepts and change it from 50Hz to as fast as possible.
+* ! The radio module caches the data sent durring the boot proccess of the quadcopter. Make sure the data is deleted before it gets to the pid loop as it is dangerous.
