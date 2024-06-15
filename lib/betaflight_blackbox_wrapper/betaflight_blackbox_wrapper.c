@@ -46,6 +46,14 @@ char* betaflight_blackbox_wrapper_get_header(uint16_t min_throttle, uint16_t max
     string_length = buffer_append(new_string, string_length_total, string_length, "H Field I encoding:1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0\n");
     string_length = buffer_append(new_string, string_length_total, string_length, "H Field P predictor:6,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3,3,3,3,3,3,3,3,3,3,1,1,1,1,1,1,1,1\n");
     string_length = buffer_append(new_string, string_length_total, string_length, "H Field P encoding:9,0,0,0,0,7,7,7,0,0,0,0,0,8,8,8,8,8,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n");
+    // string_length = buffer_append(new_string, string_length_total, string_length, "H Field H name:GPS_home[0],GPS_home[1]\n"); // Not useful.
+    // string_length = buffer_append(new_string, string_length_total, string_length, "H Field H signed:1,1\n");
+    // string_length = buffer_append(new_string, string_length_total, string_length, "H Field H predictor:0,0\n");
+    // string_length = buffer_append(new_string, string_length_total, string_length, "H Field H encoding:0,0\n");
+    string_length = buffer_append(new_string, string_length_total, string_length, "H Field G name:time,GPS_numSat,GPS_coord[0],GPS_coord[1],GPS_altitude,GPS_speed,GPS_ground_course\n");
+    string_length = buffer_append(new_string, string_length_total, string_length, "H Field G signed:0,0,1,1,0,0,0\n");
+    string_length = buffer_append(new_string, string_length_total, string_length, "H Field G predictor:0,0,0,0,0,0,0\n");
+    string_length = buffer_append(new_string, string_length_total, string_length, "H Field G encoding:1,1,0,0,1,1,1\n");
     // For some reason my logs have crazy values for the gyro when scale is set to 1.0
     // My actual scale is 131 = 1 deg/s
     // Settings i tried bellow and the results
@@ -165,8 +173,6 @@ char* betaflight_blackbox_get_encoded_data_string(
     float altitude,
     uint16_t* string_length_return
 ){
-    // uint16_t min_throttle, uint16_t max_throttle
-
     uint16_t string_length_total = 200;
     char* new_string = malloc(string_length_total+1);
     uint16_t string_index = 0;
@@ -218,8 +224,8 @@ char* betaflight_blackbox_get_encoded_data_string(
     blackbox_write_signed_VB(altitude_int, (uint8_t *)new_string, &string_index); // BaroAlt 1 0
     blackbox_write_signed_VB_array(gyro_post_sensor_fusion_int, 4, (uint8_t *)new_string, &string_index); // debug[0],debug[1],debug[2],debug[3] 1,1,1,1 0,0,0,0
 
-    printf("loopIteration=%ld\n", loop_iteration);
-    printf("time=%ld\n", time);
+    // printf("loopIteration=%ld\n", loop_iteration);
+    // printf("time=%ld\n", time);
     // printf("axisP[0]=%ld ,axisP[1]=%ld ,axisP[2]=%ld \n", PID_proportion_int[0], PID_proportion_int[1], PID_proportion_int[2]);
     // printf("axisI[0]=%ld ,axisI[1]=%ld ,axisI[2]=%ld \n", PID_integral_int[0], PID_integral_int[1], PID_integral_int[2]);
     // printf("axisD[0]=%ld ,axisD[1]=%ld \n", PID_derivative_int[0], PID_derivative_int[1]);
@@ -232,7 +238,7 @@ char* betaflight_blackbox_get_encoded_data_string(
     // printf("Index after: %d\n", string_index);
 
 
-    *string_length_return = string_index;
+    *string_length_return += string_index;
     return new_string;
 }
 
@@ -243,5 +249,50 @@ char* betaflight_blackbox_get_end_of_log(uint16_t* string_length_return){
     buffer_append(new_string, string_length_total, 0, "End of log");
     *string_length_return = string_length_total;
 
+    return new_string;
+}
+
+char* betaflight_blackbox_get_encoded_gps_string(
+    uint32_t time_raw,
+    uint8_t number_of_satellites,
+    float latitude,
+    float longitude,
+    float altitude,
+    float speed,
+    float ground_course,
+    uint16_t* string_length_return
+){
+    uint16_t string_length_total = 200;
+    char* new_string = malloc(string_length_total+1);
+    uint16_t string_index = 0;
+
+    float scaling_factor = 10;
+    // time
+    // number_of_satellites
+    int32_t latitude_int = lrintf(latitude*10.0);
+    int32_t longitude_int = lrintf(longitude*10.0);
+    uint32_t altitude_int = lrintf(altitude*scaling_factor);
+    uint32_t speed_int = lrintf(longitude*10.0);
+    uint32_t ground_course_int = lrintf(longitude*10.0);
+
+    new_string[string_index++] = 'G';
+
+    blackbox_write_unsigned_VB(time_raw, (uint8_t *)new_string, &string_index); // time 0 1 GOOD
+    blackbox_write_unsigned_VB(number_of_satellites, (uint8_t *)new_string, &string_index); // GPS_numSat 0 1 GOOD
+    blackbox_write_signed_VB(latitude_int, (uint8_t *)new_string, &string_index); // GPS_coord[0] 1 0
+    blackbox_write_signed_VB(longitude_int, (uint8_t *)new_string, &string_index); // GPS_coord[1] 1 0
+    blackbox_write_unsigned_VB(altitude_int, (uint8_t *)new_string, &string_index); // GPS_altitude 0 1 GOOD
+    blackbox_write_unsigned_VB(speed_int, (uint8_t *)new_string, &string_index); // GPS_speed 0 1 GOOD
+    blackbox_write_unsigned_VB(ground_course_int, (uint8_t *)new_string, &string_index); // GPS_ground_course 0 1 GOOD
+
+    // printf("time=%ld\n", time_raw);
+    // printf("number_of_satellites=%ld\n", time_raw);
+    // printf("latitude_int=%ld\n", latitude_int);
+    // printf("longitude_int=%ld\n", longitude_int);
+    // printf("altitude_int=%ld\n", altitude_int);
+    // printf("speed_int=%ld\n", speed_int);
+    // printf("ground_course_int=%ld\n", ground_course_int);
+
+    *string_length_return = string_index;
     return new_string;
 }

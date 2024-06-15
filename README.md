@@ -50,3 +50,25 @@ TODO after test 4:
 * ! Add blackbox logging for gps data
 * ! Find out how to adjust what pwm frequency the esc accepts and change it from 50Hz to as fast as possible.
 * ! The radio module caches the data sent durring the boot proccess of the quadcopter. Make sure the data is deleted before it gets to the pid loop as it is dangerous.
+* ! Recalibrate accelerometer because it was moved and reglued.
+
+
+
+Test checklist:
+* Drone frame
+* Controller
+* Controller antena
+* Proppelers
+* Sd card addapter
+* Micro sd card
+* Pliers 
+* Wire cutters
+* Screwdriver 
+* Screwdriver bits
+* Nuts for controller screws
+* Remote controll
+* Laptop
+* Usb extension cable
+* STM32 programmer
+* Charged battery
+* Battery checker

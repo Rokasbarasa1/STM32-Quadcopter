@@ -9,7 +9,7 @@
 uint8_t init_bn357(UART_HandleTypeDef *uart_temp, uint8_t logging);
 uint8_t bn357_get_status_up_to_date(uint8_t reset_afterwards);
 void bn357_get_clear_status();
-void bn357_parse_and_store(unsigned char *gps_output_buffer, uint16_t size_of_buf);
+uint8_t bn357_parse_and_store(unsigned char *gps_output_buffer, uint16_t size_of_buf);
 float bn357_get_latitude_decimal_format();
 float bn357_get_longitude_decimal_format();
 float bn357_get_altitude_meters();
@@ -20,3 +20,4 @@ uint8_t bn357_get_fix_quality();
 uint8_t bn357_get_utc_time_hours();
 uint8_t bn357_get_utc_time_minutes();
 uint8_t bn357_get_utc_time_seconds();
+uint8_t bn357_get_utc_time_raw();

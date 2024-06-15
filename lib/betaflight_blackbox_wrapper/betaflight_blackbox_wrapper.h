@@ -22,3 +22,14 @@ char* betaflight_blackbox_get_encoded_data_string(
     uint16_t* string_length_return
 );
 char* betaflight_blackbox_get_end_of_log(uint16_t* string_length_return);
+
+char* betaflight_blackbox_get_encoded_gps_string(
+    uint32_t time_raw,
+    uint8_t number_of_satellites,
+    float latitude,
+    float longitude,
+    float altitude,
+    float speed,
+    float ground_course,
+    uint16_t* string_length_return
+);
