@@ -74,11 +74,14 @@ float apply_dead_zone(float value, float max_value, float min_value, float dead_
 void send_pid_base_info_to_remote();
 void send_pid_added_info_to_remote();
 char* generate_message_pid_values_nrf24(float base_proportional, float base_integral, float base_derivative, float base_master);
+
 void handle_get_and_calculate_sensor_values();
 void handle_radio_communication();
 void handle_logging();
 void handle_pid_and_motor_control();
 void setup_logging_to_sd();
+void handle_loop_end();
+void handle_pre_loop_start();
 
 // PWM pins
 // PA8  - 1 TIM1
@@ -102,14 +105,14 @@ void setup_logging_to_sd();
 // PB4  SPI RADIO
 // PA12 LED
 
-// SPI1 SD card logger
+// SPI3 SD card logger
 // PB5 MOSI
 // PB4 MISO
 // PB3 SCK
 // PA15 CS
 // PA12 Slave ready. Falling interrupt
 
-// SPI3 Radio module
+// SPI1 Radio module
 // PA5 SCK
 // PA6 MISO
 // PA7 MOSI
@@ -153,34 +156,40 @@ const uint16_t esc_lowest_motor_spin = 1033;
 // When calculating this remember that these values are already
 // correcting and that the axis of the magnetometer are switched.
 
-// float hard_iron_correction[3] = {
-//     0, 0, 0
-// };
-
-// float soft_iron_correction[3][3] = {
-//     {1,0,0},
-//     {0,1,0},
-//     {0,0,1}
-// };
-
-
 float hard_iron_correction[3] = {
-    -26.418969, 308.296635, 189.949606
+    0,0,0
 };
 
 float soft_iron_correction[3][3] = {
-    {3.650759,0.250193,-0.058046},
-    {0.250193,4.132441,-0.245339},
-    {-0.058046,-0.245339,3.733419}
+    {1,0,0},
+    {0,1,0},
+    {0,0,1}
 };
+
 
 float accelerometer_correction[3] = {
-    0.024980, -0.020180, 1.144808
-};
-float gyro_correction[3] = {
-    -2.651069, 3.157305, 0.638099
+    0.063320,0.17551,1.147813
 };
 
+// X - pitch. MINUS pitch back, PLUS pitch forward.
+// y - roll. MINUS roll right, PLUS roll left
+
+// in effect PLUS y pitch backwards
+
+
+// y -0.15551 leans to the right
+// y -0.25551 leans to the right
+// y 0.15551 leans to the back OK
+// x 0.061320 y 0.15551   a bit too much forward and to the right
+// x 0.051320 y 0.17551 a bit too much backwards
+// x 0.056320 y 0.17551 a bit too much backwards and to the left
+// x 0.063320 y 0.17551 a bit too much backwards and spinning counter clock wise a bit
+
+
+
+float gyro_correction[3] = {
+    -2.532809, 2.282250, 0.640916
+};
 
 // handling loop timing ###################################################################################
 uint32_t loop_start_time = 0;
@@ -198,6 +207,11 @@ char rx_data[32];
 char rx_type[32];
 
 // PID errors ##############################################################################################
+struct pid pitch_pid;
+struct pid roll_pid;
+struct pid yaw_pid;
+struct pid altitude_pid;
+
 float error_pitch = 0;
 float error_roll = 0;
 float error_yaw = 0;
@@ -217,7 +231,7 @@ float error_altitude = 0;
 // to float in the air. If you are testing with drone constrained add a base motor speed to account for this.
 
 // PID for yaw
-const float yaw_gain_p = 0.0; 
+const float yaw_gain_p = 0.17; 
 const float yaw_gain_i = 0.0;
 const float yaw_gain_d = 0.0;
 
@@ -266,11 +280,12 @@ float motor_power[] = {0.0, 0.0, 0.0, 0.0};
 
 // Remote control settings ############################################################################################
 float max_yaw_attack = 20.0;
+
 float max_pitch_attack = 10;
-float pitch_attack_step = 0.1;
+float pitch_attack_step = 0.2;
 
 float max_roll_attack = 10;
-float roll_attack_step = 0.1;
+float roll_attack_step = 0.2;
 
 float throttle = 0.0;
 float yaw = 50.0;
@@ -295,7 +310,7 @@ uint8_t sd_card_initialized = 0;
 uint8_t log_loop_count = 0;
 uint8_t sd_card_async = 0;
 const uint8_t use_simple_async = 0; // 0 is the complex async
-const uint8_t use_blackbox_logging = 1;
+const uint8_t use_blackbox_logging = 0;
 
 
 // Keep track of time in each loop. Since loop start
@@ -377,19 +392,12 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart){
 }
 
 
-struct pid pitch_pid;
-struct pid roll_pid;
-struct pid yaw_pid;
-struct pid altitude_pid;
-
-
-
 int main(void){
     init_STM32_peripherals();
 
     // Turn off the blue led. Will show the status of sd logging later
     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-
+    
     printf("STARTING PROGRAM\n"); 
     // calibrate_escs();
     if(init_sensors() == 0){
@@ -398,34 +406,132 @@ int main(void){
     // check_calibrations();
     calibrate_gyro(); // Recalibrate the gyro as the temperature affects the calibration
     get_initial_position();
+    setup_logging_to_sd();
 
     pitch_pid = pid_init(pitch_roll_master_gain * pitch_roll_gain_p, pitch_roll_master_gain * pitch_roll_gain_i, pitch_roll_master_gain * pitch_roll_gain_d, 0.0, HAL_GetTick(), 20.0, -20.0, 1);
     roll_pid = pid_init(pitch_roll_master_gain * pitch_roll_gain_p, pitch_roll_master_gain * pitch_roll_gain_i, pitch_roll_master_gain * pitch_roll_gain_d, 0.0, HAL_GetTick(), 20.0, -20.0, 1);
-    yaw_pid = pid_init(yaw_gain_p, yaw_gain_i, yaw_gain_d, 0.0, HAL_GetTick(), 0, 0, 0);
+    yaw_pid = pid_init(yaw_gain_p, yaw_gain_i, yaw_gain_d, 0.0, HAL_GetTick(), 10.0, -10.0, 1);
     altitude_pid = pid_init(altitude_gain_p, altitude_gain_i, altitude_gain_d, 0.0, HAL_GetTick(), 0, 0, 0);
 
-    setup_logging_to_sd();
-
-    printf("Looping\n");
-    altitude = 10;
-    init_loop_timer();
-    startup_time = HAL_GetTick();
-    entered_loop = 1;
+    handle_pre_loop_start();
     while (1){
-        // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_12, 0);
-
         handle_radio_communication();
         handle_get_and_calculate_sensor_values(); // Important do do this right before the pid stuff.
         handle_pid_and_motor_control();
         handle_logging();
 
-
-
-        fix_gyro_axis(gyro_degrees); // switch back the x and y axis of gyro to how they were before. This is for sensor fusion not to be confused 
-
-        loop_iteration++;
-        handle_loop_timing();
+        handle_loop_end();
     }
+}
+
+
+void setup_logging_to_sd(){
+    // Initialize sd card logging
+    sd_card_initialize_spi(&hspi3, GPIOA, GPIO_PIN_15, GPIOA, GPIO_PIN_12);
+    if(sd_test_interface()){
+        printf("SD logging: Logger module is working\n");
+
+        if(use_blackbox_logging){
+            sd_card_initialized = sd_special_initialize(log_file_blackbox_base_name);
+            if(sd_card_initialized){
+                printf("SD logging: Initialized blackbox logging\n");
+            }else{
+                printf("SD logging: FAILED to initialize blackbox logging. Code %d\n", sd_get_response());
+            }
+        }else{
+            sd_card_initialized = sd_special_initialize(log_file_base_name);
+            if(sd_card_initialized){
+                printf("SD logging: Initialized txt logging\n");
+            }else{
+                printf("SD logging: FAILED to initialize txt logging. Code %d\n", sd_get_response());
+            }
+        }
+
+        if(sd_card_initialized){
+            if(use_blackbox_logging){
+                sd_card_async = sd_special_enter_async_byte_mode();
+                printf("SD logging: entered async byte mode\n");
+            }else{
+                sd_card_async = sd_special_enter_async_string_mode();
+                printf("SD logging: entered async string mode\n");
+            }
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+            HAL_Delay(250);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+            HAL_Delay(250);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+            HAL_Delay(250);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+            HAL_Delay(250);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+            HAL_Delay(250);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+            HAL_Delay(250);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+            HAL_Delay(250);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+            HAL_Delay(250);
+        }else{
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+            HAL_Delay(1000);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+            HAL_Delay(200);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+            HAL_Delay(1000);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+            HAL_Delay(200);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+            HAL_Delay(1000);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+            HAL_Delay(200);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+            HAL_Delay(1000);
+            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+            HAL_Delay(200);
+        }
+    }else{
+        printf("Failed to initialize the sd card interface\n");
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+        HAL_Delay(1000);
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+        HAL_Delay(1000);
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+        HAL_Delay(1000);
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+        HAL_Delay(1000);
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+        HAL_Delay(1000);
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+        HAL_Delay(1000);
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+        HAL_Delay(1000);
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+        HAL_Delay(1000);
+    }
+
+    if(use_blackbox_logging && sd_card_initialized){
+        uint16_t betaflight_header_length = 0;
+        char* betaflight_header = betaflight_blackbox_wrapper_get_header(min_esc_pwm_value, actual_max_esc_pwm_value, &betaflight_header_length);
+        HAL_Delay(100); // wait a bit for it to sort its shit out
+        sd_special_write_chunk_of_byte_data_no_slave_response(betaflight_header, betaflight_header_length);
+        free(betaflight_header);
+        HAL_Delay(500); // wait a bit for it to sort its shit out
+        printf("SD logging: sent blackbox header\n");
+    }
+}
+
+void handle_pre_loop_start(){
+    printf("Looping\n");
+    altitude = 10;
+
+    // Capture any radio messages that were sent durring the boot proccess and discard them
+    if(nrf24_data_available(1)){
+        nrf24_receive(rx_data);
+    }
+
+    init_loop_timer();
+    startup_time = HAL_GetTick();
+    entered_loop = 1;
 }
 
 void handle_get_and_calculate_sensor_values(){
@@ -453,7 +559,7 @@ void handle_get_and_calculate_sensor_values(){
     qmc5883l_magnetometer_readings_micro_teslas(magnetometer_data);
 
     // Convert the sensor data to data that is useful
-    fix_mag_axis(magnetometer_data); // Switches around the x and the y of the magnetometer to match mpu6050 outputs
+    // fix_mag_axis(magnetometer_data); // Switches around the x and the y of the magnetometer to match mpu6050 outputs
     calculate_degrees_x_y(acceleration_data, &accelerometer_x_rotation, &accelerometer_y_rotation); // Get roll and pitch from the data. I call it x and y. Ranges -90 to 90. 
 
     // My mpu6050 has a drift problem when rotating around z axis. I have only seen Joop Broking having this problem.
@@ -502,10 +608,13 @@ void handle_radio_communication(){
             extract_joystick_request_values_float(rx_data, strlen(rx_data), &throttle, &yaw, &roll, &pitch);
 
             // For the blackbox log
-            remote_control[0] = roll-50;
+            remote_control[0] = -(roll-50); // Reversed for blackbox log
             remote_control[1] = pitch-50;
             remote_control[2] = yaw-50;
             remote_control[3] = throttle+100;
+
+            // the controls were inversed
+            pitch = (-(pitch-50))+50;
 
             // Throttle does not need to be handled
 
@@ -587,21 +696,25 @@ void handle_radio_communication(){
             // Yaw ##################################################################################################################
             if(yaw != 50){
                 // There is an issue with the remote sometimes sending a 0 yaw
-                target_yaw = gyro_degrees[2] + map_value(yaw, 0.0, 100.0, -max_yaw_attack, max_yaw_attack);
-                // handle the switch from -180 to 180 degrees
-                if(target_yaw > 180.0){
-                    target_yaw = target_yaw - 360.0;
-                }else if(target_yaw < -180.0){
-                    target_yaw = target_yaw + 360.0;
-                }
+                // target_yaw = gyro_degrees[2] + map_value(yaw, 0.0, 100.0, -max_yaw_attack, max_yaw_attack);
+                // // handle the switch from -180 to 180 degrees
+                // if(target_yaw > 180.0){
+                //     target_yaw = target_yaw - 360.0;
+                // }else if(target_yaw < -180.0){
+                //     target_yaw = target_yaw + 360.0;
+                // }
+
+                target_yaw = map_value(yaw, 0.0, 100.0, -max_yaw_attack, max_yaw_attack);
+            }else{
+                target_yaw = 0;
             }
 
             // Reset the yaw to the current degrees
-            if(last_yaw != 50 && yaw == 50){
-                target_yaw = gyro_degrees[2];
-            }
+            // if(last_yaw != 50 && yaw == 50){
+            //     target_yaw = gyro_degrees[2];
+            // }
 
-            last_yaw = yaw;
+            // last_yaw = yaw;
 
         }else if(strcmp(rx_type, "pid") == 0){
             printf("\nGot pid");
@@ -661,7 +774,8 @@ void handle_pid_and_motor_control(){
     ){
         pid_set_desired_value(&pitch_pid, target_pitch);
         pid_set_desired_value(&roll_pid, target_roll);
-        // pid_set_desired_value(&yaw_pid, target_yaw);
+        pid_set_desired_value(&yaw_pid, target_yaw);
+
         // pid_set_desired_value(&altitude_pid, target_altitude);
 
         PID_set_points[0] = target_pitch;
@@ -681,6 +795,7 @@ void handle_pid_and_motor_control(){
         PID_derivative[1] = pid_get_last_derivative_error(&roll_pid);
         
         // error_yaw = pid_get_error(&yaw_pid, gyro_degrees[2], HAL_GetTick());
+        error_yaw = pid_get_error(&yaw_pid, gyro_angular[2], HAL_GetTick());
         PID_proportional[2] = pid_get_last_proportional_error(&yaw_pid);
         PID_integral[2] = pid_get_last_integral_error(&yaw_pid);
         // PID_derivative[2] = pid_get_last_derivative_error(&yaw_pid);
@@ -689,10 +804,10 @@ void handle_pid_and_motor_control(){
 
         error_altitude = throttle*0.9;
 
-        motor_power[0] = error_altitude + (-error_pitch) +  (-error_roll);
-        motor_power[1] = error_altitude + (-error_pitch) +  ( error_roll);
-        motor_power[2] = error_altitude + ( error_pitch) +  ( error_roll);
-        motor_power[3] = error_altitude + ( error_pitch) +  (-error_roll);
+        motor_power[0] = error_altitude + (-error_pitch) +  (-error_roll) + ( error_yaw);
+        motor_power[1] = error_altitude + (-error_pitch) +  ( error_roll) + (-error_yaw);
+        motor_power[2] = error_altitude + ( error_pitch) +  ( error_roll) + ( error_yaw);
+        motor_power[3] = error_altitude + ( error_pitch) +  (-error_roll) + (-error_yaw);
 
 
         // Motor A (4) 13740 rpm or 229 rotations per second
@@ -826,16 +941,20 @@ void handle_logging(){
             }
         }else{
             // Log a bit of data
-            sd_card_append_to_buffer(1, "%02d:%02d:%02d:%03d;", time_since_startup_hours, time_since_startup_minutes, time_since_startup_seconds, time_since_startup_ms);
+            // sd_card_append_to_buffer(1, "%02d:%02d:%02d:%03d;", time_since_startup_hours, time_since_startup_minutes, time_since_startup_seconds, time_since_startup_ms);
             // sd_card_append_to_buffer(1, "ACCEL,%.2f,%.2f,%.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
             // sd_card_append_to_buffer(1, "GYRO,%.2f,%.2f,%.2f;", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
             // sd_card_append_to_buffer(1, "MAG,%.2f,%.2f,%.2f;", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
             // sd_card_append_to_buffer(1, "MOTOR,1=%.2f,2=%.2f,3=%.2f,4=%.2f;", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
             // sd_card_append_to_buffer(1, "ERROR,pitch=%.2f,roll=%.2f,yaw=%.2f,altitude=%.2f;", error_pitch, error_roll, error_yaw, error_altitude);
             // sd_card_append_to_buffer(1, "TEMP,%.2f;", temperature);
-            sd_card_append_to_buffer(1, "ALT %.2f;", altitude);
-            sd_card_append_to_buffer(1, "GPS,lon-%f,lat-%f;", bn357_get_longitude_decimal_format(), bn357_get_latitude_decimal_format());
+            // sd_card_append_to_buffer(1, "ALT %.2f;", altitude);
+            // sd_card_append_to_buffer(1, "GPS,lon-%f,lat-%f;", bn357_get_longitude_decimal_format(), bn357_get_latitude_decimal_format());
+            // sd_card_append_to_buffer(1, "\n");
+
+            // sd_card_append_to_buffer(1, "%6.5f %6.5f %6.5f", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);  
             sd_card_append_to_buffer(1, "\n");
+
         } 
         
         if(sd_card_async){
@@ -870,97 +989,19 @@ void handle_logging(){
     }
 }
 
-void setup_logging_to_sd(){
-    // Initialize sd card logging
-    sd_card_initialize_spi(&hspi3, GPIOA, GPIO_PIN_15, GPIOA, GPIO_PIN_12);
-    if(sd_test_interface()){
-        if(use_blackbox_logging){
-            sd_card_initialized = sd_special_initialize(log_file_blackbox_base_name);
-            printf("SD logging: Initialized blackbox logging\n");
-        }else{
-            sd_card_initialized = sd_special_initialize(log_file_base_name);
-            printf("SD logging: Initialized txt logging\n");
-        }
 
-        if(sd_card_initialized){
-            if(use_blackbox_logging){
-                sd_card_async = sd_special_enter_async_byte_mode();
-                printf("SD logging: entered async byte mode\n");
-            }else{
-                sd_card_async = sd_special_enter_async_string_mode();
-                printf("SD logging: entered async string mode\n");
-            }
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-            HAL_Delay(250);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-            HAL_Delay(250);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-            HAL_Delay(250);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-            HAL_Delay(250);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-            HAL_Delay(250);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-            HAL_Delay(250);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-            HAL_Delay(250);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-            HAL_Delay(250);
-        }else{
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-            HAL_Delay(1000);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-            HAL_Delay(200);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-            HAL_Delay(1000);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-            HAL_Delay(200);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-            HAL_Delay(1000);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-            HAL_Delay(200);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-            HAL_Delay(1000);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-            HAL_Delay(200);
-        }
+void handle_loop_end(){
+    fix_gyro_axis(gyro_degrees); // switch back the x and y axis of gyro to how they were before. This is for sensor fusion not to be confused 
 
-    }else{
-        printf("Failed to initialize the sd card interface\n");
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-        HAL_Delay(1000);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-        HAL_Delay(1000);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-        HAL_Delay(1000);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-        HAL_Delay(1000);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-        HAL_Delay(1000);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-        HAL_Delay(1000);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-        HAL_Delay(1000);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-        HAL_Delay(1000);
-    }
-
-    if(use_blackbox_logging && sd_card_initialized){
-        uint16_t betaflight_header_length = 0;
-        char* betaflight_header = betaflight_blackbox_wrapper_get_header(min_esc_pwm_value, actual_max_esc_pwm_value, &betaflight_header_length);
-        HAL_Delay(100); // wait a bit for it to sort its shit out
-        sd_special_write_chunk_of_byte_data_no_slave_response(betaflight_header, betaflight_header_length);
-        free(betaflight_header);
-        HAL_Delay(500); // wait a bit for it to sort its shit out
-        printf("SD logging: sent blackbox header\n");
-    }
+    loop_iteration++;
+    handle_loop_timing();
 }
 
 void init_STM32_peripherals(){
     HAL_Init();
     SystemClock_Config();
     MX_GPIO_Init();
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 0);
+    // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 0);
 
     HAL_Delay(1);
     MX_DMA_Init(); // This has to be before the uart inits, otherwise dma interrupts dont work
@@ -1050,6 +1091,7 @@ void init_loop_timer(){
 }
 
 void check_calibrations(){
+    HAL_Delay(2000);
     // Checking errors of mpu6050
     find_accelerometer_error(1000);
     find_gyro_error(1000);
@@ -1073,7 +1115,7 @@ void get_initial_position(){
     mpu6050_get_accelerometer_readings_gravity(acceleration_data);
     mpu6050_get_gyro_readings_dps(gyro_angular);
     qmc5883l_magnetometer_readings_micro_teslas(magnetometer_data);
-    fix_mag_axis(magnetometer_data); // Switches around the x and the y to match mpu6050
+    // fix_mag_axis(magnetometer_data); // Switches around the x and the y to match mpu6050
 
     calculate_degrees_x_y(acceleration_data, &accelerometer_x_rotation, &accelerometer_y_rotation);
 
@@ -1881,7 +1923,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_1, GPIO_PIN_RESET);

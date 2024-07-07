@@ -190,10 +190,10 @@ char* betaflight_blackbox_get_encoded_data_string(
     int16_t gyro_sums_int[3] = {lrintf(gyro_sums[0]*131.0), lrintf(gyro_sums[1]*131.0), lrintf(gyro_sums[2]*131.0)};
     int16_t accelerometer_values_int[3] = {lrintf(accelerometer_values[0]*16384.0), lrintf(accelerometer_values[1]*16384.0), lrintf(accelerometer_values[2]*16384.0)};
     uint16_t motor_power_int[4] = {
-        lrintf(motor_power[0]), 
-        lrintf(motor_power[1]), 
-        lrintf(motor_power[2]),
-        lrintf(motor_power[3]),
+        lrintf(motor_power[2]), 
+        lrintf(motor_power[3]), 
+        lrintf(motor_power[0]),
+        lrintf(motor_power[1]),
     };
 
     int32_t mag_int[3] = {lrintf(mag[0]*scaling_factor), lrintf(mag[1]*scaling_factor), lrintf(mag[2]*scaling_factor)};

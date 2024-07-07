@@ -12,20 +12,22 @@ b = np.array([146.439243, 239.251069, 112.504704])
 
 
 # Read raw data and apply calibration
-rawData = np.genfromtxt('./mag-readings.txt', delimiter='\t')  # Read raw measurements
+rawData = np.genfromtxt('./mag-readings.txt', delimiter=' ')  # Read raw measurements
 
-calibData = np.genfromtxt('./mag-readings-actual.txt', delimiter='\t')
-
+calibData = np.genfromtxt('./mag-readings-actual.txt', delimiter=' ')
+print(1)
 N = 0
 if len(calibData) >  len(rawData):
     N = len(rawData)
 else:
     N = len(calibData)
 
+print(2)
+
 # Plot XY data
 plt.figure()
 plt.plot(rawData[:, 0], rawData[:, 1], 'b*', label='Raw Meas.')
-plt.plot(calibData[:, 0], calibData[:, 1], 'r*', label='Calibrated Meas.')
+# plt.plot(calibData[:, 0], calibData[:, 1], 'r*', label='Calibrated Meas.')
 plt.title('XY Magnetometer Data')
 plt.xlabel('X [uT]')
 plt.ylabel('Y [uT]')
@@ -33,10 +35,12 @@ plt.legend()
 plt.grid()
 plt.axis('equal')
 
+print(3)
+
 # Plot YZ data
 plt.figure()
 plt.plot(rawData[:, 1], rawData[:, 2], 'b*', label='Raw Meas.')
-plt.plot(calibData[:, 1], calibData[:, 2], 'r*', label='Calibrated Meas.')
+# plt.plot(calibData[:, 1], calibData[:, 2], 'r*', label='Calibrated Meas.')
 plt.title('YZ Magnetometer Data')
 plt.xlabel('Y [uT]')
 plt.ylabel('Z [uT]')
@@ -44,10 +48,12 @@ plt.legend()
 plt.grid()
 plt.axis('equal')
 
+print(4)
+
 # Plot XZ data
 plt.figure()
 plt.plot(rawData[:, 0], rawData[:, 2], 'b*', label='Raw Meas.')
-plt.plot(calibData[:, 0], calibData[:, 2], 'r*', label='Calibrated Meas.')
+# plt.plot(calibData[:, 0], calibData[:, 2], 'r*', label='Calibrated Meas.')
 plt.title('XZ Magnetometer Data')
 plt.xlabel('X [uT]')
 plt.ylabel('Z [uT]')
@@ -55,27 +61,32 @@ plt.legend()
 plt.grid()
 plt.axis('equal')
 
+print(5)
 
 # Plot 3D scatter
 fig = plt.figure()
-ax = fig.add_subplot(111, projection='3d')
+# ax = fig.add_subplot(111, projection='3d')
 
-for i in range(N):
-    xraw = rawData[i, 0]
-    yraw = rawData[i, 1]
-    zraw = rawData[i, 2]
+# for i in range(N):
+#     print("loop " + str(i))
+#     xraw = rawData[i, 0]
+#     yraw = rawData[i, 1]
+#     zraw = rawData[i, 2]
 
-    xcalib = calibData[i, 0]
-    ycalib = calibData[i, 1]
-    zcalib = calibData[i, 2]
-    ax.scatter(xraw, yraw, zraw, color='b', label='Raw Meas.')
-    ax.scatter(xcalib, ycalib, zcalib, color='r', label='Calibrated Meas.')
+#     xcalib = calibData[i, 0]
+#     ycalib = calibData[i, 1]
+#     zcalib = calibData[i, 2]
+#     ax.scatter(xraw, yraw, zraw, color='b', label='Raw Meas.')
+#     # ax.scatter(xcalib, ycalib, zcalib, color='r', label='Calibrated Meas.')
 
-ax.set_title('3D Scatter Plot of Magnetometer Data')
-ax.set_xlabel('X [uT]')
-ax.set_ylabel('Y [uT]')
-ax.set_zlabel('Z [uT]')
+print(6)
 
+# ax.set_title('3D Scatter Plot of Magnetometer Data')
+# ax.set_xlabel('X [uT]')
+# ax.set_ylabel('Y [uT]')
+# ax.set_zlabel('Z [uT]')
+
+print(6)
 
 # If you want to print out time series data of mag measurements
 
@@ -156,7 +167,7 @@ ax.set_zlabel('Z [uT]')
 
 
 
-testData = np.genfromtxt('./data2.txt', delimiter='\t')
+        # testData = np.genfromtxt('./data2.txt', delimiter='\t')
 
 # pp = testData[:, 0]
 # pi = testData[:, 1]
@@ -170,9 +181,9 @@ testData = np.genfromtxt('./data2.txt', delimiter='\t')
 # acy = testData[:, 7]
 # acz = testData[:, 8]
 
-gcx = testData[:, 0]
-gcy = testData[:, 1]
-gcz = testData[:, 2]
+        # gcx = testData[:, 0]
+        # gcy = testData[:, 1]
+        # gcz = testData[:, 2]
 
 # plt.figure()
 # plt.plot(pp,label='P')
@@ -202,13 +213,15 @@ gcz = testData[:, 2]
 # plt.grid()
 
 
-plt.figure()
-plt.plot(gcx,label='gyro_X')
-plt.plot(gcy,label='gyro_Y')
-plt.plot(gcz,label='gyro_Z')
-plt.legend(loc='upper left', ncol=3)
-plt.xlabel('Time')
-plt.ylabel("G's")
-plt.grid()
+        # plt.figure()
+        # plt.plot(gcx,label='gyro_X')
+        # plt.plot(gcy,label='gyro_Y')
+        # plt.plot(gcz,label='gyro_Z')
+        # plt.legend(loc='upper left', ncol=3)
+        # plt.xlabel('Time')
+        # plt.ylabel("G's")
+        # plt.grid()
+
+
 
 plt.show()

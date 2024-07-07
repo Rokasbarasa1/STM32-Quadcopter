@@ -23,6 +23,10 @@ uint8_t string_buffer[STRING_BUFFER_SIZE];
 
 volatile uint8_t slave_ready = 0;
 
+
+
+volatile uint8_t response_code = 0;
+
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
     if(GPIO_Pin == m_slave_ready_pin && slave_ready == 0 && driver_initialized == 1){
@@ -703,18 +707,19 @@ uint8_t sd_special_initialize(const char *file_base_name){
 
         slave_select();
         start_waiting_for_slave_ready();
-        HAL_SPI_Transmit(m_device_handle, &command, 1, 5000); // send command
-        if(!wait_for_slave_ready(5000)) goto error;
+        HAL_SPI_Transmit(m_device_handle, &command, 1, 12000); // send command
+        if(!wait_for_slave_ready(12000)) goto error;
         start_waiting_for_slave_ready();
-        HAL_SPI_Transmit(m_device_handle, transmit_length, 2, 5000); // send how many bytes the dat will be
-        if(!wait_for_slave_ready(5000)) goto error;
+        HAL_SPI_Transmit(m_device_handle, transmit_length, 2, 12000); // send how many bytes the dat will be
+        if(!wait_for_slave_ready(12000)) goto error;
         start_waiting_for_slave_ready();
-        HAL_SPI_Transmit(m_device_handle, file_base_name, total_length, 5000); // send how many bytes the dat will be
-        if(!wait_for_slave_ready(5000)) goto error;
-        HAL_SPI_Receive(m_device_handle, response, 1, 5000);
+        HAL_SPI_Transmit(m_device_handle, file_base_name, total_length, 12000); // send how many bytes the dat will be
+        if(!wait_for_slave_ready(12000)) goto error;
+        HAL_SPI_Receive(m_device_handle, response, 1, 12000);
         slave_deselect();
 
-        if(!response[0]){
+        response_code = response[0];
+        if(response[0] != 0){ // For this case this is the actual status code from the fatfs driver.
             goto error;
         }
 
@@ -1001,6 +1006,10 @@ void sd_buffer_swap(){
     }else if(selected_buffer == 1){
         selected_buffer = 0;
     }
+}
+
+uint8_t sd_get_response(){
+    return response_code;
 }
 
 

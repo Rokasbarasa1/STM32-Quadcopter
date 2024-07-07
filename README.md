@@ -48,25 +48,43 @@ TODO after test 3:
 
 TODO after test 4:
 * ! Add blackbox logging for gps data
-* ! Find out how to adjust what pwm frequency the esc accepts and change it from 50Hz to as fast as possible.
-* ! The radio module caches the data sent durring the boot proccess of the quadcopter. Make sure the data is deleted before it gets to the pid loop as it is dangerous.
-* ! Recalibrate accelerometer because it was moved and reglued.
+* X Find out how to adjust what pwm frequency the esc accepts and change it from 50Hz to as fast as possible.
+* X The radio module caches the data sent durring the boot proccess of the quadcopter. Make sure the data is deleted before it gets to the pid loop as it is dangerous.
+* X Recalibrate accelerometer because it was moved and reglued.
 
+TODO after test 5:
+* X Tie down new escs like the old ones were
+* X Make sure the motor screws don't undo from vibrations
+* X Mark the front and back of the drone
+* ! Fix issues with magnetometer
+* X Fix blackbox log roll log being opposite
+* X Reduce angle of attack for pitch and roll
 
+TODO after test 7:
+* ! Fix issues with blackbox logging showing wrong motors spinning and wrong pitch and rol. All of them either inverted or showing up on the wrong motor.
+* ! Find a new more reliable magnetometer
+* X Attach an FPV camera for better orientation and control while flying.
+
+TODO after test 8 (Crashed and broke a rotor leg):
+* X Print new rotor leg parts
+* X Resolder cut ESC wires
+* X Flip degrees per second yaw control application to motors and reduce the gain.
+
+TODO after test 9:
+* ! Continue doing small tests to see which way the robot is leaning with no pitch or roll inputs to calibrate the accelerometer
 
 Test checklist:
 * Drone frame
 * Controller
-* Controller antena
-* Proppelers
-* Sd card addapter
+* Controller antenna
+* Propellers
+* Sd card adapter
 * Micro sd card
 * Pliers 
 * Wire cutters
 * Screwdriver 
 * Screwdriver bits
-* Nuts for controller screws
-* Remote controll
+* Remote control
 * Laptop
 * Usb extension cable
 * STM32 programmer
