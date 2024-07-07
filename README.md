@@ -1,6 +1,8 @@
 # STM32-Quadcopter
 
-Work in progress. It does not fly yet, needs more work done to make it keep upright in the air.
+![IMG_3291](https://github.com/Rokasbarasa1/STM32-Quadcopter/assets/50622827/86c02aab-86b6-40ef-8ede-8bf1fb79dea2)
+
+Work in progress. It flies but not good so far.
 
 STM32F411, MPU6050, QMC5883l, BN357, BMP280, NRF24l01, Second STM32F411 SD Logger
 
