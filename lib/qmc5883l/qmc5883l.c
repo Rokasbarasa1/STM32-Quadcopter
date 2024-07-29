@@ -16,13 +16,15 @@ I2C_HandleTypeDef *i2c_handle;
 
 // Storage of hard iron correction, values should be replaced by what is passed
 volatile float m_hard_iron[3] = {
-    0, 0, 0};
+    0, 0, 0
+};
 
 // Storage of soft iron correction, values should be replaced by what is passed
 volatile float m_soft_iron[3][3] = {
     {1, 0, 0},
     {0, 1, 0},
-    {0, 0, 1}};
+    {0, 0, 1}
+};
 
 // max value output is at 200 Hz
 uint8_t init_qmc5883l(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibration, const float hard_iron[3], const float soft_iron[3][3])
@@ -30,17 +32,13 @@ uint8_t init_qmc5883l(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibrat
     i2c_handle = i2c_handle_temp;
 
     // assign the correction for irons
-    if (apply_calibration)
-    {
-        for (uint8_t i = 0; i < 3; i++)
-        {
+    if (apply_calibration){
+        for (uint8_t i = 0; i < 3; i++){
             m_hard_iron[i] = hard_iron[i];
         }
 
-        for (uint8_t i = 0; i < 3; i++)
-        {
-            for (uint8_t k = 0; k < 3; k++)
-            {
+        for (uint8_t i = 0; i < 3; i++){
+            for (uint8_t k = 0; k < 3; k++){
                 m_soft_iron[i][k] = soft_iron[i][k];
             }
         }
@@ -55,11 +53,11 @@ uint8_t init_qmc5883l(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibrat
         1,
         &check,
         1,
-        100);
+        100
+    );
 
     // Check if the id value is as it should be
-    if (check != ID_VALUE)
-    {
+    if (check != ID_VALUE){
         printf("QMC5883L initialization failed\n");
         return 0;
     }
@@ -75,7 +73,8 @@ uint8_t init_qmc5883l(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibrat
         1,
         &settings2,
         1,
-        100);
+        100
+    );
 
     // Set some essential settings that control the data being outputted
     uint8_t settings1 = 0b00000000;
@@ -91,15 +90,15 @@ uint8_t init_qmc5883l(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibrat
         1,
         &settings1,
         1,
-        100);
+        100
+    );
 
     printf("QMC5883L initialized\n");
 
     return 1;
 }
 
-void qmc5883l_magnetometer_readings_micro_teslas(float *data)
-{
+void qmc5883l_magnetometer_readings_micro_teslas(float *data){
     uint8_t retrieved_data[] = {0, 0, 0, 0, 0, 0};
 
     HAL_I2C_Mem_Read(
@@ -109,7 +108,8 @@ void qmc5883l_magnetometer_readings_micro_teslas(float *data)
         1,
         retrieved_data,
         6, // read six registers in total so from 
-        100);
+        100
+    );
 
     // First is least significant and second is most significant
     int16_t X = ((int16_t)retrieved_data[1] << 8) | (int16_t)retrieved_data[0];
@@ -124,21 +124,18 @@ void qmc5883l_magnetometer_readings_micro_teslas(float *data)
     data[2] = (float)Z / 20;
 
     // Use the soft and hard iron calibrations
-    for (uint8_t i = 0; i < 3; i++)
-    {
+    for (uint8_t i = 0; i < 3; i++){
         data[i] = data[i] - m_hard_iron[i];
     }
 
-    for (uint8_t i = 0; i < 3; i++)
-    {
+    for (uint8_t i = 0; i < 3; i++){
         data[i] = (m_soft_iron[i][0] * data[0]) +
                   (m_soft_iron[i][1] * data[1]) +
                   (m_soft_iron[i][2] * data[2]);
     }
 }
 
-void calculate_yaw(float *magnetometer_data, float *yaw)
-{
+void calculate_yaw(float *magnetometer_data, float *yaw){
     float x = magnetometer_data[0];
     float y = magnetometer_data[1];
     float z = magnetometer_data[2];

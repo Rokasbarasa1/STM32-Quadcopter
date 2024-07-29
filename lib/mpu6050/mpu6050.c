@@ -1,5 +1,7 @@
 #include "./mpu6050.h"
 
+#include "../second_order_coplementary_filter/second_order_coplementary_filter.h"
+
 #ifndef M_PI
 #define M_PI (3.14159265358979323846)
 #endif
@@ -13,18 +15,30 @@
 #define GYRO_XOUT_H_REG 0x43
 
 volatile float m_accelerometer_correction[3] = {
-    0, 0, 0};
+    0, 0, 0
+};
 
 volatile float m_gyro_correction[3] = {
-    0, 0, 0};
+    0, 0, 0
+};
+
+volatile float m_accelerometer_scale_factor_correction[3][3] = {
+    {1, 0, 0},
+    {0, 1, 0},
+    {0, 0, 1}
+};
+
 
 volatile int64_t m_previous_time = 0;
 volatile float m_complementary_ratio = 0.0;
 
 I2C_HandleTypeDef *i2c_handle;
 
-uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibration, float accelerometer_correction[3], float gyro_correction[3], float refresh_rate_hz, float complementary_ratio)
-{
+struct second_order_complementary_filter pitch_2_complementary;
+struct second_order_complementary_filter roll_2_complementary;
+struct second_order_complementary_filter yaw_2_complementary;
+
+uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibration, float accelerometer_scale_factor_correction[3][3], float accelerometer_correction[3], float gyro_correction[3], float refresh_rate_hz, float complementary_ratio, float complementary_beta){
     i2c_handle = i2c_handle_temp;
 
     if (apply_calibration)
@@ -40,9 +54,16 @@ uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibrati
         {
             m_accelerometer_correction[i] = accelerometer_correction[i];
         }
+
+        for (uint8_t i = 0; i < 3; i++)
+        {
+            for (uint8_t k = 0; k < 3; k++)
+            {
+                m_accelerometer_scale_factor_correction[i][k] = accelerometer_scale_factor_correction[i][k];
+            }
+        }
     }
 
-    m_complementary_ratio = complementary_ratio;
 
     uint8_t check;
     HAL_I2C_Mem_Read(i2c_handle, MPU6050 + 1, ID_REG, 1, &check, 1, 100);
@@ -94,12 +115,15 @@ uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibrati
         1, 
         100);
 
+    pitch_2_complementary = init_second_order_coplementary_filter(complementary_ratio, complementary_beta);
+    roll_2_complementary = init_second_order_coplementary_filter(complementary_ratio, complementary_beta);
+    yaw_2_complementary = init_second_order_coplementary_filter(complementary_ratio, complementary_beta);
+
     printf("MPU6050 initialized\n");
     return 1;
 }
 // Read accelerometer in gravity units
-void mpu6050_get_accelerometer_readings_gravity(float *data)
-{
+void mpu6050_get_accelerometer_readings_gravity(float *data){
     uint8_t retrieved_data[] = {0, 0, 0, 0, 0, 0};
 
     HAL_I2C_Mem_Read(
@@ -122,11 +146,16 @@ void mpu6050_get_accelerometer_readings_gravity(float *data)
     data[0] = X_out - (m_accelerometer_correction[0]);
     data[1] = Y_out - (m_accelerometer_correction[1]);
     data[2] = Z_out - (m_accelerometer_correction[2] - 1);
+
+    for (uint8_t i = 0; i < 3; i++){
+        data[i] = (m_accelerometer_scale_factor_correction[i][0] * data[0]) +
+                  (m_accelerometer_scale_factor_correction[i][1] * data[1]) +
+                  (m_accelerometer_scale_factor_correction[i][2] * data[2]);
+    }
 }
 
 // Read gyro in degrees per second units 
-void mpu6050_get_gyro_readings_dps(float *data)
-{
+void mpu6050_get_gyro_readings_dps(float *data){
     uint8_t retrieved_data[] = {0, 0, 0, 0, 0, 0};
 
     HAL_I2C_Mem_Read(
@@ -151,8 +180,7 @@ void mpu6050_get_gyro_readings_dps(float *data)
     data[2] = Z_out - (m_gyro_correction[2]);
 }
 
-void calculate_pitch_and_roll(float *data, float *roll, float *pitch)
-{
+void calculate_pitch_and_roll(float *data, float *roll, float *pitch){
     float x = data[0];
     float y = data[1];
     float z = data[2];
@@ -171,8 +199,7 @@ void calculate_pitch_and_roll(float *data, float *roll, float *pitch)
 }
 
 // Get the x and y degrees from accelerometer.
-void calculate_degrees_x_y(float *data, float *rotation_around_x, float *rotation_around_y)
-{
+void calculate_degrees_x_y(float *data, float *rotation_around_x, float *rotation_around_y){
     float x = data[0];
     float y = data[1];
     float z = data[2];
@@ -183,8 +210,7 @@ void calculate_degrees_x_y(float *data, float *rotation_around_x, float *rotatio
 }
 
 // Get many values of the accelerometer error and average them together. Then print out the result
-void find_accelerometer_error(uint64_t sample_size)
-{
+void find_accelerometer_error(uint64_t sample_size){
     float x_sum = 0, y_sum = 0, z_sum = 0;
     float data[] = {0, 0, 0};
 
@@ -221,12 +247,33 @@ void find_accelerometer_error(uint64_t sample_size)
         "ACCELEROMETER errors:  X,Y,Z  %f, %f, %f\n",
         x_sum / sample_size,
         y_sum / sample_size,
-        (z_sum / sample_size) -1 );
+        z_sum / sample_size );
+}
+
+void find_accelerometer_error_with_corrections(uint64_t sample_size){
+    float x_sum = 0, y_sum = 0, z_sum = 0;
+    float data[] = {0, 0, 0};
+
+    for (uint64_t i = 0; i < sample_size; i++)
+    {
+        mpu6050_get_accelerometer_readings_gravity(data);
+        x_sum += data[0];
+        y_sum += data[1];
+        z_sum += data[2];
+        // It can sample stuff at 1KHz
+        // but 0.5Khz is just to be safe
+        HAL_Delay(2);
+    }
+
+    printf(
+        "ACCELEROMETER errors:  X,Y,Z  %f, %f, %f\n",
+        x_sum / sample_size,
+        y_sum / sample_size,
+        z_sum / sample_size);
 }
 
 // Get many values of the gyro error and average them together. Then print out the result
-void find_gyro_error(uint64_t sample_size)
-{
+void find_gyro_error(uint64_t sample_size){
 
     float x_sum = 0, y_sum = 0, z_sum = 0;
     float data[] = {0, 0, 0};
@@ -268,8 +315,7 @@ void find_gyro_error(uint64_t sample_size)
         z_sum / sample_size);
 }
 
-void find_and_return_gyro_error(uint64_t sample_size, float *return_array)
-{
+void find_and_return_gyro_error(uint64_t sample_size, float *return_array){
 
     float x_sum = 0, y_sum = 0, z_sum = 0;
     float data[] = {0, 0, 0};
@@ -317,18 +363,29 @@ void find_and_return_gyro_error(uint64_t sample_size, float *return_array)
 
 void mpu6050_apply_calibrations(float accelerometer_correction[3], float gyro_correction[3]){
     // assign the correction for gyro
-    for (uint8_t i = 0; i < 3; i++)
-    {
+    for (uint8_t i = 0; i < 3; i++){
         m_gyro_correction[i] = gyro_correction[i];
     }
 
     // assign the correction for accelerometer
-    for (uint8_t i = 0; i < 3; i++)
-    {
+    for (uint8_t i = 0; i < 3; i++){
         m_accelerometer_correction[i] = accelerometer_correction[i];
     }
 }
 
+void mpu6050_apply_calibrations_gyro(float gyro_correction[3]){
+    // assign the correction for gyro
+    for (uint8_t i = 0; i < 3; i++){
+        m_gyro_correction[i] = gyro_correction[i];
+    }
+}
+
+void mpu6050_apply_calibration_accelerometers(float accelerometer_correction[3]){
+    // assign the correction for accelerometer
+    for (uint8_t i = 0; i < 3; i++){
+        m_accelerometer_correction[i] = accelerometer_correction[i];
+    }
+}
 
 // Do complementary filter for x(pitch) and y(roll) and z(yaw). Combine accelerometer and gyro to get a more usable gyro value. Please make sure the coefficient is scaled by refresh rate. It helps a lot.
 void convert_angular_rotation_to_degrees(float* gyro_angular, float* gyro_degrees, float rotation_around_x, float rotation_around_y, float rotation_around_z, int64_t time){
@@ -341,9 +398,9 @@ void convert_angular_rotation_to_degrees(float* gyro_angular, float* gyro_degree
     m_previous_time = time;
 
     // Convert degrees per second and add the complementary filter with accelerometer degrees
-    gyro_degrees[0] = (1.0 - m_complementary_ratio) * (gyro_degrees[0] + gyro_angular[0] * elapsed_time_sec) + m_complementary_ratio * rotation_around_x;
-    gyro_degrees[1] = (1.0 - m_complementary_ratio) * (gyro_degrees[1] + gyro_angular[1] * elapsed_time_sec) + m_complementary_ratio * rotation_around_y;
-    gyro_degrees[2] = (1.0 - m_complementary_ratio) * (gyro_degrees[2] + gyro_angular[2] * elapsed_time_sec) + m_complementary_ratio * rotation_around_z;
+    gyro_degrees[0] = second_order_complementary_filter_calculate(&pitch_2_complementary, gyro_degrees[0] + gyro_angular[0] * elapsed_time_sec, rotation_around_x, elapsed_time_sec);    
+    gyro_degrees[1] = second_order_complementary_filter_calculate(&roll_2_complementary, gyro_degrees[1] + gyro_angular[1] * elapsed_time_sec, rotation_around_y, elapsed_time_sec);    
+    gyro_degrees[2] = second_order_complementary_filter_calculate(&yaw_2_complementary, gyro_degrees[2] + gyro_angular[2] * elapsed_time_sec, rotation_around_z, elapsed_time_sec);    
 
     // I dont want to track how many times the degrees went over the 360 degree mark, no point.
     while (gyro_degrees[0] > 180.0) {
@@ -382,8 +439,8 @@ void convert_angular_rotation_to_degrees_x_y(float* gyro_angular, float* gyro_de
     }
 
     // Convert degrees per second and add the complementary filter with accelerometer degrees
-    gyro_degrees[0] = (1.0 - m_complementary_ratio) * (gyro_degrees[0] + gyro_angular[0] * elapsed_time_sec) + m_complementary_ratio * rotation_around_x;
-    gyro_degrees[1] = (1.0 - m_complementary_ratio) * (gyro_degrees[1] + gyro_angular[1] * elapsed_time_sec) + m_complementary_ratio * rotation_around_y;
+    gyro_degrees[0] = second_order_complementary_filter_calculate(&pitch_2_complementary, gyro_degrees[0] + gyro_angular[0] * elapsed_time_sec, rotation_around_x, elapsed_time_sec);
+    gyro_degrees[1] = second_order_complementary_filter_calculate(&roll_2_complementary, gyro_degrees[1] + gyro_angular[1] * elapsed_time_sec, rotation_around_y, elapsed_time_sec);
 
     // I dont want to track how many times the degrees went over the 360 degree mark, no point.
     while (gyro_degrees[0] > 180.0) {

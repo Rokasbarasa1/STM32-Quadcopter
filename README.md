@@ -74,6 +74,9 @@ TODO after test 8 (Crashed and broke a rotor leg):
 
 TODO after test 9:
 * ! Continue doing small tests to see which way the robot is leaning with no pitch or roll inputs to calibrate the accelerometer
+* X Add accelerometer calibration tweaking to the remote control so the drone does not have to be reflashed every time
+* ! Consider switching to the kalman filter for better sensor data
+
 
 Test checklist:
 * Drone frame

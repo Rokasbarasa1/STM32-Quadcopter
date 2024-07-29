@@ -48,6 +48,7 @@ static void MX_TIM2_Init(void);
 // Other imports
 #include "../lib/utils/ned_coordinates/ned_coordinates.h"
 #include "../lib/pid/pid.h"
+#include "../lib/filtering/filtering.h"
 
 void init_STM32_peripherals();
 void calibrate_escs();
@@ -68,6 +69,7 @@ void extract_joystick_request_values_uint(char *request, uint8_t request_size, u
 void extract_joystick_request_values_float(char *request, uint8_t request_size, float *throttle, float *yaw, float *roll, float *pitch);
 void extract_request_type(char *request, uint8_t request_size, char *type_output);
 void extract_pid_request_values(char *request, uint8_t request_size, float *added_proportional, float *added_integral, float *added_derivative, float *added_master);
+void extract_accelerometer_offsets(char *request, uint8_t request_size, float *added_x_axis_offset, float *added_y_axis_offset);
 void track_time();
 float map_value(float value, float input_min, float input_max, float output_min, float output_max);
 float apply_dead_zone(float value, float max_value, float min_value, float dead_zone);
@@ -166,10 +168,24 @@ float soft_iron_correction[3][3] = {
     {0,0,1}
 };
 
+// float accelerometer_correction[3] = {
+//     -0.043320,0.09551,1.147813
+// };
+
+// float accelerometer_correction[3] = {
+//     0, 0,0
+// };
 
 float accelerometer_correction[3] = {
-    0.063320,0.17551,1.147813
+    0.048688, -0.011751, 1.118072
 };
+
+float accelerometer_scale_factor_correction[3][3] = {
+    {0.989138,-0.0125890,0.004309},
+    {-0.012589,0.997708,-0.001005},
+    {0.004309,-0.001005,0.972671}
+};
+
 
 // X - pitch. MINUS pitch back, PLUS pitch forward.
 // y - roll. MINUS roll right, PLUS roll left
@@ -185,7 +201,17 @@ float accelerometer_correction[3] = {
 // x 0.056320 y 0.17551 a bit too much backwards and to the left
 // x 0.063320 y 0.17551 a bit too much backwards and spinning counter clock wise a bit
 
-
+// Next day
+// x 0.063320 y 0.17551 a bit too much forwards
+// -0.001320,0.17551,1.147813 leaning forward-left a bit
+// -0.001320,0.14551,1.147813 leaning forward-mostly a bit to the left
+// -0.015320,0.14551,1.147813 more stable, a bit forward and spinning clockwise
+// -0.015320,0.14551,1.147813 even better but still a bit foward
+// -0.019320,0.14551,1.147813 nothing changed
+// -0.024320,0.14551,1.147813 not going forwards anymore but still a bit to the left
+// -0.024320,0.10551,1.147813 Forwards got worse again
+// -0.029320,0.10551,1.147813 best so far but see that it does go to forward left a bit
+// -0.033320,0.09551,1.147813 going forward again... 
 
 float gyro_correction[3] = {
     -2.532809, 2.282250, 0.640916
@@ -231,7 +257,7 @@ float error_altitude = 0;
 // to float in the air. If you are testing with drone constrained add a base motor speed to account for this.
 
 // PID for yaw
-const float yaw_gain_p = 0.17; 
+const float yaw_gain_p = 0.25; 
 const float yaw_gain_i = 0.0;
 const float yaw_gain_d = 0.0;
 
@@ -260,6 +286,10 @@ float added_pitch_roll_gain_d = 0;
 
 // Sensor stuff ##############################################################################################
 float complementary_ratio = 1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ)); // Depends on how often the loop runs. 1 second / (1 second + one loop time)
+float complementary_beta = 0.005;
+float filtering_alpha_accelerometer = 0.1;
+float filtering_alpha_gyro = 0.01;
+
 float acceleration_data[] = {0,0,0};
 float gyro_angular[] = {0,0,0};
 float gyro_degrees[] = {0,0,0};
@@ -328,9 +358,7 @@ float PID_proportional[3];
 float PID_integral[3];
 float PID_derivative[2];
 float PID_feed_forward[3];
-
 float PID_set_points[4];
-
 float remote_control[4];
 
 uint8_t entered_loop = 0;
@@ -350,33 +378,33 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
     // If the stm32 is restarted  while it is initializing dma the
     // data arrives from the uart and it fucks up. So you have to restart it a few times
 
-    // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 1);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 1);
 
-    // if (huart->Instance == USART2){   
-    //     memcpy((uint8_t *)gps_output_buffer, receive_buffer, Size);
+    if (huart->Instance == USART2){   
+        memcpy((uint8_t *)gps_output_buffer, receive_buffer, Size);
 
-    //     // printf("\n");
-    //     // for(uint16_t i = 0; i < GPS_RECEIVE_BUFFER_SIZE; i++){
-    //     //     printf("%c", gps_output_buffer[i]);
-    //     // }
-    //     // printf("\n");
+        // printf("\n");
+        // for(uint16_t i = 0; i < GPS_RECEIVE_BUFFER_SIZE; i++){
+        //     printf("%c", gps_output_buffer[i]);
+        // }
+        // printf("\n");
 
-    //     if(entered_loop){
-    //         if(bn357_parse_and_store((unsigned char*)gps_output_buffer, Size)){
-    //             HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-    //             // printf("Working UART2, %f, %f\n", bn357_get_latitude_decimal_format(), bn357_get_longitude_decimal_format());
-    //         }else{
-    //             HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-    //             // printf("Failed UART2, %f, %f\n", bn357_get_latitude_decimal_format(), bn357_get_longitude_decimal_format());
-    //         }
-    //     }else{
-    //         bn357_parse_and_store((unsigned char*)gps_output_buffer, Size);
-    //     }
+        if(entered_loop){
+            if(bn357_parse_and_store((unsigned char*)gps_output_buffer, Size)){
+                HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+                // printf("Working UART2, %f, %f\n", bn357_get_latitude_decimal_format(), bn357_get_longitude_decimal_format());
+            }else{
+                HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+                // printf("Failed UART2, %f, %f\n", bn357_get_latitude_decimal_format(), bn357_get_longitude_decimal_format());
+            }
+        }else{
+            bn357_parse_and_store((unsigned char*)gps_output_buffer, Size);
+        }
 
-    //     /* start the DMA again */
-    //     HAL_UARTEx_ReceiveToIdle_DMA(&huart2, (uint8_t *)receive_buffer, GPS_RECEIVE_BUFFER_SIZE);
-    //     __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
-    // }
+        /* start the DMA again */
+        HAL_UARTEx_ReceiveToIdle_DMA(&huart2, (uint8_t *)receive_buffer, GPS_RECEIVE_BUFFER_SIZE);
+        __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
+    }
 }
 
 // Interrupt for uart 2 when it crashes to restart it
@@ -391,6 +419,13 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart){
     }
 }
 
+struct low_pass_filter filter_accelerometer_x;
+struct low_pass_filter filter_accelerometer_y;
+struct low_pass_filter filter_accelerometer_z;
+
+struct low_pass_filter filter_gyro_x;
+struct low_pass_filter filter_gyro_y;
+struct low_pass_filter filter_gyro_z;
 
 int main(void){
     init_STM32_peripherals();
@@ -413,6 +448,14 @@ int main(void){
     yaw_pid = pid_init(yaw_gain_p, yaw_gain_i, yaw_gain_d, 0.0, HAL_GetTick(), 10.0, -10.0, 1);
     altitude_pid = pid_init(altitude_gain_p, altitude_gain_i, altitude_gain_d, 0.0, HAL_GetTick(), 0, 0, 0);
 
+    filter_accelerometer_x = filtering_init_low_pass_filter(filtering_alpha_accelerometer);
+    filter_accelerometer_y = filtering_init_low_pass_filter(filtering_alpha_accelerometer);
+    filter_accelerometer_z = filtering_init_low_pass_filter(filtering_alpha_accelerometer);
+
+    filter_gyro_x = filtering_init_low_pass_filter(filtering_alpha_gyro);
+    filter_gyro_y = filtering_init_low_pass_filter(filtering_alpha_gyro);
+    filter_gyro_z = filtering_init_low_pass_filter(filtering_alpha_gyro);
+
     handle_pre_loop_start();
     while (1){
         handle_radio_communication();
@@ -434,14 +477,14 @@ void setup_logging_to_sd(){
         if(use_blackbox_logging){
             sd_card_initialized = sd_special_initialize(log_file_blackbox_base_name);
             if(sd_card_initialized){
-                printf("SD logging: Initialized blackbox logging\n");
+                printf("SD logging: Initialized blackbox logging. Code %d\n", sd_get_response());
             }else{
                 printf("SD logging: FAILED to initialize blackbox logging. Code %d\n", sd_get_response());
             }
         }else{
             sd_card_initialized = sd_special_initialize(log_file_base_name);
             if(sd_card_initialized){
-                printf("SD logging: Initialized txt logging\n");
+                printf("SD logging: Initialized txt logging. Code %d\n", sd_get_response());
             }else{
                 printf("SD logging: FAILED to initialize txt logging. Code %d\n", sd_get_response());
             }
@@ -536,13 +579,8 @@ void handle_pre_loop_start(){
 
 void handle_get_and_calculate_sensor_values(){
     
+    // ------------------------------------------------------------------------------------------------------ Get the sensor data
     temperature = bmp280_get_temperature_celsius();
-
-    // calculate the altitude using gps altitude and a bmp280 reference altitude
-    // Reset the reference on bmp280 every time the gps gets updated
-    // So the barometer keeps track in between the gps updates and does so with the 
-    // origin of the precise altitude value from gps
-
     altitude = bmp280_get_height_meters_from_reference(0);
     // altitude = get_sensor_fusion_altitude(bn357_get_altitude_meters() ,(float)bmp280_get_height_meters_from_reference(bn357_get_status_up_to_date(1)));
 
@@ -557,6 +595,16 @@ void handle_get_and_calculate_sensor_values(){
     mpu6050_get_accelerometer_readings_gravity(acceleration_data);
     mpu6050_get_gyro_readings_dps(gyro_angular);
     qmc5883l_magnetometer_readings_micro_teslas(magnetometer_data);
+
+    // ------------------------------------------------------------------------------------------------------ Filter the sensor data
+    acceleration_data[0] = low_pass_filter_read(&filter_accelerometer_x, acceleration_data[0]);
+    acceleration_data[1] = low_pass_filter_read(&filter_accelerometer_y, acceleration_data[1]);
+    acceleration_data[2] = low_pass_filter_read(&filter_accelerometer_z, acceleration_data[2]);
+
+    gyro_angular[0] = low_pass_filter_read(&filter_gyro_x, gyro_angular[0]);
+    gyro_angular[1] = low_pass_filter_read(&filter_gyro_y, gyro_angular[1]);
+    gyro_angular[2] = low_pass_filter_read(&filter_gyro_z, gyro_angular[2]);
+
 
     // Convert the sensor data to data that is useful
     // fix_mag_axis(magnetometer_data); // Switches around the x and the y of the magnetometer to match mpu6050 outputs
@@ -718,7 +766,7 @@ void handle_radio_communication(){
 
         }else if(strcmp(rx_type, "pid") == 0){
             printf("\nGot pid");
-
+            
             float added_proportional = 0;
             float added_integral = 0;
             float added_derivative = 0;
@@ -754,6 +802,27 @@ void handle_radio_communication(){
         }else if(strcmp(rx_type, "remoteSyncAdded") == 0){
             printf("\nGot remoteSyncAdded");
             send_pid_added_info_to_remote();
+        }else if(strcmp(rx_type, "accel") == 0){
+
+            float added_x_axis_offset;
+            float added_y_axis_offset;
+
+            extract_accelerometer_offsets(rx_data, strlen(rx_data), &added_x_axis_offset, &added_y_axis_offset);
+            printf("\nGot accel %f %f ", added_x_axis_offset, added_y_axis_offset);
+
+            float accelerometer_correction_new[3];
+            accelerometer_correction_new[0] = accelerometer_correction[0] + added_x_axis_offset;
+            accelerometer_correction_new[1] = accelerometer_correction[1] + added_y_axis_offset;
+            accelerometer_correction_new[2] = accelerometer_correction[2];
+            mpu6050_apply_calibration_accelerometers(accelerometer_correction_new);
+
+            find_accelerometer_error_with_corrections(100);
+            printf("\nGot accel correction %f %f ", added_x_axis_offset, added_y_axis_offset);
+
+            mpu6050_get_accelerometer_readings_gravity(acceleration_data);
+
+            printf("\n After correction %f %f %f", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+
         }
 
         rx_type[0] = '\0'; // Clear out the string by setting its first char to string terminator
@@ -954,7 +1023,6 @@ void handle_logging(){
 
             // sd_card_append_to_buffer(1, "%6.5f %6.5f %6.5f", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);  
             sd_card_append_to_buffer(1, "\n");
-
         } 
         
         if(sd_card_async){
@@ -1059,15 +1127,9 @@ void calibrate_escs(){
 uint8_t init_sensors(){
     printf("-----------------------------INITIALIZING MODULES...\n");
 
-    uint8_t mpu6050 = init_mpu6050(&hi2c1, 1, accelerometer_correction, gyro_correction, REFRESH_RATE_HZ, complementary_ratio);
+    uint8_t mpu6050 = init_mpu6050(&hi2c1, 1, accelerometer_scale_factor_correction, accelerometer_correction, gyro_correction, REFRESH_RATE_HZ, complementary_ratio, complementary_beta);
     uint8_t qmc5883l = init_qmc5883l(&hi2c1, 1, hard_iron_correction, soft_iron_correction);
-
     uint8_t bmp280 = init_bmp280(&hi2c1);
-    // uint8_t bme280 = init_bme280(&hi2c1);
-    // uint8_t bmp680 = init_bmp680(&hi2c1);
-    // uint8_t ms5611 = init_ms5611(&hi2c1);
-    // uint8_t mpl3115a2 = init_mpl3115a2(&hi2c1);
-
     uint8_t bn357 = init_bn357(&huart2, 0);
     uint8_t nrf24 = init_nrf24(&hspi1);
 
@@ -1367,6 +1429,32 @@ void extract_pid_request_values(char *request, uint8_t request_size, float *adde
     added_master_string[length] = '\0';
     *added_master = strtod(added_master_string, NULL);
     //printf("'%s'\n", added_master);
+}
+
+void extract_accelerometer_offsets(char *request, uint8_t request_size, float *added_x_axis_offset, float *added_y_axis_offset){
+    // Skip the request type
+    char* start = strchr(request, '/') + 1;
+    char* end = strchr(start, '/');
+
+    start = strchr(end, '/') + 1;
+    end = strchr(start, '/');
+    if(start == NULL || end == NULL ) return;
+    int length = end - start;
+    char added_x_axis_offset_string[length + 1];
+    strncpy(added_x_axis_offset_string, start, length);
+    added_x_axis_offset_string[length] = '\0';
+    *added_x_axis_offset = strtod(added_x_axis_offset_string, NULL);
+    //printf("'%s'\n", added_x_axis_offset);
+
+    start = strchr(end, '/') + 1;
+    end = strchr(start, '/');
+    if(start == NULL || end == NULL ) return;
+    length = end - start;
+    char added_y_axis_offset_string[length + 1];
+    strncpy(added_y_axis_offset_string, start, length);
+    added_y_axis_offset_string[length] = '\0';
+    *added_y_axis_offset = strtod(added_y_axis_offset_string, NULL);
+    //printf("'%s'\n", added_y_axis_offset);
 }
 
 // Print out how much time has passed since the start of the loop. To debug issues with performance

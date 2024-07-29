@@ -25,11 +25,19 @@
         "integer.h": "c",
         "stm32_hal_legacy.h": "c",
         "sd_card_spi.h": "c",
-        "sd_card.h": "c"
+        "sd_card.h": "c",
+        "complementary_filter.h": "c",
+        "matrix_operations.h": "c",
+        "second_order_coplementary_filter.h": "c",
+        "extended_kalman_filter.h": "c"
     },
     "cSpell.words": [
+        "coplementary",
+        "datasheet",
         "FATFS",
         "FILINFO",
-        "FRESULT"
+        "FRESULT",
+        "kalman",
+        "reflashed"
     ]
 }
