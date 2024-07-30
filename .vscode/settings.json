@@ -29,7 +29,8 @@
         "complementary_filter.h": "c",
         "matrix_operations.h": "c",
         "second_order_coplementary_filter.h": "c",
-        "extended_kalman_filter.h": "c"
+        "extended_kalman_filter.h": "c",
+        "filtering.h": "c"
     },
     "cSpell.words": [
         "coplementary",

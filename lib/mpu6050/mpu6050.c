@@ -225,6 +225,8 @@ void find_accelerometer_error(uint64_t sample_size){
         accelerometer_correction_temp[i] = m_accelerometer_correction[i];
         m_accelerometer_correction[i] = 0;
     }
+    m_accelerometer_correction[2] = 1;
+
 
     for (uint64_t i = 0; i < sample_size; i++)
     {
@@ -515,4 +517,64 @@ void convert_angular_rotation_to_degrees_z(float* gyro_angular, float* gyro_degr
     while (gyro_degrees[2] < -180.0) {
         gyro_degrees[2] += 360.0;
     }
+}
+
+uint64_t last_vertical_sample_time = 0;
+#define G ((float) 9.81f)
+
+float mpu6050_calculate_vertical_speed(float last_vertical_speed, float acceleration_data[3], float gyro_degrees[3], int64_t time) {
+    if (last_vertical_sample_time == 0) {
+        last_vertical_sample_time = time;
+        return 0;
+    }
+
+    float elapsed_time_sec = ((float)time / 1000.0f) - ((float)last_vertical_sample_time / 1000.0f);
+    last_vertical_sample_time = time;
+
+    // printf("acceleration_data: %f, %f, %f\n", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+    // printf("degrees: %f, %f, %f\n", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
+
+    // Convert pitch and roll angles to radians
+    float pitch_rad = gyro_degrees[0] * (M_PI / 180.0f);
+    float roll_rad = gyro_degrees[1] * (M_PI / 180.0f);
+
+    // Calculate the vertical component of the acceleration
+    float a_x = acceleration_data[0] * G;
+    float a_y = acceleration_data[1] * G;
+    float a_z = acceleration_data[2] * G;
+
+    // Correct vertical acceleration calculation considering quadcopter tilt
+    float vertical_acceleration = (a_z * cos(pitch_rad) * cos(roll_rad)) + 
+                                  (a_x * sin(pitch_rad)) -
+                                  (a_y * sin(roll_rad));
+    // printf("vertical_acceleration: %f\n", vertical_acceleration);
+
+    // Remove the effect of gravity
+    vertical_acceleration -= G * cos(pitch_rad) * cos(roll_rad);
+    // printf("vertical_acceleration - G: %f\n", vertical_acceleration);
+
+    // Calculate the vertical speed
+    float vertical_speed = last_vertical_speed + (vertical_acceleration * elapsed_time_sec);
+
+    return vertical_speed;
+}
+
+float mpu6050_calculate_vertical_acceleration_cm_per_second(float acceleration_data[3], float gyro_degrees[3]){
+
+    // Convert pitch and roll angles to radians
+    float pitch_rad = gyro_degrees[0] * (M_PI / 180.0f);
+    float roll_rad = gyro_degrees[1] * (M_PI / 180.0f);
+
+    // Calculate the vertical component of the acceleration
+    float a_x = acceleration_data[0] * G;
+    float a_y = acceleration_data[1] * G;
+    float a_z = acceleration_data[2] * G;
+
+    float vertical_acceleration = -a_x * sin(pitch_rad) + 
+                                   a_y * sin(roll_rad) * cos(pitch_rad) +
+                                   a_z * cos(roll_rad) * cos(pitch_rad);
+
+    vertical_acceleration = (vertical_acceleration - G) * 100;
+
+    return vertical_acceleration;
 }

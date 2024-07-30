@@ -30,6 +30,7 @@ static void MX_TIM2_Init(void);
 #include "../lib/printf/retarget.h"
 #include "stdio.h"
 #include "string.h"
+#include "math.h"
 
 // Drivers
 #include "../lib/mpu6050/mpu6050.h"
@@ -49,6 +50,8 @@ static void MX_TIM2_Init(void);
 #include "../lib/utils/ned_coordinates/ned_coordinates.h"
 #include "../lib/pid/pid.h"
 #include "../lib/filtering/filtering.h"
+#include "../lib/kalman_filter/kalman_filter.h"
+#include "../lib/utils/matrix_operations/matrix_operations.h"
 
 void init_STM32_peripherals();
 void calibrate_escs();
@@ -186,6 +189,16 @@ float accelerometer_scale_factor_correction[3][3] = {
     {0.004309,-0.001005,0.972671}
 };
 
+// float accelerometer_correction[3] = {
+//     -0.009703, -0.008901, 1.145573
+// };
+
+// float accelerometer_scale_factor_correction[3][3] = {
+//     {1,0,0},
+//     {0,1,0},
+//     {0,0,1}
+// };
+
 
 // X - pitch. MINUS pitch back, PLUS pitch forward.
 // y - roll. MINUS roll right, PLUS roll left
@@ -287,8 +300,12 @@ float added_pitch_roll_gain_d = 0;
 // Sensor stuff ##############################################################################################
 float complementary_ratio = 1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ)); // Depends on how often the loop runs. 1 second / (1 second + one loop time)
 float complementary_beta = 0.005;
+
 float filtering_alpha_accelerometer = 0.1;
 float filtering_alpha_gyro = 0.01;
+float filtering_alpha_magnetometer = 0.01;
+float filtering_alpha_barometer = 0.01;
+
 
 float acceleration_data[] = {0,0,0};
 float gyro_angular[] = {0,0,0};
@@ -299,6 +316,7 @@ float gps_latitude = 0.0;
 float pressure = 0.0;
 float temperature = 0.0;
 float altitude = 0.0;
+float speed[] = {0,0,0};
 
 float target_pitch = 0.0;
 float target_roll = 0.0;
@@ -427,6 +445,14 @@ struct low_pass_filter filter_gyro_x;
 struct low_pass_filter filter_gyro_y;
 struct low_pass_filter filter_gyro_z;
 
+struct low_pass_filter filter_magnetometer_x;
+struct low_pass_filter filter_magnetometer_y;
+struct low_pass_filter filter_magnetometer_z;
+
+struct low_pass_filter filter_barometer;
+
+struct kalman_filter altitude_and_velocity_kalman;
+
 int main(void){
     init_STM32_peripherals();
 
@@ -441,7 +467,7 @@ int main(void){
     // check_calibrations();
     calibrate_gyro(); // Recalibrate the gyro as the temperature affects the calibration
     get_initial_position();
-    setup_logging_to_sd();
+    // setup_logging_to_sd();
 
     pitch_pid = pid_init(pitch_roll_master_gain * pitch_roll_gain_p, pitch_roll_master_gain * pitch_roll_gain_i, pitch_roll_master_gain * pitch_roll_gain_d, 0.0, HAL_GetTick(), 20.0, -20.0, 1);
     roll_pid = pid_init(pitch_roll_master_gain * pitch_roll_gain_p, pitch_roll_master_gain * pitch_roll_gain_i, pitch_roll_master_gain * pitch_roll_gain_d, 0.0, HAL_GetTick(), 20.0, -20.0, 1);
@@ -455,6 +481,68 @@ int main(void){
     filter_gyro_x = filtering_init_low_pass_filter(filtering_alpha_gyro);
     filter_gyro_y = filtering_init_low_pass_filter(filtering_alpha_gyro);
     filter_gyro_z = filtering_init_low_pass_filter(filtering_alpha_gyro);
+
+    filter_magnetometer_x = filtering_init_low_pass_filter(filtering_alpha_magnetometer);
+    filter_magnetometer_y = filtering_init_low_pass_filter(filtering_alpha_magnetometer);
+    filter_magnetometer_z = filtering_init_low_pass_filter(filtering_alpha_magnetometer);
+
+    filter_barometer = filtering_init_low_pass_filter(filtering_alpha_magnetometer);
+
+    float S_state[2][1] = {
+        {0},
+        {0}
+    };
+
+    float F_state_transition[2][2] = {
+        {1, 0.005},
+        {0, 1}
+    };
+
+    float P_covariance[2][2] = {
+        {0, 0},
+        {0, 0}
+    }; 
+
+    float B_control[2][1] = {
+        {0.5 + (0.005 * 0.005)},
+        {0.005}
+    };
+
+    float H_observation[1][2] = {
+        {1, 0}
+    };
+
+    float Q_proccess_uncertainty[2][2] = {
+        {25.0025001, 0.2500125},
+        {0.2500125, 0.0025}
+    };
+
+    float R_measurement_uncertainty[1][1] = {
+        {30 * 30}
+    };
+
+    // float Q_proccess_uncertainty_temp[2][2];
+    // matrix_transpose(B_control, 2, 1, Q_proccess_uncertainty_temp);
+    // matrix_matrix_multiply(B_control, 2, 1, Q_proccess_uncertainty_temp, 1, 2, Q_proccess_uncertainty);
+    // matrix_scalar_multiply(Q_proccess_uncertainty, 2, 2, 10*10, Q_proccess_uncertainty_temp);
+    // matrix_copy(Q_proccess_uncertainty_temp, 2, 2, Q_proccess_uncertainty);
+
+    altitude_and_velocity_kalman = kalman_filter_init();
+    kalman_filter_set_S_state(&altitude_and_velocity_kalman, (float *)S_state, 2);
+
+    kalman_filter_set_P_covariance(&altitude_and_velocity_kalman, (float *)P_covariance, 2, 2);
+
+    kalman_filter_set_F_state_transition_model(&altitude_and_velocity_kalman, (float *)F_state_transition, 2, 2);
+    kalman_filter_set_Q_proccess_noise_covariance(&altitude_and_velocity_kalman, (float *)Q_proccess_uncertainty, 2, 2);
+    kalman_filter_set_H_observation_model(&altitude_and_velocity_kalman, (float *)H_observation, 1, 2);
+    kalman_filter_set_B_external_input_control_matrix(&altitude_and_velocity_kalman, (float *)B_control, 2, 1);
+    kalman_filter_set_R_observation_noise_covariance(&altitude_and_velocity_kalman, (float *)R_measurement_uncertainty, 1, 1);
+    kalman_filter_configure_u_measurement_input(&altitude_and_velocity_kalman, 1);
+    kalman_filter_configure_z_measurement_input(&altitude_and_velocity_kalman, 1);
+    uint8_t altitude_kalman_status = kalman_filter_finish_initialization(&altitude_and_velocity_kalman);
+
+    if(altitude_kalman_status == 1) printf("Kalman setup OK\n");
+    else printf("Kalman setup not OK\n");
 
     handle_pre_loop_start();
     while (1){
@@ -577,20 +665,19 @@ void handle_pre_loop_start(){
     entered_loop = 1;
 }
 
+#ifndef M_PI
+#define M_PI (3.14159265358979323846)
+#endif
+
 void handle_get_and_calculate_sensor_values(){
     
     // ------------------------------------------------------------------------------------------------------ Get the sensor data
     temperature = bmp280_get_temperature_celsius();
-    altitude = bmp280_get_height_meters_from_reference(0);
+    altitude = bmp280_get_height_centimeters_from_reference(0);
     // altitude = get_sensor_fusion_altitude(bn357_get_altitude_meters() ,(float)bmp280_get_height_meters_from_reference(bn357_get_status_up_to_date(1)));
-
     
-    if(bn357_get_status_up_to_date(1)){
-        got_gps = 1;
-        // Do some gps location pid
-    }else{
-        got_gps = 0;
-    }
+    if(bn357_get_status_up_to_date(1)) got_gps = 1;
+    else got_gps = 0;
 
     mpu6050_get_accelerometer_readings_gravity(acceleration_data);
     mpu6050_get_gyro_readings_dps(gyro_angular);
@@ -601,46 +688,45 @@ void handle_get_and_calculate_sensor_values(){
     acceleration_data[1] = low_pass_filter_read(&filter_accelerometer_y, acceleration_data[1]);
     acceleration_data[2] = low_pass_filter_read(&filter_accelerometer_z, acceleration_data[2]);
 
-    gyro_angular[0] = low_pass_filter_read(&filter_gyro_x, gyro_angular[0]);
-    gyro_angular[1] = low_pass_filter_read(&filter_gyro_y, gyro_angular[1]);
-    gyro_angular[2] = low_pass_filter_read(&filter_gyro_z, gyro_angular[2]);
+    // gyro_angular[0] = low_pass_filter_read(&filter_gyro_x, gyro_angular[0]);
+    // gyro_angular[1] = low_pass_filter_read(&filter_gyro_y, gyro_angular[1]);
+    // gyro_angular[2] = low_pass_filter_read(&filter_gyro_z, gyro_angular[2]);
 
+    magnetometer_data[0] = low_pass_filter_read(&filter_gyro_x, magnetometer_data[0]);
+    magnetometer_data[1] = low_pass_filter_read(&filter_gyro_y, magnetometer_data[1]);
+    magnetometer_data[2] = low_pass_filter_read(&filter_gyro_z, magnetometer_data[2]);
 
-    // Convert the sensor data to data that is useful
+    // altitude = low_pass_filter_read(&filter_barometer, altitude);
+
+    // ------------------------------------------------------------------------------------------------------ Change data axies
     // fix_mag_axis(magnetometer_data); // Switches around the x and the y of the magnetometer to match mpu6050 outputs
+
+    // ------------------------------------------------------------------------------------------------------ Sensor fusion
     calculate_degrees_x_y(acceleration_data, &accelerometer_x_rotation, &accelerometer_y_rotation); // Get roll and pitch from the data. I call it x and y. Ranges -90 to 90. 
 
-    // My mpu6050 has a drift problem when rotating around z axis. I have only seen Joop Broking having this problem.
-    // Raw yaw - yaw without tilt adjustment
-    // Yaw - yaw with tilt adjustment
-    // Get raw yaw. The results of this adjustment have to modify the values of gyro degrees before complementary filter. So only the non tilt adjusted yaw is available
     calculate_yaw(magnetometer_data, &magnetometer_z_rotation);
+    last_raw_yaw = magnetometer_z_rotation; // Save the raw yaw for next loop. No mater if yaw changes or not. Need to know the latest one
 
-    // if(yaw != 50){ // This is not an issue when not rotating.
-    //     // Joop Brokings method did not work for me and it didn't make sense subtracting scaled total yaw. I subtract delta yaw instead
-    //     delta_yaw = angle_difference(magnetometer_z_rotation, last_raw_yaw); // Helper function to handle wrapping
-
-    //     // gyro_angular[0] -= delta_yaw * -16.5; 
-    //     gyro_angular[0] -= delta_yaw * -5.0; 
-
-    //     // This robot doesn't use the y axis so i ignore it 
-    // }
-
-    // Save the raw yaw for next loop. No mater if yaw changes or not. Need to know the latest one
-    last_raw_yaw = magnetometer_z_rotation;
-
-    // Use complementary filter to correct the gyro drift. 
     convert_angular_rotation_to_degrees_x_y(gyro_angular, gyro_degrees, accelerometer_x_rotation, accelerometer_y_rotation, HAL_GetTick(), 1);
 
-    // Get yaw that is adjusted by x and y degrees
     calculate_yaw_tilt_compensated(magnetometer_data, &magnetometer_z_rotation, gyro_degrees[0], gyro_degrees[1]);
 
-    // Complementary filter did not work good for magnetometer+gyro. 
-    // Gyro just too slow and inaccurate for this.
-    // I trust the magnetometer more than the gyro in this case.
     gyro_degrees[2] = magnetometer_z_rotation;
 
     fix_gyro_axis(gyro_degrees); // switch the x and y axis of gyro
+
+    // ------------------------------------------------------------------------------------------------------ Use sensor fused data for more data
+
+    float vertical_acceleration[1];
+    vertical_acceleration[0] = mpu6050_calculate_vertical_acceleration_cm_per_second(acceleration_data, gyro_degrees);
+    float vertical_altitude[1] = {altitude};
+
+    kalman_filter_predict(&altitude_and_velocity_kalman, vertical_acceleration);
+    kalman_filter_update(&altitude_and_velocity_kalman, vertical_altitude);
+    // printf("Kalman altitude: %.4f  Kalman velocity vertical:%.4f\n", kalman_filter_get_state(&altitude_and_velocity_kalman)[0][0], kalman_filter_get_state(&altitude_and_velocity_kalman)[1][0]);
+
+    printf("%f;%f;%f;%f;\n", vertical_acceleration[0], vertical_altitude[0], kalman_filter_get_state(&altitude_and_velocity_kalman)[0][0], kalman_filter_get_state(&altitude_and_velocity_kalman)[1][0]);
+
 }
 
 void handle_radio_communication(){
@@ -1179,8 +1265,8 @@ void get_initial_position(){
     qmc5883l_magnetometer_readings_micro_teslas(magnetometer_data);
     // fix_mag_axis(magnetometer_data); // Switches around the x and the y to match mpu6050
 
-    calculate_degrees_x_y(acceleration_data, &accelerometer_x_rotation, &accelerometer_y_rotation);
 
+    calculate_degrees_x_y(acceleration_data, &accelerometer_x_rotation, &accelerometer_y_rotation);
     // Get a good raw yaw for calculations later
     calculate_yaw(magnetometer_data, &magnetometer_z_rotation);
     last_raw_yaw = magnetometer_z_rotation;
@@ -1190,11 +1276,14 @@ void get_initial_position(){
     gyro_degrees[0] = accelerometer_x_rotation;
     gyro_degrees[1] = accelerometer_y_rotation;
     gyro_degrees[2] = magnetometer_z_rotation;
+    printf("Initial location acceleration: %f, %f, %f\n", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
 
     printf("Initial location x: %.2f y: %.2f, z: %.2f\n", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
 
     // Set the desired yaw as the initial one
     target_yaw = gyro_degrees[2];
+
+    // bmp280_set_reference_pressure_from_number_of_samples(15);
 }
 
 void handle_loop_timing(){

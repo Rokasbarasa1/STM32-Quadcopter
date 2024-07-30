@@ -31,3 +31,5 @@ void find_and_return_gyro_error(uint64_t sample_size, float *return_array);
 void mpu6050_apply_calibrations(float accelerometer_correction[3], float gyro_correction[3]);
 void mpu6050_apply_calibrations_gyro(float gyro_correction[3]);
 void mpu6050_apply_calibration_accelerometers(float accelerometer_correction[3]);
+float mpu6050_calculate_vertical_speed(float last_vertical_speed, float acceleration_data[3], float gyro_degrees[3], int64_t time);
+float mpu6050_calculate_vertical_acceleration_cm_per_second(float acceleration_data[3], float gyro_degrees[3]);

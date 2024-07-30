@@ -275,5 +275,22 @@ float bmp280_get_height_meters_from_reference(uint8_t reset_reference){
     }
     
     // printf("44330 * (1.0 - pow(%.2f / %.2f, 0.1903))\n", pressure, reference_pressure);
+    // printf("BMP280 pressure %f / ref %f\n", pressure, reference_pressure);
     return 44330 * (1.0 - pow(pressure / reference_pressure, 0.1903));
+}
+
+float bmp280_get_height_centimeters_from_reference(uint8_t reset_reference){
+    return bmp280_get_height_meters_from_reference(reset_reference) * 100;
+}
+
+void bmp280_set_reference_pressure_from_number_of_samples(uint16_t sample_size){
+
+    float total_pleasure = 0;
+    for (uint16_t i = 0; i < sample_size; i++){
+        total_pleasure += bmp280_get_pressure_hPa();
+        HAL_Delay(70);// It takes this amount of time to get new data
+    }
+
+    reference_pressure = total_pleasure / sample_size;
+    // printf("BMP280 reference pressure: %f\n", reference_pressure);
 }

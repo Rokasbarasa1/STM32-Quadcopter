@@ -1,6 +1,6 @@
 #include "./matrix_operations.h"
 
-#define EXTENDED_KALMAN_FILTER_DEBUG 0
+#define EXTENDED_KALMAN_FILTER_DEBUG 1
 
 float** allocate_matrix(uint8_t row, uint8_t col) {
     // Allocate an array of pointers for each row
@@ -26,6 +26,14 @@ void free_matrix(float** matrix, int size) {
     free(matrix);
 }
 
+void matrix_scalar_multiply(float**  matrix, uint8_t row, uint8_t col, float scalar, float** output_matrix) {
+    for (int i = 0; i < row; i++) {
+        for (int j = 0; j < col; j++) {
+            output_matrix[i][j] = matrix[i][j] * scalar;
+        }
+    }
+}
+
 void matrix_matrix_multiply(float**  matrix1, uint8_t matrix1_row, uint8_t matrix1_col, float** matrix2, uint8_t matrix2_row, uint8_t matrix2_col, float** output_matrix){
 
     // Check constraints
@@ -33,13 +41,18 @@ void matrix_matrix_multiply(float**  matrix1, uint8_t matrix1_row, uint8_t matri
 #if(EXTENDED_KALMAN_FILTER_DEBUG)
         printf("matrix_matrix_multiply: Dimensions not compatible\n");
 #endif
-
-        return;  // The number of columns in the first matrix must equal the number of rows in the second.
+        if(matrix2_row == 1 && matrix2_col == 1){
+            printf("Switching to scalar multi\n");
+            return matrix_scalar_multiply(matrix1, matrix1_row, matrix1_col, matrix2[0][0], output_matrix);
+        }else{
+            return;  // The number of columns in the first matrix must equal the number of rows in the second.
+        }
     }
 
     // Initialize the output matrix elements to zero
     for (uint8_t i = 0; i < matrix1_row; i++) {
         for (uint8_t j = 0; j < matrix2_col; j++) {
+            // printf("1$ %d %d\n", i, j);
             output_matrix[i][j] = 0;  // Reset to zero before summing
         }
     }
@@ -48,19 +61,14 @@ void matrix_matrix_multiply(float**  matrix1, uint8_t matrix1_row, uint8_t matri
     for (uint8_t i = 0; i < matrix1_row; i++) {
         for (uint8_t j = 0; j < matrix2_col; j++) {
             for (uint8_t k = 0; k < matrix1_col; k++) {
+                // printf("2$ %d %d %d\n", i, j, k);
                 output_matrix[i][j] += matrix1[i][k] * matrix2[k][j];
             }
         }
     }
 }
 
-void matrix_scalar_multiply(float**  matrix, uint8_t row, uint8_t col, float scalar, float** output_matrix) {
-    for (int i = 0; i < row; i++) {
-        for (int j = 0; j < col; j++) {
-            output_matrix[i][j] = matrix[i][j] * scalar;
-        }
-    }
-}
+
 
 void matrix_matrix_add(float**  matrix1, uint8_t matrix1_row, uint8_t matrix1_col, float** matrix2, uint8_t matrix2_row, uint8_t matrix2_col, float** output_matrix){
     if(matrix1_col != matrix2_col || matrix1_row != matrix2_row){
@@ -94,10 +102,12 @@ void matrix_matrix_subtract(float**  matrix1, uint8_t matrix1_row, uint8_t matri
     }
 }
 
-void matrix_transpose(float**  matrix1, uint8_t matrix1_row, uint8_t matrix1_col, float** output_matrix){
+void matrix_transpose(float** matrix1, uint8_t matrix1_row, uint8_t matrix1_col, float** output_matrix){
+
+    
     for (int i = 0; i < matrix1_row; i++) {
         for (int j = 0; j < matrix1_col; j++) {
-            output_matrix[i][j] = matrix1[j][i];
+            output_matrix[j][i] = matrix1[i][j];
         }
     }
 }
