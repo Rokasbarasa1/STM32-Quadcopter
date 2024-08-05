@@ -6,7 +6,9 @@
 #include <stdlib.h>
 #include "../utils/string_utils/string_utils.h"
 
-uint8_t init_bn357(UART_HandleTypeDef *uart_temp, uint8_t logging);
+uint8_t init_bn357(UART_HandleTypeDef *uart_temp, DMA_HandleTypeDef *hdma_uart_rx_temp, uint8_t logging);
+void bn357_toggle_gps_logging(uint8_t status);
+void bn357_start_uart_interrupt();
 uint8_t bn357_get_status_up_to_date(uint8_t reset_afterwards);
 void bn357_get_clear_status();
 uint8_t bn357_parse_and_store(unsigned char *gps_output_buffer, uint16_t size_of_buf);

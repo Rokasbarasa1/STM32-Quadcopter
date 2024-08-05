@@ -1,6 +1,7 @@
 #include "./bn357.h"
 
 UART_HandleTypeDef *uart;
+DMA_HandleTypeDef *hdma_uart_rx;
 
 volatile float m_latitude = 0.0;
 volatile float m_longitude = 0.0;
@@ -15,15 +16,84 @@ volatile uint8_t m_time_utc_seconds = 0;
 volatile uint8_t m_up_to_date_date = 0;
 volatile uint32_t m_time_raw = 0;
 
-
 #define BN357_DEBUG 0
+#define BN357_TRACK_TIMING 0
+
+volatile uint8_t continue_with_gps_data = 0;
+
+#define GPS_OUTPUT_BUFFER_SIZE 550
+#define GPS_RECEIVE_BUFFER_SIZE 550
+
+uint8_t gps_output_buffer[GPS_OUTPUT_BUFFER_SIZE];
+uint8_t receive_buffer[GPS_RECEIVE_BUFFER_SIZE];
+
+// Interrupt for uart 2 data received
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
+    // make sure the dma is initialized before uart for this to work
+    // and that dma is initialized after GPIO.
+
+    // If the stm32 is restarted  while it is initializing dma the
+    // data arrives from the uart and it fucks up. So you have to restart it a few times
+
+#if(BN357_TRACK_TIMING)
+    uint32_t start_time = HAL_GetTick();
+#endif
+
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 1);
+
+    if (huart->Instance == USART2){   
+        memcpy((uint8_t *)gps_output_buffer, receive_buffer, Size);
+
+        // printf("\n");
+        // for(uint16_t i = 0; i < GPS_RECEIVE_BUFFER_SIZE; i++){
+        //     printf("%c", gps_output_buffer[i]);
+        // }
+        // printf("\n");
+
+        if(continue_with_gps_data){
+            if(bn357_parse_and_store((unsigned char*)gps_output_buffer, Size)){
+                HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+                // printf("Working UART2, %f, %f\n", bn357_get_latitude_decimal_format(), bn357_get_longitude_decimal_format());
+            }else{
+                HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+                // printf("Failed UART2, %f, %f\n", bn357_get_latitude_decimal_format(), bn357_get_longitude_decimal_format());
+            }
+        }else{
+            bn357_parse_and_store((unsigned char*)gps_output_buffer, Size);
+        }
+
+        /* start the DMA again */
+        HAL_UARTEx_ReceiveToIdle_DMA(uart, (uint8_t *)receive_buffer, GPS_RECEIVE_BUFFER_SIZE);
+        __HAL_DMA_DISABLE_IT(hdma_uart_rx, DMA_IT_HT);
+
+#if(BN357_TRACK_TIMING)
+        uint32_t end_time = HAL_GetTick();
+        printf("Gps parse time: %ld\n", end_time-start_time);
+#endif
+    }
+}
+
+// Interrupt for uart 2 when it crashes to restart it
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart){
+    if (huart->Instance == USART2){
+        printf("Error UART 2\n");
+        HAL_UART_DeInit(uart);
+        HAL_UART_Init(uart);
+
+        HAL_UARTEx_ReceiveToIdle_DMA(uart, receive_buffer, GPS_RECEIVE_BUFFER_SIZE);
+        __HAL_DMA_DISABLE_IT(hdma_uart_rx, DMA_IT_HT);
+    }
+}
+
+
 
 volatile uint8_t m_logging = 0;
 
 // consider adding mutexes even though interrupt always finished everything before letting the cpu continue reading
 
-uint8_t init_bn357(UART_HandleTypeDef *uart_temp, uint8_t logging){
+uint8_t init_bn357(UART_HandleTypeDef *uart_temp, DMA_HandleTypeDef *hdma_uart_rx_temp, uint8_t logging){
     uart = uart_temp;
+    hdma_uart_rx = hdma_uart_rx_temp;
     m_logging = logging;
     return 1;
 }
@@ -41,7 +111,20 @@ void bn357_get_clear_status(){
     m_up_to_date_date = 0;
 }
 
+void bn357_start_uart_interrupt(){
+    HAL_UARTEx_ReceiveToIdle_DMA(uart, receive_buffer, GPS_RECEIVE_BUFFER_SIZE);
+    __HAL_DMA_DISABLE_IT(hdma_uart_rx, DMA_IT_HT);
+}
+
+void bn357_toggle_gps_logging(uint8_t status){
+    continue_with_gps_data = status;
+}
+
 uint8_t bn357_parse_and_store(unsigned char *gps_output_buffer, uint16_t size_of_buffer){
+#if(BN357_TRACK_TIMING)
+    uint32_t start_time = HAL_GetTick();
+#endif
+
     // reset the state of successful gps parse
     m_up_to_date_date = 0;
     // find the starting position of the substring
@@ -225,6 +308,8 @@ uint8_t bn357_parse_and_store(unsigned char *gps_output_buffer, uint16_t size_of
     printf("GPS data read successful\n");
 #endif
     // Might be interested in the speed and ground course values in the other info the gps gives
+
+
 
     return 1;
 }
