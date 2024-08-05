@@ -8,11 +8,26 @@
 
 #define MPU6050 (0b1101000 << 1)
 #define I2C_MASTER_TIMEOUT_MS 1000
+
 #define ID_REG 0x75
 #define ID_VALUE 104
+
 #define PWR_MGMT_REG 0x6B
 #define ACCEL_XOUT_H_REG 0x3B
 #define GYRO_XOUT_H_REG 0x43
+
+#define REG_ACCEL_CONFIG 0x1C
+#define REG_GYRO_CONFIG 0x1B
+#define REG_CONFIG 0x1A
+
+enum t_mpu6050_power_management {
+    PWR_RESET    = 0b10000000,
+    PWR_SLEEP    = 0b01000000,
+    PWR_CYCLE    = 0b00100000,
+    PWR_TEMP_DIS = 0b00001000,
+    PWR_CLOCK_INTERNAL_8MHZ = 0b00000000,
+    PWR_CLOCK_INTERNAL_STOP = 0b00000111,
+};
 
 volatile float m_accelerometer_correction[3] = {
     0, 0, 0
@@ -37,28 +52,23 @@ I2C_HandleTypeDef *i2c_handle;
 struct second_order_complementary_filter pitch_2_complementary;
 struct second_order_complementary_filter roll_2_complementary;
 struct second_order_complementary_filter yaw_2_complementary;
-
-uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibration, float accelerometer_scale_factor_correction[3][3], float accelerometer_correction[3], float gyro_correction[3], float refresh_rate_hz, float complementary_ratio, float complementary_beta){
+// enum t_mpu6050_accel_config accelerometer_range, enum t_mpu6050_gyro_config gyro_range, enum t_mpu6050_low_pass_filter low_pass_setting
+uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, enum t_mpu6050_accel_config accelerometer_range, enum t_mpu6050_gyro_config gyro_range, enum t_mpu6050_low_pass_filter low_pass_setting, uint8_t apply_calibration, float accelerometer_scale_factor_correction[3][3], float accelerometer_correction[3], float gyro_correction[3], float refresh_rate_hz, float complementary_ratio, float complementary_beta){
     i2c_handle = i2c_handle_temp;
 
-    if (apply_calibration)
-    {
+    if (apply_calibration){
         // assign the correction for gyro
-        for (uint8_t i = 0; i < 3; i++)
-        {
+        for (uint8_t i = 0; i < 3; i++){
             m_gyro_correction[i] = gyro_correction[i];
         }
 
         // assign the correction for accelerometer
-        for (uint8_t i = 0; i < 3; i++)
-        {
+        for (uint8_t i = 0; i < 3; i++){
             m_accelerometer_correction[i] = accelerometer_correction[i];
         }
 
-        for (uint8_t i = 0; i < 3; i++)
-        {
-            for (uint8_t k = 0; k < 3; k++)
-            {
+        for (uint8_t i = 0; i < 3; i++){
+            for (uint8_t k = 0; k < 3; k++){
                 m_accelerometer_scale_factor_correction[i][k] = accelerometer_scale_factor_correction[i][k];
             }
         }
@@ -67,53 +77,87 @@ uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibrati
 
     uint8_t check;
     HAL_I2C_Mem_Read(i2c_handle, MPU6050 + 1, ID_REG, 1, &check, 1, 100);
-
-    if (check != ID_VALUE)
-    {
+    if (check != ID_VALUE){
         printf("MPU6050 initialization failed\n");
         return 0;
     }
 
-    uint8_t reset_device1 = 0b00000000;
-    reset_device1 |= PWR_RESET;
-    reset_device1 |= PWR_TEMP_DIS;
-    reset_device1 |= PWR_CLOCK_INTERNAL_8MHZ;
-
+    uint8_t data = 0b00000000;
+    data |= PWR_RESET;
+    data |= PWR_TEMP_DIS;
+    data |= PWR_CLOCK_INTERNAL_8MHZ;
     HAL_I2C_Mem_Write(
         i2c_handle, 
         MPU6050, 
         PWR_MGMT_REG, 
         1, 
-        &reset_device1, 
+        &data, 
         1, 
-        100);
+        100
+    );
     HAL_Delay(100);
 
-    uint8_t reset_device2 = 0b00000000;
-    reset_device2 |= PWR_CLOCK_INTERNAL_STOP;
-
+    data = 0b00000000;
+    data |= PWR_CLOCK_INTERNAL_STOP;
     HAL_I2C_Mem_Write(
         i2c_handle, 
         MPU6050, 
         PWR_MGMT_REG, 
         1, 
-        &reset_device2, 
+        &data, 
         1, 
-        100);
+        100
+    );
     HAL_Delay(100);
 
-    uint8_t reset_device3 = 0b00000000;
-    reset_device3 |= PWR_TEMP_DIS;
-    reset_device3 |= PWR_CLOCK_INTERNAL_8MHZ;
-
+    data = 0b00000000;
+    data |= PWR_TEMP_DIS;
+    data |= PWR_CLOCK_INTERNAL_8MHZ;
     HAL_I2C_Mem_Write(
         i2c_handle, 
         MPU6050, 
         PWR_MGMT_REG, 
         1, 
-        &reset_device3, 
+        &data, 
         1, 
-        100);
+        100
+    );
+
+    data = 0b00000000;
+    data |= accelerometer_range;
+    HAL_I2C_Mem_Write(
+        i2c_handle, 
+        MPU6050, 
+        REG_ACCEL_CONFIG, 
+        1, 
+        &data, 
+        1, 
+        100
+    );
+
+    data = 0b00000000;
+    data |= gyro_range;
+    HAL_I2C_Mem_Write(
+        i2c_handle, 
+        MPU6050, 
+        REG_GYRO_CONFIG, 
+        1, 
+        &data, 
+        1, 
+        100
+    );
+
+    data = 0b00000000;
+    data |= low_pass_setting;
+    HAL_I2C_Mem_Write(
+        i2c_handle, 
+        MPU6050, 
+        REG_CONFIG, 
+        1, 
+        &data, 
+        1, 
+        100
+    );
 
     pitch_2_complementary = init_second_order_coplementary_filter(complementary_ratio, complementary_beta);
     roll_2_complementary = init_second_order_coplementary_filter(complementary_ratio, complementary_beta);
@@ -122,6 +166,7 @@ uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibrati
     printf("MPU6050 initialized\n");
     return 1;
 }
+
 // Read accelerometer in gravity units
 void mpu6050_get_accelerometer_readings_gravity(float *data){
     uint8_t retrieved_data[] = {0, 0, 0, 0, 0, 0};
@@ -199,14 +244,14 @@ void calculate_pitch_and_roll(float *data, float *roll, float *pitch){
 }
 
 // Get the x and y degrees from accelerometer.
-void calculate_degrees_x_y(float *data, float *rotation_around_x, float *rotation_around_y){
+void calculate_degrees_x_y(float *data, float *rotation_around_x, float *rotation_around_y, float x_offset, float y_offset){
     float x = data[0];
     float y = data[1];
     float z = data[2];
 
-    *rotation_around_x = atan2f(y, sqrtf(x * x + z * z)) * (180.0 / M_PI);
+    *rotation_around_x = atan2f(y, sqrtf(x * x + z * z)) * (180.0 / M_PI) + x_offset;
     // added minus to match actual dps direction the values are supposed to go
-    *rotation_around_y = -(atan2f(x, sqrtf(y * y + z * z)) * (180.0 / M_PI));
+    *rotation_around_y = -(atan2f(x, sqrtf(y * y + z * z)) * (180.0 / M_PI)) + y_offset;
 }
 
 // Get many values of the accelerometer error and average them together. Then print out the result
@@ -322,20 +367,15 @@ void find_and_return_gyro_error(uint64_t sample_size, float *return_array){
     float x_sum = 0, y_sum = 0, z_sum = 0;
     float data[] = {0, 0, 0};
 
-    float accelerometer_correction_temp[3];
     float gyro_correction_temp[3];
 
     // Copy and delete the original corrections
     for (uint8_t i = 0; i < 3; i++){
         gyro_correction_temp[i] = m_gyro_correction[i];
         m_gyro_correction[i] = 0;
-
-        accelerometer_correction_temp[i] = m_accelerometer_correction[i];
-        m_accelerometer_correction[i] = 0;
     }
 
-    for (uint64_t i = 0; i < sample_size; i++)
-    {
+    for (uint64_t i = 0; i < sample_size; i++)    {
         mpu6050_get_gyro_readings_dps(data);
 
         x_sum += data[0];
@@ -343,13 +383,12 @@ void find_and_return_gyro_error(uint64_t sample_size, float *return_array){
         z_sum += data[2];
         // It can sample stuff at 1KHz
         // but 0.5Khz is just to be safe
-        HAL_Delay(2);
+        HAL_Delay(1);
     }
 
     // Reassign the corrections 
     for (uint8_t i = 0; i < 3; i++){
         m_gyro_correction[i] = gyro_correction_temp[i];
-        m_accelerometer_correction[i] = accelerometer_correction_temp[i];
     }
 
     printf(
@@ -441,8 +480,15 @@ void convert_angular_rotation_to_degrees_x_y(float* gyro_angular, float* gyro_de
     }
 
     // Convert degrees per second and add the complementary filter with accelerometer degrees
+    // printf("")
+
+    float old_value_pitch = gyro_degrees[0];
+    float old_value_roll = gyro_degrees[1];
+
     gyro_degrees[0] = second_order_complementary_filter_calculate(&pitch_2_complementary, gyro_degrees[0] + gyro_angular[0] * elapsed_time_sec, rotation_around_x, elapsed_time_sec);
     gyro_degrees[1] = second_order_complementary_filter_calculate(&roll_2_complementary, gyro_degrees[1] + gyro_angular[1] * elapsed_time_sec, rotation_around_y, elapsed_time_sec);
+    // printf("%6.2f = (1.0-ratio) * (%6.2f + %6.2f * %6.3f) + ratio * %6.2f    ", gyro_degrees[0], old_value_pitch, gyro_angular[0], elapsed_time_sec, rotation_around_x);
+    // printf("%6.2f = (1.0-ratio) * (%6.2f + %6.2f * %6.3f) + ratio * %6.2f\n", gyro_degrees[1], old_value_roll, gyro_angular[1], elapsed_time_sec, rotation_around_y);
 
     // I dont want to track how many times the degrees went over the 360 degree mark, no point.
     while (gyro_degrees[0] > 180.0) {

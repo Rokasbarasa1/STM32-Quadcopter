@@ -1,0 +1,39 @@
+10Hz
+
+Got flight mode
+Got new flight mode 0ACCELEROMETER errors:  X,Y,Z  -0.953021, -0.003062, 0.155606
+
+Got flight mode
+Got new flight mode 0ACCELEROMETER errors:  X,Y,Z  0.061356, -1.011505, 0.171534
+
+Got flight mode
+Got new flight mode 0ACCELEROMETER errors:  X,Y,Z  1.038310, -0.026840, 0.234192
+
+Got flight mode
+Got new flight mode 0ACCELEROMETER errors:  X,Y,Z  0.030159, 0.986895, 0.183616
+
+Got flight mode
+Got new flight mode 0ACCELEROMETER errors:  X,Y,Z  0.075864, -0.005327, -0.884179
+
+Got flight mode
+Got new flight mode 0ACCELEROMETER errors:  X,Y,Z  0.002201, -0.012811, 1.115103
+
+
+45Hz
+Got flight mode
+Got new flight mode 0ACCELEROMETER errors:  X,Y,Z  0.030749, 0.987732, 0.180079
+
+Got flight mode
+Got new flight mode 0ACCELEROMETER errors:  X,Y,Z  -0.952737, -0.000418, 0.150986
+
+Got flight mode
+Got new flight mode 0ACCELEROMETER errors:  X,Y,Z  0.059857, -1.010385, 0.165970
+
+Got flight mode
+Got new flight mode 0ACCELEROMETER errors:  X,Y,Z  1.039640, -0.027179, 0.228143
+
+Got flight mode
+Got new flight mode 0ACCELEROMETER errors:  X,Y,Z  0.086333, -0.001780, -0.884446
+
+Got flight mode
+Got new flight mode 0ACCELEROMETER errors:  X,Y,Z  0.007766, -0.024742, 1.113904
