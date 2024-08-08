@@ -35,14 +35,11 @@ static void MX_TIM2_Init(void);
 // Drivers
 #include "../lib/mpu6050/mpu6050.h"
 #include "../lib/qmc5883l/qmc5883l.h"
+#include "../lib/mmc5603/mmc5603.h"
+
 #include "../lib/bmp280/bmp280.h"
-// #include "../lib/bme280/bme280.h"
-// #include "../lib/bmp680/bmp680.h"
-// #include "../lib/mpl3115a2/mpl3115a2.h"
-// #include "../lib/ms5611/ms5611.h"
 #include "../lib/bn357/bn357.h"
 #include "../lib/nrf24l01/nrf24l01.h"
-// #include "../lib/sd_card/sd_card.h"
 #include "../lib/sd_card/sd_card_spi.h"
 #include "../lib/betaflight_blackbox_wrapper/betaflight_blackbox_wrapper.h"
 
@@ -55,8 +52,6 @@ static void MX_TIM2_Init(void);
 
 void init_STM32_peripherals();
 void calibrate_escs();
-void fix_mag_axis(float *magnetometer_data);
-void fix_gyro_axis(float *accelerometer_data_temp);
 uint16_t setServoActivationPercent(float percent, uint16_t minValue, uint16_t maxValue);
 float mapValue(float value, float input_min, float input_max, float output_min, float output_max);
 void extract_request_values(char *request, uint8_t request_size, uint8_t *throttle, uint8_t *yaw, uint8_t *pitch, uint8_t *roll);
@@ -164,18 +159,18 @@ const uint16_t esc_lowest_motor_spin = 1033;
 // When calculating this remember that these values are already
 // correcting and that the axis of the magnetometer are switched.
 
+// Magnetometer
 float hard_iron_correction[3] = {
-    0,0,0
+    3280.531653,3280.845774,3277.030206
 };
 
 float soft_iron_correction[3][3] = {
-    {1,0,0},
-    {0,1,0},
-    {0,0,1}
+    {1.180417,-0.000133,-0.002451},
+    {-0.000133,1.151005,0.051957},
+    {-0.002451,0.051957,1.209149}
 };
 
-
-// 260 Hz low pass filter
+// Accelerometer
 float accelerometer_correction[3] = {
     0.048688, -0.011751, 1.118072
 };
@@ -186,38 +181,8 @@ float accelerometer_scale_factor_correction[3][3] = {
     {0.004309,-0.001005,0.972671}
 };
 
-// 10 Hz low pass filter
-float accelerometer_correction[3] = {
-    0.036567, -0.011676, 1.115081
-};
 
-float accelerometer_scale_factor_correction[3][3] = {
-    {1.003344,0.004174,-0.057971},
-    {0.004174,0.998832,0.001856},
-    {-0.057971,0.001856,0.993705}
-};
-
-// 45 Hz low pass filter
-float accelerometer_correction[3] = {
-    0.037528, -0.011029, 1.113268
-};
-
-float accelerometer_scale_factor_correction[3][3] = {
-    {1.003079,0.006269,-0.058326},
-    {0.006269,0.999237,-0.001497},
-    {-0.058326,-0.001497,0.993586}
-};
-
-// float accelerometer_correction[3] = {
-//     -0.009703, -0.008901, 1.145573
-// };
-
-// float accelerometer_scale_factor_correction[3][3] = {
-//     {1,0,0},
-//     {0,1,0},
-//     {0,0,1}
-// };
-
+// Gyro
 float gyro_correction[3] = {
     -2.532809, 2.282250, 0.640916
 };
@@ -263,13 +228,13 @@ float error_vertical_velocity = 0;
 // to float in the air. If you are testing with drone constrained add a base motor speed to account for this.
 
 // PID for yaw
-const float yaw_gain_p = 0.25; 
-const float yaw_gain_i = 0.0;
+const float yaw_gain_p = 0.75; 
+const float yaw_gain_i = 0.3;
 
 // PID for altitude control
-const float vertical_velocity_gain_p = 0.09; 
-const float vertical_velocity_gain_i = 0.0000015;
-const float vertical_velocity_gain_d = 0.00001;
+const float vertical_velocity_gain_p = 0.6; 
+const float vertical_velocity_gain_i = 0.5;
+const float vertical_velocity_gain_d = 0.00;
 
 // Used for smooth changes to PID while using remote control. Do not touch this
 
@@ -321,7 +286,7 @@ float motor_power[] = {0.0, 0.0, 0.0, 0.0};
 
 
 // Remote control settings ############################################################################################
-float max_yaw_attack = 20.0;
+float max_yaw_attack = 40.0;
 
 float max_pitch_attack = 10;
 float pitch_attack_step = 0.2;
@@ -329,8 +294,8 @@ float pitch_attack_step = 0.2;
 float max_roll_attack = 10;
 float roll_attack_step = 0.2;
 
-float max_throttle_vertical_velocity = 1000;
-float min_throttle_vertical_velocity = -1000;
+float max_throttle_vertical_velocity = 30; // cm/second
+float min_throttle_vertical_velocity = -30; // cm/second
 
 float throttle = 0.0;
 float yaw = 50.0;
@@ -338,7 +303,6 @@ float last_yaw = 50.0;
 float pitch = 50.0;
 float roll = 50.0;
 
-uint8_t shit_encoder_mode = 0;
 uint8_t slowing_lock = 0;
 
 float last_raw_yaw = 0;
@@ -410,11 +374,11 @@ uint8_t use_vertical_velocity_control = 0;
 // float base_accelerometer_x_roll_offset = 0.56;
 // float base_accelerometer_y_pitch_offset = -2.48;
 
-float base_accelerometer_x_roll_offset = 0.6;
-float base_accelerometer_y_pitch_offset = 0;
+float base_accelerometer_x_roll_offset = 0.6 + 4.0;
+float base_accelerometer_y_pitch_offset = -2.48 + 0.45;
 
-float accelerometer_x_roll_offset = 0.6;
-float accelerometer_y_pitch_offset = -2.48;
+float accelerometer_x_roll_offset = 0;
+float accelerometer_y_pitch_offset = 0;
 
 int main(void){
     init_STM32_peripherals();
@@ -428,12 +392,13 @@ int main(void){
         return 0; // exit if initialization failed
     }
 
-    HAL_Delay(2000); // Dont want to intefere in calibration
+
+    HAL_Delay(2000); // Dont want to interfere in calibration
+
     // check_calibrations();
     calibrate_gyro(); // Recalibrate the gyro as the temperature affects the calibration
     get_initial_position();
-    // setup_logging_to_sd();
-
+    // setup_logging_to_sd(); // Hardware power issue currently
     initialize_control_abstractions();
 
     handle_pre_loop_start();
@@ -442,6 +407,11 @@ int main(void){
         handle_get_and_calculate_sensor_values(); // Important do do this right before the pid stuff.
         handle_pid_and_motor_control();
         handle_logging();
+
+        // printf("%.5f %.5f %.5f\n", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
+
+        printf("%.5f %.5f %.5f\n", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
+
 
         handle_loop_end();
     }
@@ -452,7 +422,7 @@ void initialize_control_abstractions(){
     pitch_pid = pid_init(pitch_roll_master_gain * pitch_roll_gain_p, pitch_roll_master_gain * pitch_roll_gain_i, pitch_roll_master_gain * pitch_roll_gain_d, 0.0, HAL_GetTick(), 10.0, -10.0, 1);
     roll_pid = pid_init(pitch_roll_master_gain * pitch_roll_gain_p, pitch_roll_master_gain * pitch_roll_gain_i, pitch_roll_master_gain * pitch_roll_gain_d, 0.0, HAL_GetTick(), 10.0, -10.0, 1);
     yaw_pid = pid_init(yaw_gain_p, yaw_gain_i, 0, 0.0, HAL_GetTick(), 10.0, -10.0, 1);
-    vertical_velocity_pid = pid_init(vertical_velocity_gain_p, vertical_velocity_gain_i, vertical_velocity_gain_d, 0.0, HAL_GetTick(), 40.0, 40.0, 1);
+    vertical_velocity_pid = pid_init(vertical_velocity_gain_p, vertical_velocity_gain_i, vertical_velocity_gain_d, 0.0, HAL_GetTick(), 90.0, 0.0, 1);
     
     filter_accelerometer_x = filtering_init_low_pass_filter(filtering_alpha_accelerometer);
     filter_accelerometer_y = filtering_init_low_pass_filter(filtering_alpha_accelerometer);
@@ -655,8 +625,7 @@ void handle_get_and_calculate_sensor_values(){
 
     mpu6050_get_accelerometer_readings_gravity(acceleration_data);
     mpu6050_get_gyro_readings_dps(gyro_angular);
-    qmc5883l_magnetometer_readings_micro_teslas(magnetometer_data);
-
+    mmc5603_magnetometer_readings_micro_teslas(magnetometer_data);
     // ------------------------------------------------------------------------------------------------------ Filter the sensor data
 
 
@@ -680,8 +649,6 @@ void handle_get_and_calculate_sensor_values(){
     // printf("%.3f;%.3f;%.3f;%.3f;%.3f;%.3f\n", acceleration_data[0], acceleration_data[1], acceleration_data[2], gyro_angular[0], gyro_angular[1], gyro_angular[2]);
 
 
-    // ------------------------------------------------------------------------------------------------------ Change data axies
-    fix_mag_axis(magnetometer_data); // Switches around the x and the y of the magnetometer to match mpu6050 outputs
 
     // ------------------------------------------------------------------------------------------------------ Sensor fusion
     calculate_degrees_x_y(acceleration_data, &accelerometer_x_rotation, &accelerometer_y_rotation, accelerometer_x_roll_offset, accelerometer_y_pitch_offset); // Get roll and pitch from the data. I call it x and y. Ranges -90 to 90. 
@@ -690,14 +657,8 @@ void handle_get_and_calculate_sensor_values(){
     last_raw_yaw = magnetometer_z_rotation; // Save the raw yaw for next loop. No mater if yaw changes or not. Need to know the latest one
 
     convert_angular_rotation_to_degrees_x_y(gyro_angular, gyro_degrees, accelerometer_x_rotation, accelerometer_y_rotation, HAL_GetTick(), 1);
-
-    // printf("A:%6.1f;%6.1f G:%6.1f;%6.1f\n", accelerometer_x_rotation, accelerometer_y_rotation, gyro_degrees[0], gyro_degrees[1]);
-
     calculate_yaw_tilt_compensated(magnetometer_data, &magnetometer_z_rotation, gyro_degrees[0], gyro_degrees[1]);
     gyro_degrees[2] = magnetometer_z_rotation;
-
-    fix_gyro_axis(gyro_degrees); // switch the x and y axis of gyro
-
     // ------------------------------------------------------------------------------------------------------ Use sensor fused data for more data
     float vertical_acceleration[1] = {mpu6050_calculate_vertical_acceleration_cm_per_second(acceleration_data, gyro_degrees)};
     float vertical_altitude[1] = {altitude};
@@ -752,17 +713,7 @@ void handle_radio_communication(){
                 }
             }else if (pitch != 50){
                 // If pitch is not neutral start increasing into some direction.
-                if(shit_encoder_mode){
-                    // Because my encoder is shit it prefers to have the extremes of pitch as 
-                    // that doesn't overwhelm the pid of it.
-                    if(pitch > 60){
-                        target_pitch = target_pitch + pitch_attack_step;
-                    }else if(pitch < 40){
-                        target_pitch = target_pitch - pitch_attack_step;
-                    }
-                }else{
-                    target_pitch = target_pitch + map_value(pitch, 0.0, 100.0, -pitch_attack_step, pitch_attack_step);
-                }
+                target_pitch = target_pitch + map_value(pitch, 0.0, 100.0, -pitch_attack_step, pitch_attack_step);
             }
 
             // Make sure that the value is in the boundaries
@@ -790,17 +741,7 @@ void handle_radio_communication(){
                 }
             }else if (roll != 50){
                 // If roll is not neutral start increasing into some direction.
-                if(shit_encoder_mode){
-                    // Because my encoder is shit it prefers to have the extremes of roll as 
-                    // that doesn't overwhelm the pid of it.
-                    if(roll > 60){
-                        target_roll = target_roll + roll_attack_step;
-                    }else if(pitch < 40){
-                        target_roll = target_roll - roll_attack_step;
-                    }
-                }else{
-                    target_roll = target_roll + map_value(roll, 0.0, 100.0, -roll_attack_step, roll_attack_step);
-                }
+                target_roll = target_roll + map_value(roll, 0.0, 100.0, -roll_attack_step, roll_attack_step);
             }
 
             // Make sure that the value is in the boundaries
@@ -894,6 +835,13 @@ void handle_radio_communication(){
             // Get the initial position again
             get_initial_position();
 
+            // Capture any radio messages that were sent durring the calibration proccess and discard them
+            for (uint8_t i = 0; i < 50; i++){
+                if(nrf24_data_available(1)){
+                    nrf24_receive(rx_data);
+                }
+            }
+
             // Reset the sesor fusion and the pid accumulation
         }else if(strcmp(rx_type, "fm") == 0){
             printf("\nGot flight mode");
@@ -958,8 +906,6 @@ void handle_pid_and_motor_control(){
         error_vertical_velocity = pid_get_error(&vertical_velocity_pid, vertical_velocity, HAL_GetTick());
 
         error_throttle = throttle*0.9;
-
-        // printf("\nerror_vertical_velocity %f\n", error_vertical_velocity);
 
         motor_power[0] = (-error_pitch) +  (-error_roll) + ( error_yaw);
         motor_power[1] = (-error_pitch) +  ( error_roll) + (-error_yaw);
@@ -1119,7 +1065,7 @@ void handle_logging(){
             // sd_card_append_to_buffer(1, "\n");
 
             // sd_card_append_to_buffer(1, "%6.5f %6.5f %6.5f", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);  
-            sd_card_append_to_buffer(1, "\n");
+            // sd_card_append_to_buffer(1, "\n");
         } 
         
         if(sd_card_async){
@@ -1156,8 +1102,6 @@ void handle_logging(){
 
 
 void handle_loop_end(){
-    fix_gyro_axis(gyro_degrees); // switch back the x and y axis of gyro to how they were before. This is for sensor fusion not to be confused 
-
     loop_iteration++;
     handle_loop_timing();
 }
@@ -1225,7 +1169,7 @@ uint8_t init_sensors(){
         &hi2c1, 
         ACCEL_CONFIG_RANGE_2G, 
         GYRO_CONFIG_RANGE_250_DEG, 
-        LOW_PASS_FILTER_FREQUENCY_CUTOFF_GYRO_44HZ_ACCEL_42HZ,
+        LOW_PASS_FILTER_FREQUENCY_CUTOFF_GYRO_21HZ_ACCEL_20HZ,
         1, 
         accelerometer_scale_factor_correction, 
         accelerometer_correction, 
@@ -1235,25 +1179,14 @@ uint8_t init_sensors(){
         complementary_beta
     );
 
-    // uint8_t mpu6050 = init_mpu6050_old(
-    //     &hi2c1, 
-    //     1, 
-    //     accelerometer_scale_factor_correction, 
-    //     accelerometer_correction, 
-    //     gyro_correction, 
-    //     REFRESH_RATE_HZ, 
-    //     complementary_ratio, 
-    //     complementary_beta
-    // )
-
-    uint8_t qmc5883l = init_qmc5883l(&hi2c1, 1, hard_iron_correction, soft_iron_correction);
+    uint8_t mmc5603 = mmc5603_init(&hi2c1, 1, hard_iron_correction, soft_iron_correction, 1, 200, 1);
     uint8_t bmp280 = init_bmp280(&hi2c1);
     uint8_t bn357 = init_bn357(&huart2, &hdma_usart2_rx, 0);
     uint8_t nrf24 = init_nrf24(&hspi1);
 
     printf("-----------------------------INITIALIZING MODULES DONE... ");
 
-    if (mpu6050 && qmc5883l && bmp280 && bn357 && nrf24){
+    if (mpu6050 && mmc5603 && bmp280 && bn357 && nrf24){
         printf("OK\n");
     }else{
         printf("NOT OK\n");
@@ -1295,9 +1228,7 @@ void get_initial_position(){
     // This will tell the robot which way to go to get the actual upward
     mpu6050_get_accelerometer_readings_gravity(acceleration_data);
     mpu6050_get_gyro_readings_dps(gyro_angular);
-    qmc5883l_magnetometer_readings_micro_teslas(magnetometer_data);
-    // fix_mag_axis(magnetometer_data); // Switches around the x and the y to match mpu6050
-
+    mmc5603_magnetometer_readings_micro_teslas(magnetometer_data);
 
     calculate_degrees_x_y(acceleration_data, &accelerometer_x_rotation, &accelerometer_y_rotation, accelerometer_x_roll_offset, accelerometer_y_pitch_offset);
     // Get a good raw yaw for calculations later
@@ -1468,29 +1399,6 @@ void extract_joystick_request_values_float(char *request, uint8_t request_size, 
     strncpy(pitch_string, start, length);
     pitch_string[length] = '\0';
     *pitch = atof(pitch_string);
-}
-
-// Switch magnetometer axis. x-> y and y->x
-void fix_mag_axis(float *magnetometer_data_temp)
-{
-    float temp = 0.0;
-    temp = magnetometer_data_temp[0];
-    // y is x
-    magnetometer_data_temp[0] = magnetometer_data_temp[1];
-    // x is -y
-    magnetometer_data_temp[1] = -temp;
-}
-
-
-void fix_gyro_axis(float *gyro_data_temp){
-    float temp = 0.0;
-    temp = gyro_data_temp[0];
-    // y is x
-    gyro_data_temp[0] = gyro_data_temp[1];
-    // x is -y
-    gyro_data_temp[1] = temp;
-
-    // gyro_data_temp[0] = -gyro_data_temp[0];
 }
 
 // Extract specifically the request type from a slash separated string

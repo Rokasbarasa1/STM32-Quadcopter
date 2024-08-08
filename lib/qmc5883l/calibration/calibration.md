@@ -44,7 +44,7 @@ printf("\n");
 0.05644, 0.02151,  0.06231
 ```
 
-5. Go to https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfwmm and find your "Norm of magnetic field". The value is going to be in nano teslas, be aware of that. For me in Denmark it is 50557nT.
+5. Go to https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfwmm and find your "Norm of magnetic field". The value is going to be in nano teslas, be aware of that. For me in Denmark it is 50.1483uT.
 
 6. Open "Magneto 1.2". Point it to your txt file with magnetometer readings. Put in the Norm of magnetic field value in THE SAME UNITS as the magnetometer readings. In this case my readings are in micro tesla and the norm is in nano tesla, convert that to micro teslas also. Converting the value gives weird readings but i guess that is supposed to be the correct way. Get the calibrations from Magneto. Combined bias is hard iron calibration and the 3x3 grid bellow that is the soft iron one.
 ![Alt text](image.png)
@@ -72,6 +72,10 @@ fix_mag_axis(magnetometer_data);
 9. Compare the previous magnetometer measurements and the calibrated ones. This is how a well calibrated one looks like. I had a bad magnetometer at first so i switched mine for a new one and then it worked very good.
 
 ![Alt text](image-3.png)
+
+Here is another calibration i did also very good:
+
+![Alt text](../../../images/Magnetometer_calibrated_2.png)
 
 # EXCEPTION SCENARIOS
 

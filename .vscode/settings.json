@@ -30,9 +30,12 @@
         "matrix_operations.h": "c",
         "second_order_coplementary_filter.h": "c",
         "extended_kalman_filter.h": "c",
-        "filtering.h": "c"
+        "filtering.h": "c",
+        "mmc56x3.h": "c",
+        "mmc5603.h": "c"
     },
     "cSpell.words": [
+        "blackbox",
         "coplementary",
         "datasheet",
         "FATFS",

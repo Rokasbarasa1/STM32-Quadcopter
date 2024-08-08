@@ -104,6 +104,21 @@ TODO after test 12
 ! Improve software filtering to remove what vibration was not already removed by material dampening.
 ! Test vibrations with fresh propellers.
 
+Test 13
+Tested the new low pass filtering on the drone. It worked very good at the 45Hz frequency setting, not so good at 22Hz or 10Hz with significant delay in response being visible. Did more tests on the yaw control functionality, it works very well now but there is a big drop in throttle when yawing with at a fast rate. The altitude hold functionality in flight mode 1 works better now but is still no good as i still need to put the throttle stick to 75% for it to do anything and lift off it does not keep the altitude at a neutral position. The balance correction is now easier with the low-pass filter but it still needs some work to find the sweet spot.
+
+TODO after test 13
+! Find out if the yaw control throttle issue with altitude could be solved or if that is just because my quadcopter does not have enough power in to keep altitude with two motors.
+! Improve the offsets more on the next test.
+! Find out why the altitude is not working so good.
+
+Test 14
+Got a better balance point but when testing the altitude hold broke one of the legs.
+
+Test 15
+Dialed in the altitude hold settings for PID, the quadcopter now holds altitude relatively well, but as it struggles to find a level offset it is not good to improve it more at the moment. The offsets still change a lot even with a low pass filter on, need to invest more in flight-controller dampening.
+
+
 Test checklist:
 * Drone frame
 * Controller

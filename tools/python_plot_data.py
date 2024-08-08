@@ -7,8 +7,8 @@ data = np.genfromtxt('motors_off_no_filtering_data.txt', delimiter=';')
 # data2 = np.genfromtxt('motors_on_no_filtering_data.txt', delimiter=';')
 # data2 = np.genfromtxt('motors_on_no_filtering_data_new_props.txt', delimiter=';')
 # data2 = np.genfromtxt('motors_on_new_props_tape_applied.txt', delimiter=';')
-# data2 = np.genfromtxt('motors_on_low_pass_10Hz.txt', delimiter=';')
-data2 = np.genfromtxt('motors_on_low_pass_48Hz.txt', delimiter=';')
+data2 = np.genfromtxt('motors_on_low_pass_10Hz.txt', delimiter=';')
+# data2 = np.genfromtxt('motors_on_low_pass_48Hz.txt', delimiter=';')
 
 # Check if the data is read correctly
 if data.size == 0:
@@ -35,12 +35,12 @@ column26 = data2[:, 5] - 50
 # Plotting the data
 plt.figure(figsize=(10, 6))
 
-# plt.plot(column11, label='Ax OFF')
-# plt.plot(column21, label='Ax ON')
-# plt.plot(column12, label='Ay OFF')
-# plt.plot(column22, label='Ay ON')
-# plt.plot(column13, label='Az OFF')
-# plt.plot(column23, label='Az ON')
+plt.plot(column11, label='Ax OFF')
+plt.plot(column21, label='Ax ON')
+plt.plot(column12, label='Ay OFF')
+plt.plot(column22, label='Ay ON')
+plt.plot(column13, label='Az OFF')
+plt.plot(column23, label='Az ON')
 
 
 plt.plot(column14, label='Gx OFF')
