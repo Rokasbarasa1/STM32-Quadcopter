@@ -10,7 +10,24 @@ import scipy.io.wavfile
 from matplotlib.pyplot import figure
 import copy
 
-data = np.genfromtxt('motors_on_new_props_tape_applied.txt', delimiter=';')
+# data = np.genfromtxt('motors_on_no_filtering_data.txt', delimiter=';')
+# data = np.genfromtxt('motors_on_no_filtering_data_new_props.txt', delimiter=';')
+# data = np.genfromtxt('motors_on_new_props_tape_applied.txt', delimiter=';')
+# data = np.genfromtxt('motors_on_low_pass_10Hz.txt', delimiter=';')
+# data = np.genfromtxt('motors_on_low_pass_48Hz.txt', delimiter=';')
+
+# data = np.genfromtxt('no_propellers_no_filtering_only_tape_dampening.txt', delimiter=';')
+# data = np.genfromtxt('no_propellers_no_filtering_tape_and_rubber_spacers.txt', delimiter=';')
+# data = np.genfromtxt('no_propellers_no_filtering_tape_rubber_standoffs_ruber_spacers.txt', delimiter=';')
+# data = np.genfromtxt('no_propellers_no_filtering_tape_rubber_standoffs_ruber_spacers.txt', delimiter=';')
+
+data = np.genfromtxt('propellers_no_filtering_tape_rubber_standoffs_ruber_spacers.txt', delimiter=';')
+# data = np.genfromtxt('propellers_no_filtering_tape_and_rubber_spacers.txt', delimiter=';')
+# data = np.genfromtxt('propellers_no_filtering_tape_rubber_spacers_yaw_pid_match.txt', delimiter=';')
+# data = np.genfromtxt('propellers_no_filtering_tape_rubber_spacers_yaw_pid_match_21Hz.txt', delimiter=';')
+# data = np.genfromtxt('propellers_no_filtering_tape_rubber_spacers_yaw_pid_match_45Hz.txt', delimiter=';')
+
+
 
 column1 = data[:, 0]
 column2 = data[:, 1]
