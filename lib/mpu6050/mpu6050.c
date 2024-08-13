@@ -490,6 +490,9 @@ void convert_angular_rotation_to_degrees_x_y(float* gyro_angular, float* gyro_de
     // printf("%6.2f = (1.0-ratio) * (%6.2f + %6.2f * %6.3f) + ratio * %6.2f    ", gyro_degrees[0], old_value_pitch, gyro_angular[0], elapsed_time_sec, rotation_around_x);
     // printf("%6.2f = (1.0-ratio) * (%6.2f + %6.2f * %6.3f) + ratio * %6.2f\n", gyro_degrees[1], old_value_roll, gyro_angular[1], elapsed_time_sec, rotation_around_y);
 
+    // printf("%6.2f = (%6.2f + %6.2f * %6.3f) + %6.2f    ", gyro_degrees[0], old_value_pitch, gyro_angular[0], elapsed_time_sec, rotation_around_x);
+    // printf("%6.2f = (%6.2f + %6.2f * %6.3f) + %6.2f\n", gyro_degrees[1], old_value_roll, gyro_angular[1], elapsed_time_sec, rotation_around_y);
+
     // I dont want to track how many times the degrees went over the 360 degree mark, no point.
     while (gyro_degrees[0] > 180.0) {
         gyro_degrees[0] -= 360.0;

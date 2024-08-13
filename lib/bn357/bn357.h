@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include "../utils/string_utils/string_utils.h"
 
-uint8_t init_bn357(UART_HandleTypeDef *uart_temp, DMA_HandleTypeDef *hdma_uart_rx_temp, uint8_t logging);
+uint8_t init_bn357(UART_HandleTypeDef *uart_temp, DMA_HandleTypeDef *hdma_uart_rx_temp, uint8_t minimal_gps_parse_enabled);
 void bn357_toggle_gps_logging(uint8_t status);
 void bn357_start_uart_interrupt();
 uint8_t bn357_get_status_up_to_date(uint8_t reset_afterwards);
@@ -23,3 +23,4 @@ uint8_t bn357_get_utc_time_hours();
 uint8_t bn357_get_utc_time_minutes();
 uint8_t bn357_get_utc_time_seconds();
 uint8_t bn357_get_utc_time_raw();
+uint8_t bn357_get_fix_type();
