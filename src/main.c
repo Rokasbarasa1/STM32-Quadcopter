@@ -429,8 +429,6 @@ int main(void){
         handle_pid_and_motor_control();
         handle_logging();
 
-        // printf("%f;%f;%f;%f;%f;%f;\n", acceleration_data[0], acceleration_data[1], acceleration_data[2], gyro_angular[0], gyro_angular[1], gyro_angular[2]);
-
         handle_loop_end();
     }
 }
@@ -528,7 +526,7 @@ void handle_get_and_calculate_sensor_values(){
 
     // No need for sensor fusion, it introduces delay
     imu_orientation[2] = magnetometer_yaw;
-    printf("%f;\n", gyro_angular[2]);
+    // printf("%f;\n", gyro_angular[2]);
     // 
     // Yaw = 0, Roll right, +latitude       
     // Yaw = 0, Roll left, -latitude        
@@ -614,10 +612,11 @@ void handle_pid_and_motor_control(){
         // ----------------------------------------------------------------------------------------------INNER LOOP PID
         pid_set_desired_value(&pitch_pid, target_pitch + gps_hold_pitch_adjustment);
         pid_set_desired_value(&roll_pid, target_roll + gps_hold_roll_adjustment);
-        
-
         pid_set_desired_value(&yaw_pid, target_yaw);
         pid_set_desired_value(&vertical_velocity_pid, target_vertical_velocity);
+
+
+        printf("Targets: %.3f %.3f\n", target_roll, target_pitch);
 
         PID_set_points[0] = target_pitch; // Logging
         PID_set_points[1] = target_roll; // Logging
@@ -727,14 +726,17 @@ void handle_radio_communication(){
             // extract_joystick_request_values_uint(rx_data, strlen(rx_data), &throttle, &yaw, &roll, &pitch);
             extract_joystick_request_values_float(rx_data, strlen(rx_data), &throttle, &yaw, &roll, &pitch);
 
+            // Reversed
+            roll = (-(roll-50))+50;
+            yaw = (-(yaw-50))+50;
+
             // For the blackbox log
-            remote_control[0] = -(roll-50); // Reversed for blackbox log
+            remote_control[0] = roll; // Reversed for blackbox log
             remote_control[1] = pitch-50;
             remote_control[2] = yaw-50;
             remote_control[3] = throttle+100;
 
             // the controls were inverse
-            pitch = (-(pitch-50))+50;
 
             // If pitch and roll are neutral then try holding position with gps
             if(pitch == 50 && roll == 50 && gps_fix_type == 3 && use_gps_hold && gps_target_set == 0){
