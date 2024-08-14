@@ -76,7 +76,6 @@ void send_pid_base_info_to_remote();
 void send_pid_added_info_to_remote();
 char* generate_message_pid_values_nrf24(float base_proportional, float base_integral, float base_derivative, float base_master);
 void extract_flight_mode(char *request, uint8_t request_size, uint8_t *new_flight_mode);
-void fix_gyro_axis(float *gyro_data_temp);
 void switch_x_and_y_axis(float *data);
 void invert_axies(float *data);
 
@@ -491,10 +490,11 @@ void handle_get_and_calculate_sensor_values(){
     gps_latitude = bn357_get_latitude_decimal_format();
     gps_longitude = bn357_get_longitude_decimal_format();
     gps_fix_type = bn357_get_fix_type();
+
     if(gps_fix_type == 3){
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-    }else{
         HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    }else{
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
     }
 
 
@@ -550,7 +550,6 @@ void handle_get_and_calculate_sensor_values(){
 
 
 
-    // fix_gyro_axis(imu_orientation); // switch the x and y axis of gyro // FIND OUT HOW TO REMOVE THIS WITHOUT BREAKING EVERYTHING
 
     // After this calculations
     // Backwards increase imu_orientation[1] (Should decrease)
@@ -615,9 +614,6 @@ void handle_pid_and_motor_control(){
         pid_set_desired_value(&yaw_pid, target_yaw);
         pid_set_desired_value(&vertical_velocity_pid, target_vertical_velocity);
 
-
-        printf("Targets: %.3f %.3f\n", target_roll, target_pitch);
-
         PID_set_points[0] = target_pitch; // Logging
         PID_set_points[1] = target_roll; // Logging
         PID_set_points[2] = target_yaw; // Logging
@@ -639,8 +635,6 @@ void handle_pid_and_motor_control(){
         error_yaw = pid_get_error(&yaw_pid, gyro_angular[2], HAL_GetTick()); // Logging
         PID_proportional[2] = pid_get_last_proportional_error(&yaw_pid); // Logging
         PID_integral[2] = pid_get_last_integral_error(&yaw_pid); // Logging
-
-
 
         error_vertical_velocity = pid_get_error(&vertical_velocity_pid, vertical_velocity, HAL_GetTick());
 
@@ -1242,7 +1236,6 @@ void handle_logging(){
 
 
 void handle_loop_end(){
-    // fix_gyro_axis(imu_orientation); // switch back the x and y axis of gyro to how they were before. This is for sensor fusion not to be confused 
     loop_iteration++;
     handle_loop_timing();
 }
@@ -1330,28 +1323,23 @@ void calibrate_gyro(){
 void get_initial_position(){
     // Find the initial position in degrees and apply it to the gyro measurement integral
     // This will tell the robot which way to go to get the actual upward
-    mpu6050_get_accelerometer_readings_gravity(acceleration_data);
-    mpu6050_get_gyro_readings_dps(gyro_angular);
     mmc5603_magnetometer_readings_micro_teslas(magnetometer_data);
+    rotate_magnetometer_output_90_degrees_anti_clockwise(magnetometer_data);
+    mpu6050_get_accelerometer_readings_gravity(acceleration_data);
+    invert_axies(acceleration_data);
+    mpu6050_get_gyro_readings_dps(gyro_angular);
+    invert_axies(gyro_angular);
+    magnetometer_data[0] = low_pass_filter_read(&filter_magnetometer_x, magnetometer_data[0]);
+    magnetometer_data[1] = low_pass_filter_read(&filter_magnetometer_y, magnetometer_data[1]);
+    magnetometer_data[2] = low_pass_filter_read(&filter_magnetometer_z, magnetometer_data[2]);
 
     calculate_roll_pitch_from_accelerometer_data(acceleration_data, &accelerometer_roll, &accelerometer_pitch, accelerometer_roll_offset, accelerometer_pitch_offset);
-    // Get a good raw yaw for calculations later
-    calculate_yaw_using_magnetometer_data(magnetometer_data, &magnetometer_yaw);
-    last_raw_yaw = magnetometer_yaw;
-
     calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw, accelerometer_roll, accelerometer_pitch);
 
     imu_orientation[0] = accelerometer_roll;
     imu_orientation[1] = accelerometer_pitch;
     imu_orientation[2] = magnetometer_yaw;
-    printf("Initial location acceleration: %f, %f, %f\n", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
-
-    printf("Initial location x: %.2f y: %.2f, z: %.2f\n", imu_orientation[0], imu_orientation[1], imu_orientation[2]);
-
-    // Set the desired yaw as the initial one
-    target_yaw = imu_orientation[2];
-
-    // bmp280_set_reference_pressure_from_number_of_samples(15);
+    printf("Initial imu orientation x: %.2f y: %.2f, z: %.2f\n", imu_orientation[0], imu_orientation[1], imu_orientation[2]);
 }
 
 void handle_loop_timing(){
@@ -1746,17 +1734,6 @@ void reset_array_data(float *array, uint8_t array_size){
     for (uint8_t i = 0; i < array_size; i++){
         array[i] = 0.0f;
     }
-}
-
-void fix_gyro_axis(float *gyro_data_temp){
-    float temp = 0.0;
-    temp = gyro_data_temp[0];
-    // y is x
-    gyro_data_temp[0] = gyro_data_temp[1];
-    // x is -y
-    gyro_data_temp[1] = temp;
-
-    // gyro_data_temp[0] = -gyro_data_temp[0];
 }
 
 void switch_x_and_y_axis(float *data){
