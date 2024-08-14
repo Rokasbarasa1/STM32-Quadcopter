@@ -1,4 +1,5 @@
 #pragma once
+#include <stdio.h>
 
 struct low_pass_filter{
     float previous_filter_output;

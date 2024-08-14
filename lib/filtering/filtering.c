@@ -8,8 +8,14 @@ struct low_pass_filter filtering_init_low_pass_filter(float alpha){
     return new_filter;
 }
 
+// Formula to calculate what frequency the filter attenuates:
+// Frequency = <Sampling rate> / (2 * M_PI * ((1/alpha) - 1))
+
+// Delay calculation based on frequency:
+// Delay seconds = 1/(2 * M_PI * Frequency)
 float low_pass_filter_read(struct low_pass_filter* filter, float current_value){
     float calculated_value = filter->alpha * filter->previous_filter_output + (1 - filter->alpha) * current_value;
+    // printf("%.3f = %.3f * %.3f + (1 - %.3f) * %.3f;\n",calculated_value, filter->alpha, filter->previous_filter_output, filter->alpha, current_value);
 
     filter->previous_filter_output = calculated_value;
     return calculated_value;

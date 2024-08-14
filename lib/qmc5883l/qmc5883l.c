@@ -135,44 +135,51 @@ void qmc5883l_magnetometer_readings_micro_teslas(float *data){
     }
 }
 
-void calculate_yaw(float *magnetometer_data, float *yaw){
+void calculate_yaw_using_magnetometer_data(float *magnetometer_data, float *yaw_output) {
     float x = magnetometer_data[0];
     float y = magnetometer_data[1];
 
-    // rotation around the z axis
-    *yaw = atan2f(y, x) * (180 / M_PI);
+    // Rotation around the z-axis (simple yaw calculation)
+    *yaw_output = atan2f(y, x) * (180 / M_PI);
 
     // Convert yaw to [0, 360] range
-    if (*yaw > 180) {
-        *yaw -= 360;
+    if (*yaw_output < 0) {
+        *yaw_output += 360;
     }
 }
 
 
-void calculate_yaw_tilt_compensated(float *magnetometer_data, float *yaw, float gyro_x_axis_rotation_degrees, float gyro_y_axis_rotation_degrees) {
-    float roll_radians = gyro_x_axis_rotation_degrees * (M_PI / 180);  // Convert roll from degrees to radians
-    float pitch_radians = gyro_y_axis_rotation_degrees * (M_PI / 180);  // Convert pitch from degrees to radians
+void calculate_yaw_tilt_compensated_using_magnetometer_data(float *magnetometer_data, float *yaw_output, float roll, float pitch){
+
+    // You better make sure yur roll and pitch are in good shape as well as the magnetometer being aligned with device front when north facing
+    // Otherwise the data you will get will be trash.
+
+    float roll_radians = roll * (M_PI / 180);  // Convert roll from degrees to radians
+    float pitch_radians = pitch * (M_PI / 180);  // Convert pitch from degrees to radians
 
     float mx = magnetometer_data[0];
     float my = magnetometer_data[1];
     float mz = magnetometer_data[2];
 
     // Tilt compensation
-    float Xh = mx * cos(pitch_radians) + mz * sin(pitch_radians);
-    float Yh = my * cos(roll_radians) - mz * sin(roll_radians) * cos(pitch_radians);
+    float Mx = mx * cos(pitch_radians) + mz * sin(pitch_radians);
+    float My = mx * sin(roll_radians) * sin(pitch_radians) + my * cos(roll_radians) - mz * sin(roll_radians) * cos(pitch_radians);
 
-    float x_new = mx * cos(pitch_radians) + mz + sin(pitch_radians);
-    float y_new = mx * sin(roll_radians) * sin(pitch_radians) + my * cos(roll_radians) - mz * sin(roll_radians) * cos(pitch_radians);
-
-    
-    // float Xh = mx * cos(pitch_radians) - mz * sin(pitch_radians) * cos(roll_radians);
-    // float Yh = my * cos(roll_radians) + mz * sin(roll_radians);
-
-    // Calculate yaw
-    *yaw = atan2(Yh, Xh) * (180 / M_PI);
+    *yaw_output = atan2(My, Mx) * (180 / M_PI);
 
     // Convert yaw to [0, 360] range
-    if (*yaw < 0) {
-        *yaw += 360;
+    if (*yaw_output < 0) {
+        *yaw_output += 360;
     }
+}
+
+void rotate_magnetometer_output_90_degrees_anti_clockwise(float *magnetometer_data){
+    float Mx = magnetometer_data[0];  // Original x-axis reading
+    float My = magnetometer_data[1];  // Original y-axis reading
+    float Mz = magnetometer_data[2];  // Original z-axis reading
+
+    // Rotate axes to align x with the forward direction (pitch)
+    magnetometer_data[0] = My;   // New x-axis (forward) is the original y-axis
+    magnetometer_data[1] = -Mx;  // New y-axis (right side) is the negative of the original x-axis
+    magnetometer_data[2] = Mz;   // z-axis remains the same
 }
