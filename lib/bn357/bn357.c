@@ -1,10 +1,18 @@
 #include "./bn357.h"
 
+#include "math.h"
+
+#ifndef M_PI
+#define M_PI (3.14159265358979323846)
+#endif
+
 UART_HandleTypeDef *uart;
 DMA_HandleTypeDef *hdma_uart_rx;
 
 volatile float m_latitude = 0.0;
+volatile char m_latitude_direction = ' ';
 volatile float m_longitude = 0.0;
+volatile char m_longitude_direction = ' ';
 volatile float m_altitude = 0.0;
 volatile float m_altitude_geoid = 0.0;
 volatile float m_accuracy = 0.0;
@@ -199,6 +207,8 @@ uint8_t bn357_parse_and_store(unsigned char *gps_output_buffer, uint16_t size_of
 #endif
 
 
+    // find latitude direction
+    m_latitude_direction = end+2;
 
     // find longitude
     start = end+3; // skip the N character
@@ -220,7 +230,8 @@ uint8_t bn357_parse_and_store(unsigned char *gps_output_buffer, uint16_t size_of
     printf("GNGGA Longitude: %f\n", m_longitude);
 #endif
 
-
+    // find longitude direction
+    m_longitude_direction = end+2;
 
     // find fix quality
     start = end+3; // skip the E character
@@ -233,10 +244,10 @@ uint8_t bn357_parse_and_store(unsigned char *gps_output_buffer, uint16_t size_of
     if(!m_minimal_gps_parse_enabled){
         end = strchr(start, ',');
         length = end - start;
-        char fix_qualtiy_string[length + 1];
-        strncpy(fix_qualtiy_string, start, length);
-        fix_qualtiy_string[length] = '\0';
-        m_fix_quality = atoi(fix_qualtiy_string);
+        char fix_quality_string[length + 1];
+        strncpy(fix_quality_string, start, length);
+        fix_quality_string[length] = '\0';
+        m_fix_quality = atoi(fix_quality_string);
     #if(BN357_DEBUG)
         printf("GNGGA Fix quality: %d\n", m_fix_quality);
     #endif
@@ -420,8 +431,26 @@ float bn357_get_latitude_decimal_format(){
     return m_latitude;
 }
 
+char bn357_get_latitude_direction(){
+    return m_latitude_direction;
+}
+
+// For logging
 float bn357_get_longitude_decimal_format(){
     return m_longitude;
+}
+
+// For calculations
+float bn357_get_linear_longitude_decimal_format(){
+    // The longitude increases in precision as we go up in latitude
+    // That is not good for pid which measures proportional error
+    // The pid will think the longitude is more responsive
+    // Scale it to be linear
+    return m_longitude*cos(m_latitude * (M_PI / 180.0));
+}
+
+char bn357_get_longitude_direction(){
+    return m_longitude_direction;
 }
 
 float bn357_get_altitude_meters(){

@@ -25,22 +25,24 @@ target_lat = data[:, 0]
 target_lon = data[:, 1]
 current_lat = data[:, 2]
 current_lon = data[:, 3]
-pitch_error = data[:, 4]
-roll_error = data[:, 5]
-pitch_degrees = data[:, 6]
-roll_degrees = data[:, 7]
+roll_error = data[:, 4]
+pitch_error = data[:, 5]
+roll_degrees = data[:, 6]
+pitch_degrees = data[:, 7]
 yaw_degrees = data[:, 8]
 
-yaw_degrees = (yaw_degrees + 180) % 360
+yaw_degrees = (yaw_degrees + 270) % 360
 
-# "<target lat>;<target lon>;<current lat>;<current lon>;<pitch error>;<roll error>;<pitch degrees>;<roll degrees>;<yaw degrees>;"
-
-# polygons_target = Point()
-# polygons_current = 
+# "<target lat>;<target lon>;<current lat>;<current lon>;<roll error>;<pitch error>;<roll degrees>;<pitch degrees>;<yaw degrees>;"
 
 map_buffer = 0.0003
 
 bounding_box = [current_lon.min() - map_buffer, current_lon.max() + map_buffer, current_lat.min() - map_buffer, current_lat.max() + map_buffer]
+print(bounding_box)
+
+# Lon delta 0.000685
+# lat delta 0.000544
+
 # Initialize tilemapbase
 tilemapbase.init(create=True)
 extent = tilemapbase.Extent.from_lonlat(bounding_box[0], bounding_box[1], bounding_box[2], bounding_box[3])  # Example coordinates (London area)
@@ -65,22 +67,16 @@ y_current = projected_points_current[:, 1]
 
 
 
-
-
 # Plot the points on the map
 ax.scatter(x_target, y_target, color='red', s=5, label='Targets')
-# scatter_current = ax.scatter(x_current, y_current, color='blue', s=35, label='Current')
 scatter_current = ax.scatter([], [], color='blue', s=35, label='Current')
-# plot_current, = ax.plot(x_current, y_current, color='blue', linewidth=1, label='Path')  # 'linewidth' controls the thickness of the line
-plot_current, = ax.plot([], [], color='blue', linewidth=1, label='Path')  # 'linewidth' controls the thickness of the line
-
+plot_current, = ax.plot([], [], color='blue', linewidth=1, label='Path')
 
 
 # Initialize the arrow to indicate yaw
 quiver_yaw = ax.quiver(x_current[0], y_current[0], np.cos(np.radians(yaw_degrees[0])) * 0.0001, np.sin(np.radians(yaw_degrees[0])) * 0.0001, scale=1, scale_units='xy', angles='xy', color='red')
 quiver_pitch = ax.quiver(x_current[0], y_current[0], np.cos(np.radians(yaw_degrees[0])) * 0.0000002, np.sin(np.radians(yaw_degrees[0])) * 0.0000002, scale=1, scale_units='xy', angles='xy', color='purple')
 quiver_roll = ax.quiver(x_current[0], y_current[0], np.cos(np.radians(yaw_degrees[0] + 90)) * 0.0000002, np.sin(np.radians(yaw_degrees[0] + 90)) * 0.0000002, scale=1, scale_units='xy', angles='xy', color='orange')
-
 
 
 # Add title and labels if needed
@@ -109,17 +105,16 @@ def animate(i):
         quiver_roll.set_UVC(dx_roll, dy_roll)
 
 
-
-
         # Update the scatter plot data
         plot_current.set_data(x_current[:i+1], y_current[:i+1])
         scatter_current.set_offsets([x_current[i], y_current[i]])
 
+        print(i)
 
         # Return the updated objects
         return plot_current, scatter_current, quiver_yaw, quiver_pitch, quiver_roll
 
-ani = FuncAnimation(fig, animate, frames=len(x_target), interval=int(1000/200), blit=True)
+ani = FuncAnimation(fig, animate, frames=len(x_target), interval=int(1000/1000), blit=True)
 
 plt.show()
 

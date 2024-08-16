@@ -78,6 +78,11 @@ char* generate_message_pid_values_nrf24(float base_proportional, float base_inte
 void extract_flight_mode(char *request, uint8_t request_size, uint8_t *new_flight_mode);
 void switch_x_and_y_axis(float *data);
 void invert_axies(float *data);
+float sawtooth_sin(float x_radian);
+float sawtooth_cos(float x_radian);
+float triangle_wave(float x);
+float triangle_sin(float x);
+float triangle_cos(float x);
 
 void handle_get_and_calculate_sensor_values();
 void handle_radio_communication();
@@ -248,8 +253,8 @@ const float vertical_velocity_gain_i = 0.5;
 const float vertical_velocity_gain_d = 0.00;
 
 // PID for gps hold
-const float gps_hold_gain_p = 10000.0; 
-const float gps_hold_gain_i = 0.0;
+const float gps_hold_gain_p = 1100000.0; 
+const float gps_hold_gain_i = 11000.0;
 const float gps_hold_gain_d = 0.0;
 
 
@@ -285,8 +290,19 @@ float gyro_angular[] = {0,0,0};
 float imu_orientation[] = {0,0,0};
 float magnetometer_data[] = {0,0,0};
 float gps_longitude = 0.0;
+float old_gps_longitude = 0.0;
 float gps_latitude = 0.0;
+float old_gps_latitude = 0.0;
+float delta_gps_latitude = 0.0;
+float delta_gps_longitude = 0.0;
+float in_between_gps_latitude = 0.0;
+float in_between_gps_longitude = 0.0;
+uint8_t in_between_gps_loop_divider = 4;
+uint8_t in_between_gps_loop_divider_counter = 0;
+
+
 uint8_t gps_fix_type = 0.0;
+
 float pressure = 0.0;
 float temperature = 0.0;
 float altitude = 0.0;
@@ -378,8 +394,8 @@ uint8_t use_gps_hold = 0;
 uint8_t use_gps_reset_count = 0;
 uint8_t use_gps_reset_count_to_deactivate = 4; // This is done because sometimes some noise sends a neutural pitch and roll
 
-float base_accelerometer_roll_offset = 0.55;
-float base_accelerometer_pitch_offset = 0.41;
+float base_accelerometer_roll_offset = -0.55;
+float base_accelerometer_pitch_offset = -0.41;
 
 float accelerometer_roll_offset = 0;
 float accelerometer_pitch_offset = 0;
@@ -397,6 +413,10 @@ float pitch_effect_on_lat = 0;
 
 float roll_effect_on_lon = 0;
 float pitch_effect_on_lon = 0;
+
+// Sometimes the accelerometer locks up and we need to kill the drone
+float time_needed_to_initiate_lockup = 0.1; // 100ms 
+
 
 int main(void){
     init_STM32_peripherals();
@@ -420,6 +440,12 @@ int main(void){
     get_initial_position();
     // setup_logging_to_sd(); // Hardware power issue currently
     initialize_control_abstractions();
+
+    // printf("START TRIANGLE WAVE\n");
+    // for (size_t i = 0; i < 361; i++){
+    //     printf("T_SIN: %f T_COS %f\n",triangle_sin((float)i * (M_PI / 180.0)), triangle_cos((float)i * (M_PI / 180.0)));
+    // }
+    // printf("END TRIANGLE WAVE\n");
 
     handle_pre_loop_start();
     while (1){
@@ -488,15 +514,11 @@ void handle_get_and_calculate_sensor_values(){
     else got_gps = 0;
 
     gps_latitude = bn357_get_latitude_decimal_format();
-    gps_longitude = bn357_get_longitude_decimal_format();
+    gps_longitude = bn357_get_linear_longitude_decimal_format(); // Linear for pid
     gps_fix_type = bn357_get_fix_type();
 
-    if(gps_fix_type == 3){
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-    }else{
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-    }
-
+    if(gps_fix_type == 3) HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    else HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
 
     // Pitch (+)forwards - front of device nose goes down
     // Roll (+)right - the device banks to the right side while pointing forward
@@ -526,37 +548,58 @@ void handle_get_and_calculate_sensor_values(){
 
     // No need for sensor fusion, it introduces delay
     imu_orientation[2] = magnetometer_yaw;
-    // printf("%f;\n", gyro_angular[2]);
-    // 
-    // Yaw = 0, Roll right, +latitude       
-    // Yaw = 0, Roll left, -latitude        
-    // Yaw = 0, Pitch forward, -longitude   
-    // Yaw = 0, Pitch back, +longitude      
-    // Roll component is 1 and pitch component is 1 also.
-    // Roll component is 1 + sin(0deg) 
+    
 
-    // Yaw = 45, Roll right, +latitude +       
-    // Yaw = 45, Roll left, -latitude        
-    // Yaw = 45, Pitch forward, +longitude   
-    // Yaw = 45, Pitch back, -longitude      
-    // Roll component is 1 and pitch component is 1 also.
+    // GPS STUFF
+    float latitude_sign = 0;
+    if(bn357_get_latitude_direction() == 'N') latitude_sign = 1;
+    else if(bn357_get_latitude_direction() == 'S') latitude_sign = -1;
 
-    // lat and lon effect on pitch and roll
-    roll_effect_on_lat = cos(imu_orientation[2] * (M_PI / 180.0));
-    pitch_effect_on_lat = sin(imu_orientation[2] * (M_PI / 180.0));
+    float longitude_sign = 0;
+    if(bn357_get_longitude_direction() == 'E') longitude_sign = 1;
+    else if(bn357_get_longitude_direction() == 'W') longitude_sign = -1;
 
-    roll_effect_on_lon = sin(imu_orientation[2] * (M_PI / 180.0));
-    pitch_effect_on_lon = cos(imu_orientation[2] * (M_PI / 180.0));
+    pitch_effect_on_lat = triangle_cos(imu_orientation[2] * (M_PI / 180.0)) * latitude_sign; // + GOOD, - GOOD  // If moving north forward positive, backwards negative
+    roll_effect_on_lat = -triangle_sin(imu_orientation[2] * (M_PI / 180.0)) * latitude_sign; // + GOOD, - GOOD  // If moving north roll right positive, roll left south negative
+    pitch_effect_on_lon = triangle_sin(imu_orientation[2] * (M_PI / 180.0)) * longitude_sign; // + GOOD, - GOOD 
+    roll_effect_on_lon = triangle_cos(imu_orientation[2] * (M_PI / 180.0)) * longitude_sign; // GOOD, - GOOD
 
+    // printf("PLAT: %.2f RLAT: %.2f PLON: %.2f RLON: %.2f\n", 
+    //     pitch_effect_on_lat,
+    //     roll_effect_on_lat,
+    //     pitch_effect_on_lon,
+    //     roll_effect_on_lon,
+    // );
 
+    // Calculate the in between latitude and longitude to help derivative value
+    if(got_gps){
+        // Calculate the rate of change of gps at it current refresh rate
+        delta_gps_latitude = gps_latitude - old_gps_latitude;
+        delta_gps_longitude = gps_longitude - old_gps_longitude;
 
+        // Save the current gps values as old
+        old_gps_latitude = gps_latitude;
+        old_gps_longitude = gps_longitude;
 
-    // After this calculations
-    // Backwards increase imu_orientation[1] (Should decrease)
-    // Forwards decrease imu_orientation[1] (Should increase)
-    // Left increase imu_orientation[0]. (Should decrease based on standards)
-    // Right decrease imu_orientation[0] (Should increase)
+        in_between_gps_latitude = gps_latitude;
+        in_between_gps_longitude = gps_longitude;
+    }else{
+        
+        // Spmetimes the update is skipped on purpose
+        if(in_between_gps_loop_divider_counter == in_between_gps_loop_divider){
+            // Update the inbetween
+            in_between_gps_latitude += delta_gps_latitude * (1.0f/REFRESH_RATE_HZ) * 10;
+            in_between_gps_longitude += delta_gps_longitude * (1.0f/REFRESH_RATE_HZ) * 10; // Temp times 10 to signify the 10 hz refresh rate of gps
 
+            in_between_gps_loop_divider_counter = 0;
+        }else{
+            in_between_gps_loop_divider_counter++;
+        }
+
+        // Apply the inbetween 
+        gps_latitude = in_between_gps_latitude;
+        gps_longitude = in_between_gps_longitude;
+    }
 
 
     // ------------------------------------------------------------------------------------------------------ Use sensor fused data for more data
@@ -568,8 +611,6 @@ void handle_get_and_calculate_sensor_values(){
 
     altitude = kalman_filter_get_state(&altitude_and_velocity_kalman)[0][0];
     vertical_velocity = kalman_filter_get_state(&altitude_and_velocity_kalman)[1][0];
-    // printf("%f;%f;%f;%f;\n", vertical_acceleration[0], vertical_altitude[0], kalman_filter_get_state(&altitude_and_velocity_kalman)[0][0], kalman_filter_get_state(&altitude_and_velocity_kalman)[1][0]);
-    
 }
 
 
@@ -593,16 +634,27 @@ void handle_pid_and_motor_control(){
             error_latitude = pid_get_error(&gps_latitude_pid, gps_latitude, HAL_GetTick());
             error_longitude = pid_get_error(&gps_longitude_pid, gps_longitude, HAL_GetTick());
 
-            gps_hold_roll_adjustment = roll_effect_on_lat * error_latitude + roll_effect_on_lon * error_longitude; // PITCH
-            gps_hold_pitch_adjustment = pitch_effect_on_lat * error_latitude + pitch_effect_on_lon * error_longitude; // ROLL
+            gps_hold_roll_adjustment = roll_effect_on_lat * error_latitude + roll_effect_on_lon * error_longitude;
+            gps_hold_pitch_adjustment = pitch_effect_on_lat * error_latitude + pitch_effect_on_lon * error_longitude;
             
-            gps_hold_roll_adjustment = gps_hold_roll_adjustment * -1;
-            
-            printf("GPS target lat %.6f lon %.6f   ", target_latitude, target_longitude);
-            printf("GPS actual lat %.6f lon %.6f   ", gps_latitude, gps_longitude);
-            printf("GPS Pitch %f roll %f  ", gps_hold_roll_adjustment, gps_hold_pitch_adjustment);
-            printf("Degrees: %.2f %.2f %.2f\n", imu_orientation[0], imu_orientation[1], imu_orientation[2]);
-            
+            // printf("GPS target lat %.6f lon %.6f   ", target_latitude, target_longitude);
+            // printf("GPS actual lat %.6f lon %.6f   ", gps_latitude, gps_longitude);
+            // printf("GPS Pitch %f roll %f  ", gps_hold_roll_adjustment, gps_hold_pitch_adjustment);
+            // printf("Degrees: %.2f %.2f %.2f\n", imu_orientation[0], imu_orientation[1], imu_orientation[2]);
+            // printf("%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;", target_latitude, target_longitude, gps_latitude, gps_longitude, gps_hold_roll_adjustment, gps_hold_pitch_adjustment, imu_orientation[0], imu_orientation[1], imu_orientation[2]);
+            // printf("%.2f;%.2f;%.2f;%.2f;", roll_effect_on_lat, roll_effect_on_lon, pitch_effect_on_lat, pitch_effect_on_lon);
+            // printf("\n");
+
+            if(gps_hold_roll_adjustment > 3.5){
+                gps_hold_roll_adjustment = 3.5;
+            }else if(gps_hold_roll_adjustment < -3.5){
+                gps_hold_roll_adjustment = -3.5;
+            }else if(gps_hold_pitch_adjustment > 3.5){
+                gps_hold_pitch_adjustment = 3.5;
+            }else if(gps_hold_pitch_adjustment < -3.5){
+                gps_hold_pitch_adjustment = -3.5;
+            }
+
         }else{
             gps_hold_roll_adjustment = 0;
             gps_hold_pitch_adjustment = 0;
@@ -877,10 +929,10 @@ void handle_radio_communication(){
             float added_y_axis_offset;
 
             extract_accelerometer_offsets(rx_data, strlen(rx_data), &added_x_axis_offset, &added_y_axis_offset);
-            printf("\nGot offsets %f %f ", added_x_axis_offset, added_y_axis_offset);
+            printf("\nGot offsets %f %f ", -added_x_axis_offset, -added_y_axis_offset);
 
-            accelerometer_roll_offset = base_accelerometer_roll_offset + added_x_axis_offset;
-            accelerometer_pitch_offset = base_accelerometer_pitch_offset + added_y_axis_offset;
+            accelerometer_roll_offset = base_accelerometer_roll_offset - added_x_axis_offset;
+            accelerometer_pitch_offset = base_accelerometer_pitch_offset -  added_y_axis_offset;
 
             pid_reset_integral_sum(&roll_pid);
             pid_reset_integral_sum(&pitch_pid);
@@ -916,6 +968,8 @@ void handle_radio_communication(){
                 use_gps_hold = 0;
             }else if(flight_mode == 2){
                 use_vertical_velocity_control = 1;
+                use_gps_hold = 1;
+            }else if (flight_mode == 3){
                 use_gps_hold = 1;
             }
 
@@ -1348,6 +1402,20 @@ void handle_loop_timing(){
 
     // printf("b%d", delta_loop_time);
     
+    // if((float)delta_loop_time/1000 > time_needed_to_initiate_lockup){
+    //     uint8_t led_state = 0;
+    //     while (1){
+    //         printf("Loop exceed max loop time. Locking up. Check accelerometer and gyro\n");
+    //         HAL_Delay(500);
+    //         HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, led_state);
+    //         if(led_state == 1){
+    //             led_state = 0;
+    //         }else{
+    //             led_state = 1;
+    //         }
+    //     }
+        
+    // }
     // This one is more precise than using HAL_Delay
     while((1000 / REFRESH_RATE_HZ) > HAL_GetTick()-loop_start_time);
 
@@ -1750,6 +1818,47 @@ void invert_axies(float *data){
     data[0] = -data[0];
     data[1] = -data[1];
 }
+
+float sawtooth_sin(float x_radian){
+    return 2.0f * (x_radian/ M_PI - floorf(x_radian/M_PI + 0.5f));
+}
+
+
+float sawtooth_cos(float x_radian){
+    return 2.0f * ((x_radian + M_PI/2.0f)/ M_PI - floorf(x_radian/M_PI + 0.5f));
+}
+
+#define TWO_M_PI (2.0f * M_PI)
+#define HALF_M_PI (M_PI / 2.0f)
+
+float triangle_wave(float x) {
+    // Normalize x to be within the range [0, 2*PI)
+    x = fmodf(x, 2.0f * M_PI);
+    
+    // Scale the normalized x to the range [0, 4]
+    float scaled_x = x / (M_PI / 2.0f);
+    
+    // Triangle wave calculation
+    if (scaled_x < 1.0f) {
+        return scaled_x;
+    } else if (scaled_x < 3.0f) {
+        return 2.0f - scaled_x;
+    } else {
+        return scaled_x - 4.0f;
+    }
+}
+
+float triangle_sin(float x){
+    return triangle_wave(x);
+}
+
+float triangle_cos(float x){
+    return triangle_wave(x + M_PI/2.0f);
+}
+
+
+
+
 
 
 
