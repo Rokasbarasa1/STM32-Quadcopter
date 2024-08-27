@@ -43,6 +43,7 @@
         "FILINFO",
         "FRESULT",
         "kalman",
+        "Quadcopter",
         "reflashed"
     ]
 }
