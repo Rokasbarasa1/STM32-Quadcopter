@@ -247,8 +247,11 @@ float last_error_pitch = 0;
 // to float in the air. If you are testing with drone constrained add a base motor speed to account for this.
 
 // PID for yaw
-const float yaw_gain_p = 0.45; 
-const float yaw_gain_i = 0.3;
+// const float yaw_gain_p = 0.45; 
+// const float yaw_gain_i = 0.3;
+
+const float yaw_gain_p = 0.0; 
+const float yaw_gain_i = 0.0;
 
 // PID for altitude control
 const float vertical_velocity_gain_p = 0.6; 
@@ -452,18 +455,6 @@ int main(void){
     // setup_logging_to_sd(); // Hardware power issue currently
     initialize_control_abstractions();
 
-    // printf("START TRIANGLE WAVE\n");
-    // for (size_t i = 0; i < 361; i++){
-    //     printf("T_SIN: %f T_COS %f\n",sin((float)i * (M_PI / 180.0)), triangle_sin((float)i * (M_PI / 180.0)));
-    // }
-    // printf("END TRIANGLE WAVE\n");
-
-    //     printf("START TRIANGLE WAVE\n");
-    // for (size_t i = 0; i < 361; i++){
-    //     printf("COS: %f T_COS %f\n",cos((float)i * (M_PI / 180.0)), triangle_cos((float)i * (M_PI / 180.0)));
-    // }
-    // printf("END TRIANGLE WAVE\n");
-
     handle_pre_loop_start();
     while (1){
         handle_radio_communication();
@@ -482,7 +473,8 @@ uint8_t init_sensors(){
         &hi2c1, 
         ACCEL_CONFIG_RANGE_2G, 
         GYRO_CONFIG_RANGE_250_DEG, 
-        LOW_PASS_FILTER_FREQUENCY_CUTOFF_GYRO_21HZ_ACCEL_20HZ,
+        // LOW_PASS_FILTER_FREQUENCY_CUTOFF_GYRO_21HZ_ACCEL_20HZ,
+        LOW_PASS_FILTER_FREQUENCY_CUTOFF_GYRO_260HZ_ACCEL_256HZ,
         1, 
         accelerometer_scale_factor_correction, 
         accelerometer_correction, 
@@ -559,6 +551,15 @@ void handle_get_and_calculate_sensor_values(){
 
     // If some of these above conditions are not met the tilt compensation on yaw will not work.
     // ------------------------------------------------------------------------------------------------------ Filter the sensor data
+
+    printf("%f;%f;%f;%f;%f;%f;\n", 
+        acceleration_data[0], 
+        acceleration_data[1], 
+        acceleration_data[2], 
+        gyro_angular[0], 
+        gyro_angular[1], 
+        gyro_angular[2]
+    );
 
     magnetometer_data[0] = low_pass_filter_read(&filter_magnetometer_x, magnetometer_data[0]);
     magnetometer_data[1] = low_pass_filter_read(&filter_magnetometer_y, magnetometer_data[1]);
@@ -881,12 +882,12 @@ void handle_radio_communication(){
                 target_latitude = gps_latitude;
                 target_longitude = gps_longitude;
                 gps_target_set = 1;
-                printf("GPS STATE SET\n");
+                // printf("GPS STATE SET\n");
             }else if (pitch != 50 || roll != 50 ){
                 if(use_gps_reset_count >= use_gps_reset_count_to_deactivate){
                     gps_position_hold_enabled = 0;
                     gps_target_set = 0;
-                    printf("GPS STATE RESET, GPS FIX %d\n", gps_fix_type);
+                    // printf("GPS STATE RESET, GPS FIX %d\n", gps_fix_type);
                     use_gps_reset_count = 0;
                 }else{
                     use_gps_reset_count++;

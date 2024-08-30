@@ -42,6 +42,7 @@
         "FATFS",
         "FILINFO",
         "FRESULT",
+        "genfromtxt",
         "kalman",
         "Quadcopter",
         "reflashed"

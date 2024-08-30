@@ -2,8 +2,27 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Read data from new_data.txt
-data = np.genfromtxt('motors_off_no_filtering_data.txt', delimiter=';')
+# data = np.genfromtxt('motors_off_no_filtering_data.txt', delimiter=';')
 # data = np.genfromtxt('raw_yaw_vs_sensor_fused.txt', delimiter=';')
+
+# data = np.genfromtxt('motor_bl_with_nuts_data.txt', delimiter=';')
+data = np.genfromtxt('motor_br_with_nuts_data.txt', delimiter=';')
+# data = np.genfromtxt('motor_fl_with_nuts_data.txt', delimiter=';')
+# data = np.genfromtxt('motor_fr_with_nuts_data.txt', delimiter=';')
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # data2 = np.genfromtxt('motors_on_no_filtering_data.txt', delimiter=';')
 # data2 = np.genfromtxt('motors_on_no_filtering_data_new_props.txt', delimiter=';')
@@ -14,13 +33,18 @@ data = np.genfromtxt('motors_off_no_filtering_data.txt', delimiter=';')
 # data2 = np.genfromtxt('no_propellers_no_filtering_only_tape_dampening.txt', delimiter=';')
 # data2 = np.genfromtxt('no_propellers_no_filtering_tape_and_rubber_spacers.txt', delimiter=';')
 # data2 = np.genfromtxt('no_propellers_no_filtering_tape_rubber_standoffs_ruber_spacers.txt', delimiter=';')
-data2 = np.genfromtxt('no_propellers_no_filtering_tape_rubber_standoffs_ruber_spacers.txt', delimiter=';')
+# data2 = np.genfromtxt('no_propellers_no_filtering_tape_rubber_standoffs_ruber_spacers.txt', delimiter=';')
 
 # data2 = np.genfromtxt('propellers_no_filtering_tape_rubber_standoffs_ruber_spacers.txt', delimiter=';')
 # data2 = np.genfromtxt('propellers_no_filtering_tape_and_rubber_spacers.txt', delimiter=';')
 # data2 = np.genfromtxt('propellers_no_filtering_tape_rubber_spacers_yaw_pid_match.txt', delimiter=';')
 # data2 = np.genfromtxt('propellers_no_filtering_tape_rubber_spacers_yaw_pid_match_21Hz.txt', delimiter=';')
 # data2 = np.genfromtxt('propellers_no_filtering_tape_rubber_spacers_yaw_pid_match_45Hz.txt', delimiter=';')
+
+# data2 = np.genfromtxt('motor_bl_no_nuts_data.txt', delimiter=';')
+data2 = np.genfromtxt('motor_br_no_nuts_data.txt', delimiter=';')
+# data2 = np.genfromtxt('motor_fl_no_nuts_data.txt', delimiter=';')
+# data2 = np.genfromtxt('motor_fr_no_nuts_data.txt', delimiter=';')
 
 # Check if the data is read correctly
 if data.size == 0:
