@@ -2,11 +2,11 @@
 
 ![IMG_3291](https://github.com/Rokasbarasa1/STM32-Quadcopter/assets/50622827/86c02aab-86b6-40ef-8ede-8bf1fb79dea2)
 
-Work in progress. It flies but not good so far.
+Work in progress. For in depth documentation use my self-balancing robot project which uses most of the same components, I am at the moment focusing on documenting the testing proccess of this robot. [<b>Link to self balancing robot</b>](https://github.com/Rokasbarasa1/ESP32-self-balancing-robot)
 
 STM32F411, MPU6050, QMC5883l, BN357, BMP280, NRF24l01, Second STM32F411 SD Logger
 
-Link to SD logger repo: https://github.com/Rokas-embedded/Logger
+[Link to SD logger repo](https://github.com/Rokas-embedded/Logger)
 
 ## How it looks like
 
