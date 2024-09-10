@@ -5,17 +5,23 @@ import numpy as np
 # data = np.genfromtxt('motors_off_no_filtering_data.txt', delimiter=';')
 # data = np.genfromtxt('raw_yaw_vs_sensor_fused.txt', delimiter=';')
 
-# data = np.genfromtxt('motor_bl_with_nuts_data.txt', delimiter=';')
-data = np.genfromtxt('motor_br_with_nuts_data.txt', delimiter=';')
-# data = np.genfromtxt('motor_fl_with_nuts_data.txt', delimiter=';')
-# data = np.genfromtxt('motor_fr_with_nuts_data.txt', delimiter=';')
+# data = np.genfromtxt('motor_2212_bl_with_nuts_data.txt', delimiter=';')
+# data = np.genfromtxt('motor_2212_br_with_nuts_data.txt', delimiter=';')
+# data = np.genfromtxt('motor_2212_fl_with_nuts_data.txt', delimiter=';')
+# data = np.genfromtxt('motor_2212_fr_with_nuts_data.txt', delimiter=';')
+
+# data = np.genfromtxt('motor_2807_bl_no_nuts_data.txt', delimiter=';')
+# data = np.genfromtxt('motor_2807_br_no_nuts_data.txt', delimiter=';')
+# data = np.genfromtxt('motor_2807_fl_no_nuts_data.txt', delimiter=';')
+# data = np.genfromtxt('motor_2807_fr_no_nuts_data.txt', delimiter=';')
+data = np.genfromtxt('motor_2807_bl_3_blade_propeller.txt', delimiter=';')
 
 
-
-
-
-
-
+# data2 = np.genfromtxt('motor_2807_bl_no_nuts_data.txt', delimiter=';')
+# data2 = np.genfromtxt('motor_2807_br_no_nuts_data.txt', delimiter=';')
+# data2 = np.genfromtxt('motor_2807_fl_no_nuts_data.txt', delimiter=';')
+# data2 = np.genfromtxt('motor_2807_fr_no_nuts_data.txt', delimiter=';')
+# data2 = np.genfromtxt('motor_2807_bl_3_blade_propeller.txt', delimiter=';')
 
 
 
@@ -41,10 +47,10 @@ data = np.genfromtxt('motor_br_with_nuts_data.txt', delimiter=';')
 # data2 = np.genfromtxt('propellers_no_filtering_tape_rubber_spacers_yaw_pid_match_21Hz.txt', delimiter=';')
 # data2 = np.genfromtxt('propellers_no_filtering_tape_rubber_spacers_yaw_pid_match_45Hz.txt', delimiter=';')
 
-# data2 = np.genfromtxt('motor_bl_no_nuts_data.txt', delimiter=';')
-data2 = np.genfromtxt('motor_br_no_nuts_data.txt', delimiter=';')
-# data2 = np.genfromtxt('motor_fl_no_nuts_data.txt', delimiter=';')
-# data2 = np.genfromtxt('motor_fr_no_nuts_data.txt', delimiter=';')
+data2 = np.genfromtxt('motor_2212_bl_no_nuts_data.txt', delimiter=';')
+# data2 = np.genfromtxt('motor_2212_br_no_nuts_data.txt', delimiter=';')
+# data2 = np.genfromtxt('motor_2212_fl_no_nuts_data.txt', delimiter=';')
+# data2 = np.genfromtxt('motor_2212_fr_no_nuts_data.txt', delimiter=';')
 
 # Check if the data is read correctly
 if data.size == 0:
