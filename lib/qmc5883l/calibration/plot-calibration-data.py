@@ -26,7 +26,7 @@ print(2)
 
 # Plot XY data
 plt.figure()
-# plt.plot(rawData[:, 0], rawData[:, 1], 'b*', label='Raw Meas.')
+plt.plot(rawData[:, 0], rawData[:, 1], 'b*', label='Raw Meas.')
 plt.plot(calibData[:, 0], calibData[:, 1], 'r*', label='Calibrated Meas.')
 plt.title('XY Magnetometer Data')
 plt.xlabel('X [uT]')
@@ -39,7 +39,7 @@ print(3)
 
 # Plot YZ data
 plt.figure()
-# plt.plot(rawData[:, 1], rawData[:, 2], 'b*', label='Raw Meas.')
+plt.plot(rawData[:, 1], rawData[:, 2], 'b*', label='Raw Meas.')
 plt.plot(calibData[:, 1], calibData[:, 2], 'r*', label='Calibrated Meas.')
 plt.title('YZ Magnetometer Data')
 plt.xlabel('Y [uT]')
@@ -52,7 +52,7 @@ print(4)
 
 # Plot XZ data
 plt.figure()
-# plt.plot(rawData[:, 0], rawData[:, 2], 'b*', label='Raw Meas.')
+plt.plot(rawData[:, 0], rawData[:, 2], 'b*', label='Raw Meas.')
 plt.plot(calibData[:, 0], calibData[:, 2], 'r*', label='Calibrated Meas.')
 plt.title('XZ Magnetometer Data')
 plt.xlabel('X [uT]')

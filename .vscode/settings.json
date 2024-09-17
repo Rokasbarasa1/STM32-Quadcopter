@@ -35,10 +35,13 @@
         "mmc5603.h": "c"
     },
     "cSpell.words": [
+        "acro",
         "axies",
         "blackbox",
         "coplementary",
         "datasheet",
+        "deadband",
+        "escs",
         "FATFS",
         "FILINFO",
         "FRESULT",

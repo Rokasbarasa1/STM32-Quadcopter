@@ -75,7 +75,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
 
 #if(BN357_TRACK_TIMING)
         uint32_t end_time = HAL_GetTick();
-        printf("Gps parse time: %ld\n", end_time-start_time);
+        printf("Gpt %ld\n", end_time-start_time);
 #endif
     }
 }
@@ -153,9 +153,9 @@ uint8_t bn357_parse_and_store(unsigned char *gps_output_buffer, uint16_t size_of
     char sub_string_gngga[length + 1];  // create a new string to store the substring, plus one for null terminator
     strncpy(sub_string_gngga, start, length);  // copy the substring to the new string
     sub_string_gngga[length] = '\0';  // add a null terminator to the new string
-#if(BN357_DEBUG)
-    printf("GNGGA Substring: %s\n", sub_string_gngga);  // print the substring
-#endif
+// #if(BN357_DEBUG)
+//     printf("GNGGA Substring: %s\n", sub_string_gngga);  // print the substring
+// #endif
 
 
 
@@ -381,9 +381,9 @@ uint8_t bn357_parse_and_store(unsigned char *gps_output_buffer, uint16_t size_of
     char sub_string_gngsa[length + 1];  // create a new string to store the substring, plus one for null terminator
     strncpy(sub_string_gngsa, start, length);  // copy the substring to the new string
     sub_string_gngsa[length] = '\0';  // add a null terminator to the new string
-#if(BN357_DEBUG)
-    printf("GNGSA Substring: %s\n", sub_string_gngsa);  // print the substring
-#endif
+// #if(BN357_DEBUG)
+//     printf("GNGSA Substring: %s\n", sub_string_gngsa);  // print the substring
+// #endif
 
 
 

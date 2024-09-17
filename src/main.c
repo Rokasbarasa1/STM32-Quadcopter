@@ -1,6 +1,6 @@
 /* Auto generated shit -----------------------------------------------*/
 #include "main.h"
-// #include "./FATFS/App/fatfs.h"
+
 
 I2C_HandleTypeDef hi2c1;
 
@@ -50,6 +50,10 @@ static void MX_TIM2_Init(void);
 #include "../lib/kalman_filter/kalman_filter.h"
 #include "../lib/utils/matrix_operations/matrix_operations.h"
 
+#ifndef M_PI
+#define M_PI (3.14159265358979323846)
+#endif
+
 void init_STM32_peripherals();
 void calibrate_escs();
 uint16_t setServoActivationPercent(float percent, uint16_t minValue, uint16_t maxValue);
@@ -92,7 +96,7 @@ void setup_logging_to_sd();
 void handle_loop_end();
 void handle_pre_loop_start();
 void initialize_control_abstractions();
-
+void set_flight_mode(uint8_t mode);
 // PWM pins
 // PA8  - 1 TIM1
 // PA11 - 4 TIM1
@@ -146,84 +150,116 @@ void initialize_control_abstractions();
  * 1.94ms/20ms * 4000 = 388
  */
 
-#ifndef M_PI
-#define M_PI (3.14159265358979323846)
-#endif
+// ------------------------------------------------------------------------------------------------------ Refresh rate
+// remember that the stm32 is not as fast as the esp32 and it cannot print lines at the same speed
+// const float refresh_rate_hz = 400;
+#define REFRESH_RATE_HZ 200
 
-const uint16_t max_esc_pwm_value = 2000;
-const uint16_t actual_max_esc_pwm_value = 1917; // (max lipo amp rating / max draw of a bldc motor being used x 4) 0.917 * (max_pwm - min_pwm) + min_pwm = 371.4
-const uint16_t min_esc_pwm_value = 1000;
-const uint16_t esc_lowest_motor_spin = 1033;
+// ------------------------------------------------------------------------------------------------------ handling loop timing
+uint32_t loop_start_time = 0;
+uint32_t loop_end_time = 0;
+int16_t delta_loop_time = 0;
 
-// Sensor corrections #################################################################################
+// Keep track of time in each loop. Since loop start
+uint32_t startup_time = 0;
+uint32_t delta_time = 0;
+uint16_t time_since_startup_ms = 0;
+uint8_t time_since_startup_minutes = 0;
+uint8_t time_since_startup_seconds = 0;
+uint8_t time_since_startup_hours = 0;
 
-// For calibrating the magnetometer I
-// used a method found in MicWro Engr Video:
-// https://www.youtube.com/watch?v=MinV5V1ioWg
-// Mag field norm at my location is 50.503
-// use software called Magneto 1.2
+uint8_t entered_loop = 0;
+
+// ------------------------------------------------------------------------------------------------------ Motor settings
+// C bullshit again...
+#define max_esc_pwm_value 2000
+#define min_esc_pwm_value 1000
+const uint16_t esc_lowest_motor_spin = 1033; // DYNAMIC IDLE
+// A2212 - 1917
+// 2807 - 75% of max
+// const uint16_t actual_max_esc_pwm_value = 1917; // (max lipo amp rating / max draw of a bldc motor being used x 4) 0.917 * (max_pwm - min_pwm) + min_pwm = 371.4
+const uint16_t actual_max_esc_pwm_value = min_esc_pwm_value + ((max_esc_pwm_value - min_esc_pwm_value) * 75) / 100; // (max lipo amp rating / max draw of a bldc motor being used x 4) 0.917 * (max_pwm - min_pwm) + min_pwm = 371.4
 
 
+// ------------------------------------------------------------------------------------------------------ Sensor calibrations
 // https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfwmm
 // Convert readings from this site to same units nanoTeslas to microteslas
 
 // When calculating this remember that these values are already
 // correcting and that the axis of the magnetometer are switched.
 
+// For calibrating the magnetometer I
+// used a method found in MicWro Engr Video:
+// https://www.youtube.com/watch?v=MinV5V1ioWg
+// Mag field norm at my location is 50.503
+// use software called Magneto 1.2
+// motor 2807
+
 // Magnetometer
-float hard_iron_correction[3] = {
-    3280.531653,3280.845774,3277.030206
+float magnetometer_hard_iron_correction[3] = {
+    3274.370177,3280.305541,3275.211456
 };
 
-float soft_iron_correction[3][3] = {
-    {1.180417,-0.000133,-0.002451},
-    {-0.000133,1.151005,0.051957},
-    {-0.002451,0.051957,1.209149}
+float magnetometer_soft_iron_correction[3][3] = {
+    {1.021759,0.011752,0.066446},
+    {0.011752,1.121668,-0.066759},
+    {0.066446,-0.066759,1.172338}
 };
 
 // Accelerometer
 float accelerometer_correction[3] = {
-    0.085637,0.011305,0.938231
+    0.048688, -0.011751, 1.118072
 };
 
 float accelerometer_scale_factor_correction[3][3] = {
-    {1.003744,0.048610,-0.014200},
-    {0.048610,0.998828,-0.014525},
-    {-0.014200,-0.014525,1.004423}
+    {0.989138,-0.0125890,0.004309},
+    {-0.012589,0.997708,-0.001005},
+    {0.004309,-0.001005,0.972671}
 };
-
 
 // Gyro
 float gyro_correction[3] = {
     -2.532809, 2.282250, 0.640916
 };
 
-// handling loop timing ###################################################################################
-uint32_t loop_start_time = 0;
-uint32_t loop_end_time = 0;
-int16_t delta_loop_time = 0;
+float base_accelerometer_roll_offset = -1.74464;
+float base_accelerometer_pitch_offset = 3.11469;
 
-// Accelerometer values to degrees conversion #############################################################
+float accelerometer_roll_offset = 0;
+float accelerometer_pitch_offset = 0;
+
+float yaw_offset = 2.77420594;
+
+// ------------------------------------------------------------------------------------------------------ Accelerometer values to degrees conversion
 float accelerometer_roll = 0;
 float accelerometer_pitch = 0;
 float magnetometer_yaw = 0;
 
-// Radio config ########################################################################################### 
+// ------------------------------------------------------------------------------------------------------ Radio config
 uint8_t tx_address[5] = {0xEE, 0xDD, 0xCC, 0xBB, 0xAA};
 char rx_data[32];
 char rx_type[32];
 
-// PID errors ##############################################################################################
-struct pid pitch_pid;
-struct pid roll_pid;
-struct pid yaw_pid;
+// ------------------------------------------------------------------------------------------------------ PID stuff
+struct pid acro_roll_pid;
+struct pid acro_pitch_pid;
+struct pid acro_yaw_pid;
+
+struct pid angle_pitch_pid;
+struct pid angle_roll_pid;
+
 struct pid vertical_velocity_pid;
+
 struct pid gps_longitude_pid;
 struct pid gps_latitude_pid;
 
-float error_pitch = 0;
-float error_roll = 0;
-float error_yaw = 0;
+float error_acro_roll = 0;
+float error_acro_pitch = 0;
+float error_acro_yaw = 0;
+
+float error_angle_pitch = 0;
+float error_angle_roll = 0;
+
 float error_throttle = 0;
 float error_vertical_velocity = 0;
 
@@ -233,71 +269,78 @@ float last_error_roll = 0;
 float last_error_pitch = 0;
 
 
-// Actual PID adjustment for pitch
-#define BASE_PITCH_ROLL_MASTER_GAIN 0.4
-#define BASE_PITCH_ROLL_GAIN_P 0.0 // 0.35
-#define BASE_PITCH_ROLL_GAIN_I 0.0 // 0.0
-#define BASE_PITCH_ROLL_GAIN_D 0.0 // 130.0
-
-
 // Notes for PID
 // 1) It is important that the natural state without power of the drone is not stable, otherwise 
 // some offset of center off mass or pid desired point needs to introduced
 // 2) Remember that the drone when in the air has motors spinning at idle power, just enough 
 // to float in the air. If you are testing with drone constrained add a base motor speed to account for this.
 
-// PID for yaw
-// const float yaw_gain_p = 0.45; 
-// const float yaw_gain_i = 0.3;
 
-const float yaw_gain_p = 0.0; 
-const float yaw_gain_i = 0.0;
+// Actual PID adjustment for pitch
+#define BASE_ANGLE_roll_pitch_MASTER_GAIN 0.4
+#define BASE_ANGLE_roll_pitch_GAIN_P 0.0 // 0.35
+#define BASE_ANGLE_roll_pitch_GAIN_I 0.0 // 0.0
+#define BASE_ANGLE_roll_pitch_GAIN_D 0.0 // 130.0
 
-// PID for altitude control
-const float vertical_velocity_gain_p = 0.6; 
-const float vertical_velocity_gain_i = 0.25;
-const float vertical_velocity_gain_d = 0.00;
-
-// PID for gps hold
-// const float gps_hold_gain_p = 700000.0; 
-// const float gps_hold_gain_p = 700000.0; 
-const float gps_hold_gain_p = 700000.0; 
-const float gps_hold_gain_i = 0.0;
-// const float gps_hold_gain_d = 8500.0;
-// const float gps_hold_gain_d = 350000.0;
-// const float gps_hold_gain_d = 35000.0;
-const float gps_hold_gain_d = 7000.0;
-
-
-const float gps_pid_angle_of_attack_max = 5.0;
+#define BASE_ACRO_roll_pitch_MASTER_GAIN 0.4
+#define BASE_ACRO_roll_pitch_GAIN_P 0.0 // 0.35
+#define BASE_ACRO_roll_pitch_GAIN_I 0.0 // 0.0
+#define BASE_ACRO_roll_pitch_GAIN_D 0.0 // 130.0
 
 // Used for smooth changes to PID while using remote control. Do not touch this
+float angle_roll_pitch_master_gain = BASE_ANGLE_roll_pitch_MASTER_GAIN;
+float angle_roll_pitch_gain_p = BASE_ANGLE_roll_pitch_GAIN_P;
+float angle_roll_pitch_gain_i = BASE_ANGLE_roll_pitch_GAIN_I;
+float angle_roll_pitch_gain_d = BASE_ANGLE_roll_pitch_GAIN_D;
 
-float pitch_roll_master_gain = BASE_PITCH_ROLL_MASTER_GAIN; // Dont you just love the STM#2 compiler?
-float pitch_roll_gain_p = BASE_PITCH_ROLL_GAIN_P;
-float pitch_roll_gain_i = BASE_PITCH_ROLL_GAIN_I;
-float pitch_roll_gain_d = BASE_PITCH_ROLL_GAIN_D;
+float added_angle_roll_pitch_master_gain = 0;
+float added_angle_roll_pitch_gain_p = 0;
+float added_angle_roll_pitch_gain_i = 0;
+float added_angle_roll_pitch_gain_d = 0;
 
-float added_pitch_roll_master_gain = 0;
-float added_pitch_roll_gain_p = 0;
-float added_pitch_roll_gain_i = 0;
-float added_pitch_roll_gain_d = 0;
+float acro_roll_pitch_master_gain = BASE_ACRO_roll_pitch_MASTER_GAIN;
+float acro_roll_pitch_gain_p = BASE_ACRO_roll_pitch_GAIN_P;
+float acro_roll_pitch_gain_i = BASE_ACRO_roll_pitch_GAIN_I;
+float acro_roll_pitch_gain_d = BASE_ACRO_roll_pitch_GAIN_D;
 
-// Refresh rate ##############################################################################################
+float added_acro_roll_pitch_master_gain = 0;
+float added_acro_roll_pitch_gain_p = 0;
+float added_acro_roll_pitch_gain_i = 0;
+float added_acro_roll_pitch_gain_d = 0;
 
-// remember that the stm32 is not as fast as the esp32 and it cannot print lines at the same speed
-// const float refresh_rate_hz = 400;
-#define REFRESH_RATE_HZ 200
+// PID for acro yaw
+const float acro_yaw_gain_p = 0.45; 
+const float acro_yaw_gain_i = 0.3;
 
-// Sensor stuff ##############################################################################################
-float complementary_ratio = 1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ)); // Depends on how often the loop runs. 1 second / (1 second + one loop time)
-// float complementary_beta = 0.005;
-float complementary_beta = 0.0;
+// PID for altitude control
+const float vertical_velocity_gain_p = 1.2; 
+const float vertical_velocity_gain_i = 3.50;
+const float vertical_velocity_gain_d = 0.1;
 
-// The lower the alpha the less filtering is happening
-float filtering_alpha_magnetometer = 0.85; // 200Hz sample rate and 0.85 alpha gives 180Hz cutoff and around 1ms delay
-float filtering_alpha_barometer = 0.01;
+// PID for gps hold
+const float gps_hold_gain_p = 700000.0; 
+const float gps_hold_gain_i = 0.0;
+const float gps_hold_gain_d = 21000.0;
 
+float acro_target_roll = 0.0;
+float acro_target_pitch = 0.0;
+float acro_target_yaw = 0.0;
+
+float angle_target_pitch = 0.0;
+float angle_target_roll = 0.0;
+
+float target_vertical_velocity = 0.0;
+
+float target_altitude = 0.0;
+float target_longitude = 0.0;
+float target_latitude = 0.0;
+
+// ------------------------------------------------------------------------------------------------------ Some configurations relating to PID
+const float gps_pid_angle_of_attack_max = 5.0;
+
+float acro_mode_rate_degrees_per_second = 300;
+
+// ------------------------------------------------------------------------------------------------------ Sensor other data
 float acceleration_data[] = {0,0,0};
 float gyro_angular[] = {0,0,0};
 float imu_orientation[] = {0,0,0};
@@ -312,112 +355,21 @@ float in_between_gps_latitude = 0.0;
 float in_between_gps_longitude = 0.0;
 uint8_t in_between_gps_loop_divider = 50;
 uint8_t in_between_gps_loop_divider_counter = 0;
-
-
 uint8_t gps_fix_type = 0.0;
+uint8_t got_gps = 0;
 
 float pressure = 0.0;
 float temperature = 0.0;
 float altitude = 0.0;
 float vertical_velocity = 0.0;
 
-float target_pitch = 0.0;
-float target_roll = 0.0;
-float target_yaw = 0.0;
-float target_altitude = 0.0;
-float target_vertical_velocity = 0.0;
-float target_longitude = 0.0;
-float target_latitude = 0.0;
-
 float motor_power[] = {0.0, 0.0, 0.0, 0.0};
-
-
-// Remote control settings ############################################################################################
-float max_yaw_attack = 40.0;
-
-float max_pitch_attack = 10;
-float pitch_attack_step = 0.2;
-
-float max_roll_attack = 10;
-float roll_attack_step = 0.2;
-
-float max_throttle_vertical_velocity = 30; // cm/second
-float min_throttle_vertical_velocity = -30; // cm/second
-
-float throttle = 0.0;
-float yaw = 50.0;
-float last_yaw = 50.0;
-float pitch = 50.0;
-float roll = 50.0;
-
-uint8_t slowing_lock = 0;
-
-float last_raw_yaw = 0;
-float delta_yaw = 0;
-
-float minimum_signal_timing_seconds = 0.2; // Seconds
-uint32_t last_signal_timestamp = 0;
-
-
-// For deciding which log file to log to
-char log_file_base_name[] = "Quadcopter.txt";
-char log_file_blackbox_base_name[] = "Quadcopter.BBL";
-uint8_t sd_card_initialized = 0;
-uint8_t log_loop_count = 0;
-uint8_t sd_card_async = 0;
-const uint8_t use_simple_async = 0; // 0 is the complex async
-const uint8_t use_blackbox_logging = 0; 
-
-
-// Keep track of time in each loop. Since loop start
-uint32_t startup_time = 0;
-uint32_t delta_time = 0;
-uint16_t time_since_startup_ms = 0;
-uint8_t time_since_startup_minutes = 0;
-uint8_t time_since_startup_seconds = 0;
-uint8_t time_since_startup_hours = 0;
-
-
-// Stuff that is needed blackbox logging 
-uint32_t loop_iteration = 1;
-float PID_proportional[3];
-float PID_integral[3];
-float PID_derivative[2];
-float PID_feed_forward[3];
-float PID_set_points[4];
-float remote_control[4];
-
-uint8_t entered_loop = 0;
-uint8_t got_gps = 0;
-
-struct low_pass_filter filter_magnetometer_x;
-struct low_pass_filter filter_magnetometer_y;
-struct low_pass_filter filter_magnetometer_z;
-
-struct kalman_filter altitude_and_velocity_kalman;
-
-// Flight modes:
-// (0) - The controller can take control of the roll, pitch and yaw axis to help stabilize them
-// (1) - The controller can take control of the roll, pitch, yaw and altitude axis to help stabilize
-
-uint8_t flight_mode = 0;
-
-uint8_t use_vertical_velocity_control = 0;
-uint8_t use_gps_hold = 1;
-uint8_t use_gps_reset_count = 0;
-uint8_t use_gps_reset_count_to_deactivate = 10; // This is done because sometimes some noise sends a neutural pitch and roll
-
-float base_accelerometer_roll_offset = 0;
-float base_accelerometer_pitch_offset = 0;
-
-float accelerometer_roll_offset = 0;
-float accelerometer_pitch_offset = 0;
-
-float yaw_offset = -7.0;
-
 
 uint8_t gps_position_hold_enabled = 0;
 uint8_t gps_target_set = 0;
+
+uint8_t use_gps_reset_count = 0;
+uint8_t use_gps_reset_count_to_deactivate = 10; // This is done because sometimes some noise sends a neutural pitch and roll
 
 float gps_hold_roll_adjustment_integral = 0.0;
 float gps_hold_pitch_adjustment_integral = 0.0;
@@ -428,9 +380,65 @@ float pitch_effect_on_lat = 0;
 float roll_effect_on_lon = 0;
 float pitch_effect_on_lon = 0;
 
-// Sometimes the accelerometer locks up and we need to kill the drone
-float time_needed_to_initiate_lockup = 0.1; // 100ms 
+// ------------------------------------------------------------------------------------------------------ Sensor fusion and filtering stuff
+float complementary_ratio = 1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ)); // Depends on how often the loop runs. 1 second / (1 second + one loop time)
+float complementary_beta = 0.0;
 
+float filtering_alpha_magnetometer = 0.85; // 200Hz sample rate and 0.85 alpha gives 180Hz cutoff and around 1ms delay
+
+struct low_pass_filter filter_magnetometer_x;
+struct low_pass_filter filter_magnetometer_y;
+struct low_pass_filter filter_magnetometer_z;
+
+struct kalman_filter altitude_and_velocity_kalman;
+// ------------------------------------------------------------------------------------------------------ Remote control settings
+float max_yaw_attack = 40.0;
+float max_roll_attack = 10;
+float max_pitch_attack = 10;
+float roll_attack_step = 0.2;
+float pitch_attack_step = 0.2;
+float max_throttle_vertical_velocity = 30; // cm/second
+
+float throttle = 0.0;
+float yaw = 50.0;
+float last_yaw = 50.0;
+float pitch = 50.0;
+float roll = 50.0;
+
+float minimum_signal_timing_seconds = 0.2; // Seconds
+uint32_t last_signal_timestamp = 0;
+
+// ------------------------------------------------------------------------------------------------------ Logging to SD card
+char log_file_base_name[] = "Quadcopter.txt";
+char log_file_blackbox_base_name[] = "Quadcopter.BBL";
+uint8_t sd_card_initialized = 0;
+uint8_t log_loop_count = 0;
+uint8_t sd_card_async = 0;
+const uint8_t use_simple_async = 0; // 0 is the complex async
+const uint8_t use_blackbox_logging = 0; 
+
+// ------------------------------------------------------------------------------------------------------ Stuff for blackbox logging
+uint32_t loop_iteration = 1;
+float PID_proportional[3];
+float PID_integral[3];
+float PID_derivative[2];
+float PID_feed_forward[3];
+float PID_set_points[4];
+float remote_control[4];
+
+// ------------------------------------------------------------------------------------------------------ Flight mode settings
+// Flight modes:
+// (0) - acro
+// (1) - angle
+// (2) - angle with altitude hold
+// (3) - angle with altitude hold and gps hold
+// (4) - angle with gps hold and without ltitude hold
+
+uint8_t flight_mode = 0;
+
+uint8_t use_angle_mode = 0;
+uint8_t use_vertical_velocity_control = 0;
+uint8_t use_gps_hold = 0;
 
 int main(void){
     init_STM32_peripherals();
@@ -449,6 +457,7 @@ int main(void){
 
     HAL_Delay(2000); // Dont want to interfere in calibration
 
+    set_flight_mode(flight_mode);
     // check_calibrations();
     calibrate_gyro(); // Recalibrate the gyro as the temperature affects the calibration
     get_initial_position();
@@ -472,9 +481,8 @@ uint8_t init_sensors(){
     uint8_t mpu6050 = init_mpu6050(
         &hi2c1, 
         ACCEL_CONFIG_RANGE_2G, 
-        GYRO_CONFIG_RANGE_250_DEG, 
-        // LOW_PASS_FILTER_FREQUENCY_CUTOFF_GYRO_21HZ_ACCEL_20HZ,
-        LOW_PASS_FILTER_FREQUENCY_CUTOFF_GYRO_260HZ_ACCEL_256HZ,
+        GYRO_CONFIG_RANGE_500_DEG, 
+        LOW_PASS_FILTER_FREQUENCY_CUTOFF_GYRO_21HZ_ACCEL_20HZ,
         1, 
         accelerometer_scale_factor_correction, 
         accelerometer_correction, 
@@ -484,7 +492,7 @@ uint8_t init_sensors(){
         complementary_beta
     );
 
-    uint8_t mmc5603 = mmc5603_init(&hi2c1, 1, hard_iron_correction, soft_iron_correction, 1, 200, 1);
+    uint8_t mmc5603 = mmc5603_init(&hi2c1, 1, magnetometer_hard_iron_correction, magnetometer_soft_iron_correction, 1, 200, 1);
     uint8_t bmp280 = init_bmp280(&hi2c1);
     uint8_t bn357 = init_bn357(&huart2, &hdma_usart2_rx, 1);
     uint8_t nrf24 = init_nrf24(&hspi1);
@@ -506,7 +514,6 @@ uint8_t init_sensors(){
 }
 
 void handle_get_and_calculate_sensor_values(){
-    uint32_t start_time = HAL_GetTick();
     // ------------------------------------------------------------------------------------------------------ Reset
     // Reset the values to make it easier to find broken sensor later
     reset_array_data(acceleration_data, 3);
@@ -515,7 +522,6 @@ void handle_get_and_calculate_sensor_values(){
     temperature = 0.0f;
     altitude = 0.0f;
     vertical_velocity = 0.0f;
-    // printf("R%d\n", HAL_GetTick()-start_time);
 
     // ------------------------------------------------------------------------------------------------------ Get the sensor data
     temperature = bmp280_get_temperature_celsius();
@@ -534,38 +540,33 @@ void handle_get_and_calculate_sensor_values(){
     // Pitch (+)forwards - front of device nose goes down
     // Roll (+)right - the device banks to the right side while pointing forward
     mmc5603_magnetometer_readings_micro_teslas(magnetometer_data);
+    // printf("%f;%f;%f;\n", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
+
     rotate_magnetometer_output_90_degrees_anti_clockwise(magnetometer_data);
-    // printf("SM%d\n", HAL_GetTick()-start_time);
 
     // After yaw calculation yaw has to be 0/360 when facing north in the pitch+ axis
     mpu6050_get_accelerometer_readings_gravity(acceleration_data);
     invert_axies(acceleration_data);
-    // printf("SA%d\n", HAL_GetTick()-start_time);
     // After getting roll and pitch from accelerometer. Pitch forwards -> +Pitch. Roll right -> +Roll
     mpu6050_get_gyro_readings_dps(gyro_angular);
     invert_axies(gyro_angular);
     // Pitch device forwards -> Y axis positive. Roll device right -> X axis positive
-    // printf("SG%d\n", HAL_GetTick()-start_time);
 
-    // printf("S%d\n", HAL_GetTick()-start_time);
-
-    // If some of these above conditions are not met the tilt compensation on yaw will not work.
     // ------------------------------------------------------------------------------------------------------ Filter the sensor data
 
-    printf("%f;%f;%f;%f;%f;%f;\n", 
-        acceleration_data[0], 
-        acceleration_data[1], 
-        acceleration_data[2], 
-        gyro_angular[0], 
-        gyro_angular[1], 
-        gyro_angular[2]
-    );
+    // printf("%f;%f;%f;%f;%f;%f;\n", 
+    //     acceleration_data[0], 
+    //     acceleration_data[1], 
+    //     acceleration_data[2], 
+    //     gyro_angular[0], 
+    //     gyro_angular[1], 
+    //     gyro_angular[2]
+    // );
 
     magnetometer_data[0] = low_pass_filter_read(&filter_magnetometer_x, magnetometer_data[0]);
     magnetometer_data[1] = low_pass_filter_read(&filter_magnetometer_y, magnetometer_data[1]);
     magnetometer_data[2] = low_pass_filter_read(&filter_magnetometer_z, magnetometer_data[2]);
 
-    // printf("F%d\n", HAL_GetTick()-start_time);
 
     // ------------------------------------------------------------------------------------------------------ Sensor fusion
     calculate_roll_pitch_from_accelerometer_data(acceleration_data, &accelerometer_roll, &accelerometer_pitch, accelerometer_roll_offset, accelerometer_pitch_offset); // Get roll and pitch from the data. I call it x and y. Ranges -90 to 90. 
@@ -577,7 +578,6 @@ void handle_get_and_calculate_sensor_values(){
     // No need for sensor fusion, it introduces delay
     imu_orientation[2] = magnetometer_yaw;
     
-    // printf("FS%d\n", HAL_GetTick()-start_time);
 
     // GPS STUFF
     float latitude_sign = 1;
@@ -588,12 +588,10 @@ void handle_get_and_calculate_sensor_values(){
     if(bn357_get_longitude_direction() == 'E') longitude_sign = 1;
     else if(bn357_get_longitude_direction() == 'W') longitude_sign = -1;
 
-    // triangle_cos
-
-    pitch_effect_on_lat = cos(imu_orientation[2] * (M_PI / 180.0)) * latitude_sign; // + GOOD, - GOOD  // If moving north forward positive, backwards negative
-    roll_effect_on_lat = -sin(imu_orientation[2] * (M_PI / 180.0)) * latitude_sign; // + GOOD, - GOOD  // If moving north roll right positive, roll left south negative
-    pitch_effect_on_lon = sin(imu_orientation[2] * (M_PI / 180.0)) * longitude_sign; // + GOOD, - GOOD 
-    roll_effect_on_lon = cos(imu_orientation[2] * (M_PI / 180.0)) * longitude_sign; // GOOD, - GOOD
+    pitch_effect_on_lat = triangle_cos(imu_orientation[2] * (M_PI / 180.0)) * latitude_sign; // + GOOD, - GOOD  // If moving north forward positive, backwards negative
+    roll_effect_on_lat = -triangle_cos(imu_orientation[2] * (M_PI / 180.0)) * latitude_sign; // + GOOD, - GOOD  // If moving north roll right positive, roll left south negative
+    pitch_effect_on_lon = triangle_cos(imu_orientation[2] * (M_PI / 180.0)) * longitude_sign; // + GOOD, - GOOD 
+    roll_effect_on_lon = triangle_cos(imu_orientation[2] * (M_PI / 180.0)) * longitude_sign; // GOOD, - GOOD
 
     // printf("PLAT: %.2f RLAT: %.2f PLON: %.2f RLON: %.2f\n", 
     //     pitch_effect_on_lat,
@@ -633,8 +631,6 @@ void handle_get_and_calculate_sensor_values(){
     //     gps_longitude = in_between_gps_longitude;
     // }
 
-    // printf("G%d\n", HAL_GetTick()-start_time);
-
 
     // ------------------------------------------------------------------------------------------------------ Use sensor fused data for more data
     float vertical_acceleration[1] = {mpu6050_calculate_vertical_acceleration_cm_per_second(acceleration_data, imu_orientation)};
@@ -648,9 +644,7 @@ void handle_get_and_calculate_sensor_values(){
     vertical_velocity = kalman_filter_get_state(&altitude_and_velocity_kalman)[1][0];
 
     // printf("Alt %f vel %f ", altitude, vertical_velocity);
-    // printf("K%d\n", HAL_GetTick()-start_time);
     // printf("IMU %f %f %f\n", imu_orientation[0], imu_orientation[1], imu_orientation[2]);
-
 }
 
 
@@ -666,128 +660,154 @@ void handle_pid_and_motor_control(){
         imu_orientation[1] > -30 && 
         ((float)HAL_GetTick() - (float)last_signal_timestamp) / 1000.0 <= minimum_signal_timing_seconds
     ){
-        // ----------------------------------------------------------------------------------------------OUTER LOOP PID
+        // ---------------------------------------------------------------------------------------------- GPS position hold
         float gps_hold_roll_adjustment = 0.0f;
         float gps_hold_pitch_adjustment = 0.0f;
-        if(gps_position_hold_enabled && got_gps){
-            pid_set_desired_value(&gps_latitude_pid, target_latitude);
-            pid_set_desired_value(&gps_longitude_pid, target_longitude);
+        if(use_gps_hold){
+            if(gps_position_hold_enabled && got_gps){
+                pid_set_desired_value(&gps_latitude_pid, target_latitude);
+                pid_set_desired_value(&gps_longitude_pid, target_longitude);
 
-            error_latitude = pid_get_error(&gps_latitude_pid, gps_latitude, HAL_GetTick());
-            error_longitude = pid_get_error(&gps_longitude_pid, gps_longitude, HAL_GetTick());
-
-
-            float gps_hold_roll_adjustment_calculation = roll_effect_on_lat * error_latitude + roll_effect_on_lon * error_longitude;
-            float gps_hold_pitch_adjustment_calculation = pitch_effect_on_lat * error_latitude + pitch_effect_on_lon * error_longitude;
+                error_latitude = pid_get_error(&gps_latitude_pid, gps_latitude, HAL_GetTick());
+                error_longitude = pid_get_error(&gps_longitude_pid, gps_longitude, HAL_GetTick());
 
 
-            // if(gps_hold_roll_adjustment_calculation > gps_pid_angle_of_attack_max){
-            //     gps_hold_roll_adjustment_calculation = gps_pid_angle_of_attack_max;
-            // }else if(gps_hold_roll_adjustment_calculation < -gps_pid_angle_of_attack_max){
-            //     gps_hold_roll_adjustment_calculation = -gps_pid_angle_of_attack_max;
-            // } 
-        
-            // if(gps_hold_pitch_adjustment_calculation > gps_pid_angle_of_attack_max){
-            //     gps_hold_pitch_adjustment_calculation = gps_pid_angle_of_attack_max;
-            // }else if(gps_hold_pitch_adjustment_calculation < -gps_pid_angle_of_attack_max){
-            //     gps_hold_pitch_adjustment_calculation = -gps_pid_angle_of_attack_max;
-            // }
+                float gps_hold_roll_adjustment_calculation = roll_effect_on_lat * error_latitude + roll_effect_on_lon * error_longitude;
+                float gps_hold_pitch_adjustment_calculation = pitch_effect_on_lat * error_latitude + pitch_effect_on_lon * error_longitude;
+
+
+                // if(gps_hold_roll_adjustment_calculation > gps_pid_angle_of_attack_max){
+                //     gps_hold_roll_adjustment_calculation = gps_pid_angle_of_attack_max;
+                // }else if(gps_hold_roll_adjustment_calculation < -gps_pid_angle_of_attack_max){
+                //     gps_hold_roll_adjustment_calculation = -gps_pid_angle_of_attack_max;
+                // } 
             
-            // gps_hold_roll_adjustment = gps_hold_roll_adjustment_integral + map_value(
-            //     gps_hold_roll_adjustment_calculation, 
-            //     -gps_pid_angle_of_attack_max, 
-            //     gps_pid_angle_of_attack_max, 
-            //     -pitch_attack_step, 
-            //     pitch_attack_step
-            // );
+                // if(gps_hold_pitch_adjustment_calculation > gps_pid_angle_of_attack_max){
+                //     gps_hold_pitch_adjustment_calculation = gps_pid_angle_of_attack_max;
+                // }else if(gps_hold_pitch_adjustment_calculation < -gps_pid_angle_of_attack_max){
+                //     gps_hold_pitch_adjustment_calculation = -gps_pid_angle_of_attack_max;
+                // }
+                
+                // gps_hold_roll_adjustment = gps_hold_roll_adjustment_integral + map_value(
+                //     gps_hold_roll_adjustment_calculation, 
+                //     -gps_pid_angle_of_attack_max, 
+                //     gps_pid_angle_of_attack_max, 
+                //     -pitch_attack_step, 
+                //     pitch_attack_step
+                // );
 
-            // gps_hold_pitch_adjustment = gps_hold_pitch_adjustment_calculation + map_value(
-            //     gps_hold_pitch_adjustment_calculation, 
-            //     -gps_pid_angle_of_attack_max, 
-            //     gps_pid_angle_of_attack_max, 
-            //     -pitch_attack_step, 
-            //     pitch_attack_step
-            // );
+                // gps_hold_pitch_adjustment = gps_hold_pitch_adjustment_calculation + map_value(
+                //     gps_hold_pitch_adjustment_calculation, 
+                //     -gps_pid_angle_of_attack_max, 
+                //     gps_pid_angle_of_attack_max, 
+                //     -pitch_attack_step, 
+                //     pitch_attack_step
+                // );
 
-            // if(gps_hold_roll_adjustment > gps_pid_angle_of_attack_max){
-            //     gps_hold_roll_adjustment = gps_pid_angle_of_attack_max;
-            // }else if(gps_hold_roll_adjustment < -gps_pid_angle_of_attack_max){
-            //     gps_hold_roll_adjustment = -gps_pid_angle_of_attack_max;
-            // }
+                // if(gps_hold_roll_adjustment > gps_pid_angle_of_attack_max){
+                //     gps_hold_roll_adjustment = gps_pid_angle_of_attack_max;
+                // }else if(gps_hold_roll_adjustment < -gps_pid_angle_of_attack_max){
+                //     gps_hold_roll_adjustment = -gps_pid_angle_of_attack_max;
+                // }
+                
+                // if(gps_hold_pitch_adjustment > gps_pid_angle_of_attack_max){
+                //     gps_hold_pitch_adjustment = gps_pid_angle_of_attack_max;
+                // }else if(gps_hold_pitch_adjustment < -gps_pid_angle_of_attack_max){
+                //     gps_hold_pitch_adjustment = -gps_pid_angle_of_attack_max;
+                // }
+
+
+
+                if(gps_hold_roll_adjustment_calculation > gps_pid_angle_of_attack_max){
+                    gps_hold_roll_adjustment_calculation = gps_pid_angle_of_attack_max;
+                }else if(gps_hold_roll_adjustment_calculation < -gps_pid_angle_of_attack_max){
+                    gps_hold_roll_adjustment_calculation = -gps_pid_angle_of_attack_max;
+                } 
             
-            // if(gps_hold_pitch_adjustment > gps_pid_angle_of_attack_max){
-            //     gps_hold_pitch_adjustment = gps_pid_angle_of_attack_max;
-            // }else if(gps_hold_pitch_adjustment < -gps_pid_angle_of_attack_max){
-            //     gps_hold_pitch_adjustment = -gps_pid_angle_of_attack_max;
-            // }
+                if(gps_hold_pitch_adjustment_calculation > gps_pid_angle_of_attack_max){
+                    gps_hold_pitch_adjustment_calculation = gps_pid_angle_of_attack_max;
+                }else if(gps_hold_pitch_adjustment_calculation < -gps_pid_angle_of_attack_max){
+                    gps_hold_pitch_adjustment_calculation = -gps_pid_angle_of_attack_max;
+                }
 
+                gps_hold_roll_adjustment = gps_hold_roll_adjustment_calculation;
+                gps_hold_pitch_adjustment = gps_hold_pitch_adjustment_calculation;
+                
+                // printf("%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;", target_latitude, target_longitude, gps_latitude, gps_longitude, gps_hold_roll_adjustment, gps_hold_pitch_adjustment, imu_orientation[0], imu_orientation[1], imu_orientation[2]);
+                // printf("%.2f;%.2f;%.2f;%.2f;", roll_effect_on_lat, roll_effect_on_lon, pitch_effect_on_lat, pitch_effect_on_lon);
+                // printf("\n");
 
+                last_error_roll = gps_hold_roll_adjustment;
+                last_error_pitch = gps_hold_pitch_adjustment;
 
-            if(gps_hold_roll_adjustment_calculation > gps_pid_angle_of_attack_max){
-                gps_hold_roll_adjustment_calculation = gps_pid_angle_of_attack_max;
-            }else if(gps_hold_roll_adjustment_calculation < -gps_pid_angle_of_attack_max){
-                gps_hold_roll_adjustment_calculation = -gps_pid_angle_of_attack_max;
-            } 
-        
-            if(gps_hold_pitch_adjustment_calculation > gps_pid_angle_of_attack_max){
-                gps_hold_pitch_adjustment_calculation = gps_pid_angle_of_attack_max;
-            }else if(gps_hold_pitch_adjustment_calculation < -gps_pid_angle_of_attack_max){
-                gps_hold_pitch_adjustment_calculation = -gps_pid_angle_of_attack_max;
+                // printf("off: %3.1f %3.1f\n", gps_hold_roll_adjustment, gps_hold_pitch_adjustment);
+            }else if(gps_position_hold_enabled && got_gps == 0){
+                // Put in the same values'
+                gps_hold_roll_adjustment = last_error_roll;
+                gps_hold_pitch_adjustment = last_error_pitch;
             }
-
-            gps_hold_roll_adjustment = gps_hold_roll_adjustment_calculation;
-            gps_hold_pitch_adjustment = gps_hold_pitch_adjustment_calculation;
-            
-            // printf("%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;", target_latitude, target_longitude, gps_latitude, gps_longitude, gps_hold_roll_adjustment, gps_hold_pitch_adjustment, imu_orientation[0], imu_orientation[1], imu_orientation[2]);
-            // printf("%.2f;%.2f;%.2f;%.2f;", roll_effect_on_lat, roll_effect_on_lon, pitch_effect_on_lat, pitch_effect_on_lon);
-            // printf("\n");
-
-            last_error_roll = gps_hold_roll_adjustment;
-            last_error_pitch = gps_hold_pitch_adjustment;
-
-            // printf("off: %3.1f %3.1f\n", gps_hold_roll_adjustment, gps_hold_pitch_adjustment);
-        }else if(gps_position_hold_enabled && got_gps == 0){
-            // Put in the same values'
-            gps_hold_roll_adjustment = last_error_roll;
-            gps_hold_pitch_adjustment = last_error_pitch;
         }
 
-        // ----------------------------------------------------------------------------------------------INNER LOOP PID
-        pid_set_desired_value(&roll_pid, target_roll + gps_hold_roll_adjustment);
-        pid_set_desired_value(&pitch_pid, target_pitch + gps_hold_pitch_adjustment);
-        pid_set_desired_value(&yaw_pid, target_yaw);
-        pid_set_desired_value(&vertical_velocity_pid, target_vertical_velocity);
+        // ---------------------------------------------------------------------------------------------- Altitude hold
+        if(use_vertical_velocity_control){
+            pid_set_desired_value(&vertical_velocity_pid, target_vertical_velocity);
+            error_vertical_velocity = pid_get_error(&vertical_velocity_pid, vertical_velocity, HAL_GetTick());
+        }else{
+            error_vertical_velocity = 0;
+        }
 
-        PID_set_points[0] = target_pitch; // Logging
-        PID_set_points[1] = target_roll; // Logging
-        PID_set_points[2] = target_yaw; // Logging
+        // ---------------------------------------------------------------------------------------------- Angle mode
+        if(use_angle_mode){
+            pid_set_desired_value(&angle_roll_pid, angle_target_roll + gps_hold_roll_adjustment);
+            pid_set_desired_value(&angle_pitch_pid, angle_target_pitch + gps_hold_pitch_adjustment);
+            // printf("Angle r: %f, p: %f\n", angle_target_roll, angle_target_pitch);
 
-        // pitch is facing to the sides
-        // roll is facing forwards and backwards
+            // pitch is facing to the sides
+            // roll is facing forwards and backwards
+            // PID_set_points[0] = angle_target_pitch; // Logging
+            // PID_set_points[1] = angle_target_roll; // Logging
+            // PID_set_points[2] = acro_target_yaw; // Logging
+            error_angle_roll = pid_get_error(&angle_roll_pid, imu_orientation[0], HAL_GetTick());
+            // PID_proportional[1] = pid_get_last_proportional_error(&angle_roll_pid); // Logging
+            // PID_integral[1] = pid_get_last_integral_error(&angle_roll_pid); // Logging
+            // PID_derivative[1] = pid_get_last_derivative_error(&angle_roll_pid); // Logging
+            
+            error_angle_pitch = pid_get_error(&angle_pitch_pid, imu_orientation[1], HAL_GetTick());
+            // PID_proportional[0] = pid_get_last_proportional_error(&angle_pitch_pid); // Logging
+            // PID_integral[0] = pid_get_last_integral_error(&angle_pitch_pid); // Logging
+            // PID_derivative[0] = pid_get_last_derivative_error(&angle_pitch_pid); // Logging
+            printf("Angle r: %.1f, p: %.1f, re: %.1f, pe: %.1f\n", angle_target_roll, angle_target_pitch, error_angle_roll, error_angle_pitch);
+        }else{
+            error_angle_roll = 0;
+            error_angle_pitch = 0;
+        }
 
-        error_roll = pid_get_error(&roll_pid, imu_orientation[0], HAL_GetTick());
-        PID_proportional[1] = pid_get_last_proportional_error(&roll_pid); // Logging
-        PID_integral[1] = pid_get_last_integral_error(&roll_pid); // Logging
-        PID_derivative[1] = pid_get_last_derivative_error(&roll_pid); // Logging
+        // ---------------------------------------------------------------------------------------------- Acro mode
+        if(use_angle_mode){
+            pid_set_desired_value(&acro_roll_pid, error_angle_roll);
+            pid_set_desired_value(&acro_pitch_pid, error_angle_pitch);
+            pid_set_desired_value(&acro_yaw_pid, acro_target_yaw);
+        }else{
+            printf("Acro r: %f, p: %f\n", acro_target_roll, acro_target_pitch);
+            pid_set_desired_value(&acro_roll_pid, acro_target_roll);
+            pid_set_desired_value(&acro_pitch_pid, acro_target_pitch);
+            pid_set_desired_value(&acro_yaw_pid, acro_target_yaw);
+        }
         
-        error_pitch = pid_get_error(&pitch_pid, imu_orientation[1], HAL_GetTick());
-        PID_proportional[0] = pid_get_last_proportional_error(&pitch_pid); // Logging
-        PID_integral[0] = pid_get_last_integral_error(&pitch_pid); // Logging
-        PID_derivative[0] = pid_get_last_derivative_error(&pitch_pid); // Logging
+        error_acro_roll = pid_get_error(&acro_roll_pid, gyro_angular[0], HAL_GetTick()); // Logging
+        error_acro_pitch = pid_get_error(&acro_pitch_pid, gyro_angular[1], HAL_GetTick()); // Logging
+        error_acro_yaw = pid_get_error(&acro_yaw_pid, gyro_angular[2], HAL_GetTick()); // Logging
+        // PID_proportional[2] = pid_get_last_proportional_error(&acro_yaw_pid); // Logging
+        // PID_integral[2] = pid_get_last_integral_error(&acro_yaw_pid); // Logging
 
-
-        error_yaw = pid_get_error(&yaw_pid, gyro_angular[2], HAL_GetTick()); // Logging
-        PID_proportional[2] = pid_get_last_proportional_error(&yaw_pid); // Logging
-        PID_integral[2] = pid_get_last_integral_error(&yaw_pid); // Logging
-
-        error_vertical_velocity = pid_get_error(&vertical_velocity_pid, vertical_velocity, HAL_GetTick());
-
+        // ---------------------------------------------------------------------------------------------- Throttle
         error_throttle = throttle*0.9;
 
-        motor_power[0] = ( error_pitch) +  ( error_roll) + ( error_yaw);
-        motor_power[1] = ( error_pitch) +  (-error_roll) + (-error_yaw);
-        motor_power[2] = (-error_pitch) +  (-error_roll) + ( error_yaw);
-        motor_power[3] = (-error_pitch) +  ( error_roll) + (-error_yaw);
+        // ---------------------------------------------------------------------------------------------- Applying to throttle to escs
+        motor_power[0] = ( error_acro_roll) + ( error_acro_pitch) + ( error_acro_yaw);
+        motor_power[1] = (-error_acro_roll) + ( error_acro_pitch) + (-error_acro_yaw);
+        motor_power[2] = (-error_acro_roll) + (-error_acro_pitch) + ( error_acro_yaw);
+        motor_power[3] = ( error_acro_roll) + (-error_acro_pitch) + (-error_acro_yaw);
 
         // For throttle control logic
         motor_power[0] += error_throttle * (~use_vertical_velocity_control & 1) + error_vertical_velocity * use_vertical_velocity_control;
@@ -795,6 +815,7 @@ void handle_pid_and_motor_control(){
         motor_power[2] += error_throttle * (~use_vertical_velocity_control & 1) + error_vertical_velocity * use_vertical_velocity_control;
         motor_power[3] += error_throttle * (~use_vertical_velocity_control & 1) + error_vertical_velocity * use_vertical_velocity_control;
 
+        // 2212
         // Motor B (0) 14460 rpm
         // Motor C (1) 14160 rpm
         // Motor D (2) 14460 rpm
@@ -844,13 +865,12 @@ void handle_pid_and_motor_control(){
         PID_derivative[0] = 0;
         PID_derivative[1] = 0;
 
-        pid_reset_integral_sum(&pitch_pid);
-        pid_reset_integral_sum(&roll_pid);
+        pid_reset_integral_sum(&angle_pitch_pid);
+        pid_reset_integral_sum(&angle_roll_pid);
         pid_reset_integral_sum(&vertical_velocity_pid);
-        pid_reset_integral_sum(&yaw_pid);
+        pid_reset_integral_sum(&acro_yaw_pid);
     }
 }
-
 
 void handle_radio_communication(){
     if(nrf24_data_available(1)){
@@ -859,31 +879,32 @@ void handle_radio_communication(){
         extract_request_type(rx_data, strlen(rx_data), rx_type);
 
         if(strcmp(rx_type, "js") == 0){
+            // printf("JOYSTICK\n");
             last_signal_timestamp = HAL_GetTick();
 
             // extract_joystick_request_values_uint(rx_data, strlen(rx_data), &throttle, &yaw, &roll, &pitch);
             extract_joystick_request_values_float(rx_data, strlen(rx_data), &throttle, &yaw, &roll, &pitch);
 
             // Reversed
-            roll = (-(roll-50))+50;
+            roll = (-(roll-50.0))+50.0;
 
             // For the blackbox log
             remote_control[0] = roll; // Reversed for blackbox log
-            remote_control[1] = pitch-50;
-            remote_control[2] = yaw-50;
-            remote_control[3] = throttle+100;
+            remote_control[1] = pitch-50.0;
+            remote_control[2] = yaw-50.0;
+            remote_control[3] = throttle+100.0;
 
             // the controls were inverse
 
             // If pitch and roll are neutral then try holding position with gps
-            if(pitch == 50 && roll == 50 && gps_fix_type == 3 && use_gps_hold == 1 && gps_target_set == 0){
+            if(pitch == 50.0 && roll == 50.0 && gps_fix_type == 3 && use_gps_hold == 1 && gps_target_set == 0){
                 gps_position_hold_enabled = 1;
                 // Current gps position is the target now
                 target_latitude = gps_latitude;
                 target_longitude = gps_longitude;
                 gps_target_set = 1;
                 // printf("GPS STATE SET\n");
-            }else if (pitch != 50 || roll != 50 ){
+            }else if (pitch != 50.0 || roll != 50.0 ){
                 if(use_gps_reset_count >= use_gps_reset_count_to_deactivate){
                     gps_position_hold_enabled = 0;
                     gps_target_set = 0;
@@ -894,87 +915,35 @@ void handle_radio_communication(){
                 }
             }
 
-            // Pitch ##################################################################################################################
-            // Check if pitch is neutral
-            if(pitch == 50){
-                // Had some issues with floats not being zero.
-                // If value is between pitch attack and negative pitch attack then just set it to zero
-                if(target_pitch < pitch_attack_step/2 && target_pitch > -pitch_attack_step/2){
-                    target_pitch = 0.0;
-                }
-                // If value is above pitch attack values 
-                // Start slowing going back to zero
-                if(target_pitch > 0 && target_pitch != 0){
-                    target_pitch = target_pitch - pitch_attack_step;
-                }else if(target_pitch < 0  && target_pitch != 0){
-                    target_pitch = target_pitch + pitch_attack_step;
-                }
-            }else if (pitch != 50){
-                // If pitch is not neutral start increasing into some direction.
-                target_pitch = target_pitch + map_value(pitch, 0.0, 100.0, -pitch_attack_step, pitch_attack_step);
-            }
-
-            // Make sure that the value is in the boundaries
-            if(target_pitch > max_pitch_attack){
-                target_pitch = max_pitch_attack;
-            }else if(target_pitch < -max_pitch_attack){
-                target_pitch = -max_pitch_attack;
-            }
-
+            // The remote control itself handles the deadband stuff
 
             // Roll ##################################################################################################################
-            // Check if roll is neutral
-            if(roll == 50){
-                // Had some issues with floats not being zero.
-                // If value is between roll attack and negative roll attack then just set it to zero
-                if(target_roll < roll_attack_step/2 && target_roll > -roll_attack_step/2){
-                    target_roll = 0.0;
-                }
-                // If value is above roll attack values 
-                // Start slowing going back to zero
-                if(target_roll > 0 && target_roll != 0){
-                    target_roll = target_roll - roll_attack_step;
-                }else if(target_roll < 0  && target_roll != 0){
-                    target_roll = target_roll + roll_attack_step;
-                }
-            }else if (roll != 50){
-                // If roll is not neutral start increasing into some direction.
-                target_roll = target_roll + map_value(roll, 0.0, 100.0, -roll_attack_step, roll_attack_step);
+            if(roll == 50.0){
+                acro_target_roll = 0.0;
+                angle_target_roll = 0.0;
+            }else {
+                acro_target_roll = map_value(roll, 0.0, 100.0, -acro_mode_rate_degrees_per_second, acro_mode_rate_degrees_per_second);
+                angle_target_roll = map_value(roll, 0.0, 100.0, -max_roll_attack, max_roll_attack);
+            }
+            // Pitch ##################################################################################################################
+            if(pitch == 50.0){
+                acro_target_pitch = 0.0;
+                angle_target_pitch = 0.0;
+            }else{   
+                acro_target_pitch = map_value(pitch, 0.0, 100.0, -acro_mode_rate_degrees_per_second, acro_mode_rate_degrees_per_second);
+                angle_target_pitch = map_value(pitch, 0.0, 100.0, -max_pitch_attack, max_pitch_attack);
             }
 
-            // Make sure that the value is in the boundaries
-            if(target_roll > max_roll_attack){
-                target_roll = max_roll_attack;
-            }else if(target_roll < -max_roll_attack){
-                target_roll = -max_roll_attack;
-            }
 
             // Yaw ##################################################################################################################
-            if(yaw != 50){
-                // There is an issue with the remote sometimes sending a 0 yaw
-                // target_yaw = imu_orientation[2] + map_value(yaw, 0.0, 100.0, -max_yaw_attack, max_yaw_attack);
-                // // handle the switch from -180 to 180 degrees
-                // if(target_yaw > 180.0){
-                //     target_yaw = target_yaw - 360.0;
-                // }else if(target_yaw < -180.0){
-                //     target_yaw = target_yaw + 360.0;
-                // }
-
-                target_yaw = map_value(yaw, 0.0, 100.0, -max_yaw_attack, max_yaw_attack);
-            }else{
-                target_yaw = 0;
-            }
-
-            // Reset the yaw to the current degrees
-            // if(last_yaw != 50 && yaw == 50){
-            //     target_yaw = imu_orientation[2];
-            // }
-
-            // last_yaw = yaw;
+            if(yaw == 50) acro_target_yaw = 0;
+            else acro_target_yaw = map_value(yaw, 0.0, 100.0, -max_yaw_attack, max_yaw_attack);
 
             // Throttle ##################################################################################################################
-            // This is only used for flight mode 1
-            target_vertical_velocity = map_value(throttle, 0, 100, min_throttle_vertical_velocity, max_throttle_vertical_velocity);
+            target_vertical_velocity = map_value(throttle, 0, 100, -max_throttle_vertical_velocity, max_throttle_vertical_velocity);
+
+
+
 
         }else if(strcmp(rx_type, "pid") == 0){
             printf("\nGot pid");
@@ -986,27 +955,52 @@ void handle_radio_communication(){
 
             extract_pid_request_values(rx_data, strlen(rx_data), &added_proportional, &added_integral, &added_derivative, &added_master_gain);
 
-            pitch_roll_gain_p = BASE_PITCH_ROLL_GAIN_P + added_proportional;
-            pitch_roll_gain_i = BASE_PITCH_ROLL_GAIN_I + added_integral;
-            pitch_roll_gain_d = BASE_PITCH_ROLL_GAIN_D + added_derivative;
-            pitch_roll_master_gain = BASE_PITCH_ROLL_MASTER_GAIN + added_master_gain;
+            
+            if(!use_angle_mode){ // ACRO MODE
+                acro_roll_pitch_gain_p = BASE_ACRO_roll_pitch_GAIN_P + added_proportional;
+                acro_roll_pitch_gain_i = BASE_ACRO_roll_pitch_GAIN_I + added_integral;
+                acro_roll_pitch_gain_d = BASE_ACRO_roll_pitch_GAIN_D + added_derivative;
+                acro_roll_pitch_master_gain = BASE_ACRO_roll_pitch_MASTER_GAIN + added_master_gain;
 
-            added_pitch_roll_gain_p = added_proportional;
-            added_pitch_roll_gain_i = added_integral;
-            added_pitch_roll_gain_d = added_derivative;
-            added_pitch_roll_master_gain = added_master_gain;
 
-            // Configure the pitch pid 
-            pid_set_proportional_gain(&pitch_pid, pitch_roll_gain_p * pitch_roll_master_gain);
-            pid_set_integral_gain(&pitch_pid, pitch_roll_gain_i * pitch_roll_master_gain);
-            pid_set_derivative_gain(&pitch_pid, pitch_roll_gain_d * pitch_roll_master_gain);
-            pid_reset_integral_sum(&pitch_pid);
+                // Configure the roll pid 
+                pid_set_proportional_gain(&acro_roll_pid, acro_roll_pitch_gain_p * acro_roll_pitch_master_gain);
+                pid_set_integral_gain(&acro_roll_pid, acro_roll_pitch_gain_i * acro_roll_pitch_master_gain);
+                pid_set_derivative_gain(&acro_roll_pid, acro_roll_pitch_gain_d * acro_roll_pitch_master_gain);
+                pid_reset_integral_sum(&acro_roll_pid);
 
-            // Configure the roll pid 
-            pid_set_proportional_gain(&roll_pid, pitch_roll_gain_p * pitch_roll_master_gain);
-            pid_set_integral_gain(&roll_pid, pitch_roll_gain_i * pitch_roll_master_gain);
-            pid_set_derivative_gain(&roll_pid, pitch_roll_gain_d * pitch_roll_master_gain);
-            pid_reset_integral_sum(&roll_pid);
+                // Configure the pitch pid 
+                pid_set_proportional_gain(&acro_pitch_pid, acro_roll_pitch_gain_p * acro_roll_pitch_master_gain);
+                pid_set_integral_gain(&acro_pitch_pid, acro_roll_pitch_gain_i * acro_roll_pitch_master_gain);
+                pid_set_derivative_gain(&acro_pitch_pid, acro_roll_pitch_gain_d * acro_roll_pitch_master_gain);
+                pid_reset_integral_sum(&acro_pitch_pid);
+            }
+
+            if(use_angle_mode){ // ANGLE MODE
+                angle_roll_pitch_gain_p = BASE_ANGLE_roll_pitch_GAIN_P + added_proportional;
+                angle_roll_pitch_gain_i = BASE_ANGLE_roll_pitch_GAIN_I + added_integral;
+                angle_roll_pitch_gain_d = BASE_ANGLE_roll_pitch_GAIN_D + added_derivative;
+                angle_roll_pitch_master_gain = BASE_ANGLE_roll_pitch_MASTER_GAIN + added_master_gain;
+
+                added_angle_roll_pitch_gain_p = added_proportional;
+                added_angle_roll_pitch_gain_i = added_integral;
+                added_angle_roll_pitch_gain_d = added_derivative;
+                added_angle_roll_pitch_master_gain = added_master_gain;
+
+                // Configure the pitch pid 
+                pid_set_proportional_gain(&angle_pitch_pid, angle_roll_pitch_gain_p * angle_roll_pitch_master_gain);
+                pid_set_integral_gain(&angle_pitch_pid, angle_roll_pitch_gain_i * angle_roll_pitch_master_gain);
+                pid_set_derivative_gain(&angle_pitch_pid, angle_roll_pitch_gain_d * angle_roll_pitch_master_gain);
+                pid_reset_integral_sum(&angle_pitch_pid);
+
+                // Configure the roll pid 
+                pid_set_proportional_gain(&angle_roll_pid, angle_roll_pitch_gain_p * angle_roll_pitch_master_gain);
+                pid_set_integral_gain(&angle_roll_pid, angle_roll_pitch_gain_i * angle_roll_pitch_master_gain);
+                pid_set_derivative_gain(&angle_roll_pid, angle_roll_pitch_gain_d * angle_roll_pitch_master_gain);
+                pid_reset_integral_sum(&angle_roll_pid);
+            }
+
+            
 
         }else if(strcmp(rx_type, "remoteSyncBase") == 0){
             printf("\nGot remoteSyncBase");
@@ -1025,8 +1019,8 @@ void handle_radio_communication(){
             accelerometer_roll_offset = base_accelerometer_roll_offset - added_x_axis_offset;
             accelerometer_pitch_offset = base_accelerometer_pitch_offset -  added_y_axis_offset;
 
-            pid_reset_integral_sum(&roll_pid);
-            pid_reset_integral_sum(&pitch_pid);
+            pid_reset_integral_sum(&angle_roll_pid);
+            pid_reset_integral_sum(&angle_pitch_pid);
 
             calibrate_gyro(); // Recalibrate the gyro as the temperature affects the calibration
 
@@ -1051,18 +1045,7 @@ void handle_radio_communication(){
             printf("\nGot new flight mode %d\n", new_flight_mode);
             flight_mode = new_flight_mode;
 
-            if(flight_mode == 1){
-                use_vertical_velocity_control = 1;
-                use_gps_hold = 0;
-            }else if(flight_mode == 0){
-                use_vertical_velocity_control = 0;
-                use_gps_hold = 0;
-            }else if(flight_mode == 2){
-                use_vertical_velocity_control = 1;
-                use_gps_hold = 1;
-            }else if (flight_mode == 3){
-                use_gps_hold = 1;
-            }
+            set_flight_mode(flight_mode);
 
             find_accelerometer_error(10);
 
@@ -1074,10 +1057,15 @@ void handle_radio_communication(){
 
 
 void initialize_control_abstractions(){
-    pitch_pid = pid_init(pitch_roll_master_gain * pitch_roll_gain_p, pitch_roll_master_gain * pitch_roll_gain_i, pitch_roll_master_gain * pitch_roll_gain_d, 0.0, HAL_GetTick(), 10.0, -10.0, 1);
-    roll_pid = pid_init(pitch_roll_master_gain * pitch_roll_gain_p, pitch_roll_master_gain * pitch_roll_gain_i, pitch_roll_master_gain * pitch_roll_gain_d, 0.0, HAL_GetTick(), 10.0, -10.0, 1);
-    yaw_pid = pid_init(yaw_gain_p, yaw_gain_i, 0, 0.0, HAL_GetTick(), 10.0, -10.0, 1);
+    acro_roll_pid = pid_init(acro_roll_pitch_master_gain * acro_roll_pitch_gain_p, acro_roll_pitch_master_gain * acro_roll_pitch_gain_i, acro_roll_pitch_master_gain * acro_roll_pitch_gain_d, 0.0, HAL_GetTick(), 25, -25, 1);
+    acro_pitch_pid = pid_init(acro_roll_pitch_master_gain * acro_roll_pitch_gain_p, acro_roll_pitch_master_gain * acro_roll_pitch_gain_i, acro_roll_pitch_master_gain * acro_roll_pitch_gain_d, 0.0, HAL_GetTick(), 25, -25, 1);
+    acro_yaw_pid = pid_init(acro_yaw_gain_p, acro_yaw_gain_i, 0, 0.0, HAL_GetTick(), 10.0, -10.0, 1);
+
+    angle_roll_pid = pid_init(angle_roll_pitch_master_gain * angle_roll_pitch_gain_p, angle_roll_pitch_master_gain * angle_roll_pitch_gain_i, angle_roll_pitch_master_gain * angle_roll_pitch_gain_d, 0.0, HAL_GetTick(), acro_mode_rate_degrees_per_second, -acro_mode_rate_degrees_per_second, 1);
+    angle_pitch_pid = pid_init(angle_roll_pitch_master_gain * angle_roll_pitch_gain_p, angle_roll_pitch_master_gain * angle_roll_pitch_gain_i, angle_roll_pitch_master_gain * angle_roll_pitch_gain_d, 0.0, HAL_GetTick(), acro_mode_rate_degrees_per_second, -acro_mode_rate_degrees_per_second, 1);
+
     vertical_velocity_pid = pid_init(vertical_velocity_gain_p, vertical_velocity_gain_i, vertical_velocity_gain_d, 0.0, HAL_GetTick(), 90.0, 0.0, 1); // Min value is 0 because motors dont go lower that that
+
     gps_longitude_pid = pid_init(gps_hold_gain_p, gps_hold_gain_i, gps_hold_gain_d, 0.0, HAL_GetTick(), gps_pid_angle_of_attack_max, -gps_pid_angle_of_attack_max, 1);
     gps_latitude_pid = pid_init(gps_hold_gain_p, gps_hold_gain_i, gps_hold_gain_d, 0.0, HAL_GetTick(), gps_pid_angle_of_attack_max, -gps_pid_angle_of_attack_max, 1);
 
@@ -1118,17 +1106,9 @@ void initialize_control_abstractions(){
         {30 * 30}
     };
 
-    // float Q_proccess_uncertainty_temp[2][2];
-    // matrix_transpose(B_control, 2, 1, Q_proccess_uncertainty_temp);
-    // matrix_matrix_multiply(B_control, 2, 1, Q_proccess_uncertainty_temp, 1, 2, Q_proccess_uncertainty);
-    // matrix_scalar_multiply(Q_proccess_uncertainty, 2, 2, 10*10, Q_proccess_uncertainty_temp);
-    // matrix_copy(Q_proccess_uncertainty_temp, 2, 2, Q_proccess_uncertainty);
-
     altitude_and_velocity_kalman = kalman_filter_init();
     kalman_filter_set_S_state(&altitude_and_velocity_kalman, (float *)S_state, 2);
-
     kalman_filter_set_P_covariance(&altitude_and_velocity_kalman, (float *)P_covariance, 2, 2);
-
     kalman_filter_set_F_state_transition_model(&altitude_and_velocity_kalman, (float *)F_state_transition, 2, 2);
     kalman_filter_set_Q_proccess_noise_covariance(&altitude_and_velocity_kalman, (float *)Q_proccess_uncertainty, 2, 2);
     kalman_filter_set_H_observation_model(&altitude_and_velocity_kalman, (float *)H_observation, 1, 2);
@@ -1141,6 +1121,31 @@ void initialize_control_abstractions(){
     if(altitude_kalman_status == 1) printf("Kalman setup OK\n");
     else printf("Kalman setup not OK\n");
 }
+
+void set_flight_mode(uint8_t mode){
+    if(mode == 0){
+        use_angle_mode = 0;
+        use_vertical_velocity_control = 0;
+        use_gps_hold = 0;
+    }else if(mode == 1){
+        use_angle_mode = 1;
+        use_vertical_velocity_control = 0;
+        use_gps_hold = 0;
+    }else if(mode == 2){
+        use_angle_mode = 1;
+        use_vertical_velocity_control = 1;
+        use_gps_hold = 0;
+    }else if(mode == 3){
+        use_angle_mode = 1;
+        use_vertical_velocity_control = 1;
+        use_gps_hold = 1;
+    }else if(mode == 4){
+        use_angle_mode = 1;
+        use_vertical_velocity_control = 0;
+        use_gps_hold = 1;
+    }
+}
+
 
 void setup_logging_to_sd(){
     // Initialize sd card logging
@@ -1262,22 +1267,6 @@ void handle_logging(){
 
     uint32_t time_blackbox = ((time_since_startup_hours * 60 + time_since_startup_minutes * 60) + time_since_startup_seconds) * 1000000 + time_since_startup_ms * 1000; 
 
-    // Print out for debugging
-    // printf("%d:%02d:%02d:%03d;", time_since_startup_hours, time_since_startup_minutes, time_since_startup_seconds, time_since_startup_ms);
-    // printf("ACCEL, %6.2f, %6.2f, %6.2f, ", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
-    // printf("GYRO, %6.2f, %6.2f, %6.2f, ", imu_orientation[0], imu_orientation[1], imu_orientation[2]);
-    // printf("GY %6.2f %6.2f", imu_orientation[0], imu_orientation[1]);
-
-    // printf("MAG, %6.2f, %6.2f, %6.2f, ", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
-    // printf("MOTOR 1=%6.2f 2=%6.2f 3=%6.2f 4=%6.2f, ", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
-    // printf("TEMP %6.5f, ", temperature);
-    // printf("ALT %6.2f, ", altitude);
-    // printf("GPS %f, %f, ", gps_longitude, gps_latitude);
-    // printf("ERROR pitch %6.2f, roll %6.2f, pitch %6.2f, yaw %6.2f, altitude %6.2f, ", error_pitch, error_roll, error_yaw, error_altitude);
-    // printf("%6.5f %6.5f %6.5f", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);  
-    // printf("\n");
-
-
     if(sd_card_initialized){
         uint16_t data_size = 0;
 
@@ -1338,7 +1327,7 @@ void handle_logging(){
             // sd_card_append_to_buffer(1, "GYRO,%.2f,%.2f,%.2f;", imu_orientation[0], imu_orientation[1], imu_orientation[2]);
             // sd_card_append_to_buffer(1, "MAG,%.2f,%.2f,%.2f;", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
             // sd_card_append_to_buffer(1, "MOTOR,1=%.2f,2=%.2f,3=%.2f,4=%.2f;", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
-            // sd_card_append_to_buffer(1, "ERROR,pitch=%.2f,roll=%.2f,yaw=%.2f,altitude=%.2f;", error_pitch, error_roll, error_yaw, error_altitude);
+            // sd_card_append_to_buffer(1, "ERROR,pitch=%.2f,roll=%.2f,yaw=%.2f,altitude=%.2f;", error_angle_pitch, error_angle_roll, error_acro_yaw, error_altitude);
             // sd_card_append_to_buffer(1, "TEMP,%.2f;", temperature);
             // sd_card_append_to_buffer(1, "ALT %.2f;", altitude);
             // sd_card_append_to_buffer(1, "GPS,lon-%f,lat-%f;", bn357_get_longitude_decimal_format(), bn357_get_latitude_decimal_format());
@@ -1663,7 +1652,7 @@ void extract_request_type(char *request, uint8_t request_size, char *type_output
     // You better be sure the length of the output string is big enough
     strncpy(type_output, start, length);
     type_output[length] = '\0';
-    //printf("'%s'\n", type_output);
+    // printf("'%s'\n", type_output);
 }
 
 // Extract the values form a slash separated stirng into specific variables for pid control parameters 
@@ -1810,10 +1799,10 @@ void send_pid_base_info_to_remote(){
 
     // Make a slash separated value
     char *string = generate_message_pid_values_nrf24(
-        BASE_PITCH_ROLL_GAIN_P, 
-        BASE_PITCH_ROLL_GAIN_I, 
-        BASE_PITCH_ROLL_GAIN_D,
-        BASE_PITCH_ROLL_MASTER_GAIN
+        BASE_ANGLE_roll_pitch_GAIN_P, 
+        BASE_ANGLE_roll_pitch_GAIN_I, 
+        BASE_ANGLE_roll_pitch_GAIN_D,
+        BASE_ANGLE_roll_pitch_MASTER_GAIN
     );
     
 
@@ -1839,10 +1828,10 @@ void send_pid_added_info_to_remote(){
 
     // Make a slash separated value
     char *string = generate_message_pid_values_nrf24(
-        added_pitch_roll_gain_p, 
-        added_pitch_roll_gain_i, 
-        added_pitch_roll_gain_d,
-        added_pitch_roll_master_gain
+        added_angle_roll_pitch_gain_p, 
+        added_angle_roll_pitch_gain_i, 
+        added_angle_roll_pitch_gain_d,
+        added_angle_roll_pitch_master_gain
     );
     
     // The remote always receives data as a gibberish with corrupted characters. Sending many of them will mean the remote can reconstruct the message

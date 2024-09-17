@@ -100,17 +100,17 @@ I did some more tests and i found out that there is a problem with using calibra
 I also found that that the motor and prop vibrations really do affect the sensor readings a lot, i am surprised it even hovers a bit after looking at them at 40% throttle.
 
 TODO after test 12
-! Add material dampening of vibration
-! Improve software filtering to remove what vibration was not already removed by material dampening.
-! Test vibrations with fresh propellers.
+* ! Add material dampening of vibration
+* ! Improve software filtering to remove what vibration was not already removed by material dampening.
+* ! Test vibrations with fresh propellers.
 
 Test 13
 Tested the new low pass filtering on the drone. It worked very good at the 45Hz frequency setting, not so good at 22Hz or 10Hz with significant delay in response being visible. Did more tests on the yaw control functionality, it works very well now but there is a big drop in throttle when yawing with at a fast rate. The altitude hold functionality in flight mode 1 works better now but is still no good as i still need to put the throttle stick to 75% for it to do anything and lift off it does not keep the altitude at a neutral position. The balance correction is now easier with the low-pass filter but it still needs some work to find the sweet spot.
 
 TODO after test 13
-! Find out if the yaw control throttle issue with altitude could be solved or if that is just because my quadcopter does not have enough power in to keep altitude with two motors.
-! Improve the offsets more on the next test.
-! Find out why the altitude is not working so good.
+* ! Find out if the yaw control throttle issue with altitude could be solved or if that is just because my quadcopter does not have enough power in to keep altitude with two motors.
+* ! Improve the offsets more on the next test.
+* ! Find out why the altitude is not working so good.
 
 Test 14
 Got a better balance point but when testing the altitude hold broke one of the legs.
@@ -118,6 +118,33 @@ Got a better balance point but when testing the altitude hold broke one of the l
 Test 15
 Dialed in the altitude hold settings for PID, the quadcopter now holds altitude relatively well, but as it struggles to find a level offset it is not good to improve it more at the moment. The offsets still change a lot even with a low pass filter on, need to invest more in flight-controller dampening.
 
+Test 16
+Mounted new motors and tested them. Much less vibration as can be seen in the vibration profile for them. The quadcopter flies a bit better, but not as much change as i though it would have. I tried my best to balance it so it does not drift and got closer than the other motors, but did not get results that are much better. I am no longer even sure that this is a goal worth doing more tests for, and maybe i should just get the best stabilization i can and move on to perfecting the altitude hold and gps hold.
+
+I tested it again the same day. Managed to improve the altitude hold functionality, by raising the integral gain 12 times I sped up the time it takes for it to charge up, so it reacts faster from ground launch. An issue is that raising the integral gain to charge it faster makes the integral give some overshoot to the vertical velocity target, for this i raised the proportional by 0.2 and got it to control a bit. Further testing is needed.
+
+I did notice that with the new prop and motor combo the quadcopter does not have as much battery, so it means it is less efficient. This is expected as the propellers are smaller. I have also found that the new propellers are more durable than the ones i had before, maybe the decreased tip speed, material and shape of the tips plays a role in that. The quadcopter feels more loose with the new propellers, and that is not necessarily a good thing.
+
+TODO after test 16
+* ! Tighten all the nuts on the legs
+* ! Find out why when gps is enabled the flight controller starts having a 140ms delay in sensor readings in I2C after the thing being on for a couple of minutes. 
+
+
+Test 17
+
+I have hit a dead end in testing. The drone is not supposed to handle this bad, vibration has been eliminated. I believe i am missing something big in regards to PID. I have seen others implement acro mode first and then feed that to implement angle mode. I am going to try to do the same as i have planned to implement acro mode anyway.
+
+Test 18
+
+I was correct in thinking something was missing. As soon as i started testing with pid as angle mode -> acro mode -> motors things started to work great. The drone now balances a lot better in angle mode and is very easy to control compared to before. Acro mode works ok, i can see some wobble as it wants to settle down to to a angular rate, which means there is more tunning to do. The next step will be to get the sd card blackbox logger working again, by fixing the hardware problem it has. Using the logger I will be able to see how it responds to setpoints over many different pid values for the acro mode and in that way i can figure out which one fits it best.
+
+TODO after test 18
+* ! Fix the logger hardware problem.
+* ! Add more details to the betaflight log about the settings of the quadcopter, so that it allows the data to be analyzed more.
+* ! Make it so that when PID settings are changes, the quadcopter starts writing a new blackbox log file.
+* ! If the quadcopter starts a new log file it has to add the ending to the old one, so that opening it is easier on the computer.
+* ! Perform tests as in Chris Rossers's video on PID tunning.
+* ! Fix broken legs.
 
 Test checklist:
 * Drone frame
