@@ -1,6 +1,7 @@
 #pragma once
 #include <stdio.h>
 
+// PT1 type
 struct low_pass_filter{
     float previous_filter_output;
     float alpha;

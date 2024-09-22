@@ -733,6 +733,34 @@ uint8_t sd_special_initialize(const char *file_base_name){
         return 0;
 }
 
+uint16_t sd_special_get_file_index(){
+    if(m_device_handle){
+        uint8_t response[2];
+        uint8_t command = LOGGER_GET_FILE_INDEX;
+
+        slave_select();
+        start_waiting_for_slave_ready();
+        HAL_SPI_Transmit(m_device_handle, &command, 1, 12000); // send command
+        if(!wait_for_slave_ready(5000)) goto error;
+        HAL_SPI_Receive(m_device_handle, response, 2, 5000);
+        slave_deselect();
+
+        uint16_t file_index = response[0] << 8 | response[1];
+        if(response[0] != 0){ // For this case this is the actual status code from the fatfs driver.
+            goto error;
+        }
+
+        printf("GOT index: %d (%d %d)\n", file_index, response[0], response[1]);
+        return file_index;
+    }else{
+        return 0;
+    }
+
+    error:
+        slave_deselect();
+        return 0;
+}
+
 uint8_t sd_special_reset(){
     if(m_device_handle){
         uint8_t response[1];
@@ -888,10 +916,16 @@ uint8_t sd_special_leave_async_mode(){
         uint8_t response[1];
         uint8_t command = LOGGER_LEAVE_ASYNC_MODE;
 
+        uint8_t command_array[250];
+        for (size_t i = 0; i < 250; i++){
+            command_array[i] = command;
+        }
+        
+
         slave_select();
         start_waiting_for_slave_ready();
-        HAL_SPI_Transmit(m_device_handle, &command, 1, 5000); // send command
-        if(!wait_for_slave_ready(5000)) goto error;
+        HAL_SPI_Transmit(m_device_handle, command_array, 250, 5000); // send command
+        if(!wait_for_slave_ready(500)) goto error;
         HAL_SPI_Receive(m_device_handle, response, 1, 5000);
         slave_deselect();
         

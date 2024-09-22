@@ -83,7 +83,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
 // Interrupt for uart 2 when it crashes to restart it
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart){
     if (huart->Instance == USART2){
-        printf("Error UART 2\n");
+        // printf("Error UART 2\n");
         HAL_UART_DeInit(uart);
         HAL_UART_Init(uart);
 

@@ -1,0 +1,6 @@
+Make the rate mode first and then use that pid as a slave for the stabilize mode one
+Check for stale imu values by having a running comparing with a big precision
+
+Things to consider
+
+Filtering PID terms like D

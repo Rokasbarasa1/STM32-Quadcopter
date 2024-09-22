@@ -27,6 +27,7 @@ enum t_logger_commands {
     LOGGER_SD_BUFFER_SIZE = 16,
 
     LOGGER_INITIALIZE = 17,
+    LOGGER_GET_FILE_INDEX = 27,
     LOGGER_RESET = 18,
     LOGGER_WRITE_CHUNK_OF_STRING_DATA = 20,
     LOGGER_WRITE_CHUNK_OF_BYTE_DATA = 21,
@@ -75,6 +76,7 @@ uint8_t sd_save_file();
 uint8_t sd_test_interface();
 
 uint8_t sd_special_initialize(const char *file_base_name);
+uint16_t sd_special_get_file_index();
 uint8_t sd_special_reset();
 uint8_t sd_special_write_chunk_of_string_data(const char *data);
 uint8_t sd_special_write_chunk_of_byte_data(const char *data, uint16_t length);

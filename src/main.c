@@ -92,16 +92,16 @@ void handle_get_and_calculate_sensor_values();
 void handle_radio_communication();
 void handle_logging();
 void handle_pid_and_motor_control();
-void setup_logging_to_sd();
+void setup_logging_to_sd(uint8_t use_updated_file_name);
 void handle_loop_end();
 void handle_pre_loop_start();
 void initialize_control_abstractions();
 void set_flight_mode(uint8_t mode);
 // PWM pins
-// PA8  - 1 TIM1
-// PA11 - 4 TIM1
-// PA0  - 1 TIM2
-// PA1  - 2 TIM2
+// PA8  - 1 TIM1 for motor back-left (BL)
+// PA11 - 4 TIM1 for motor back right (BR)
+// PA0  - 1 TIM2 for motor front right (FR)
+// PA1  - 2 TIM2 for motor front left (FL)
 
 // UART pins
 // PA2  UART2 tx GPS
@@ -172,6 +172,8 @@ uint8_t entered_loop = 0;
 
 // ------------------------------------------------------------------------------------------------------ Motor settings
 // C bullshit again...
+const uint32_t pwm_frequency = 50;
+
 #define max_esc_pwm_value 2000
 #define min_esc_pwm_value 1000
 const uint16_t esc_lowest_motor_spin = 1033; // DYNAMIC IDLE
@@ -385,10 +387,15 @@ float complementary_ratio = 1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ)); // Depends on
 float complementary_beta = 0.0;
 
 float filtering_alpha_magnetometer = 0.85; // 200Hz sample rate and 0.85 alpha gives 180Hz cutoff and around 1ms delay
+float filtering_alpha_accelerometer = 0.386; // 200Hz sample rate and 0.386 alpha gives 20Hz cutoff and around 1ms delay
 
 struct low_pass_filter filter_magnetometer_x;
 struct low_pass_filter filter_magnetometer_y;
 struct low_pass_filter filter_magnetometer_z;
+
+struct low_pass_filter filter_accelerometer_x;
+struct low_pass_filter filter_accelerometer_y;
+struct low_pass_filter filter_accelerometer_z;
 
 struct kalman_filter altitude_and_velocity_kalman;
 // ------------------------------------------------------------------------------------------------------ Remote control settings
@@ -411,11 +418,14 @@ uint32_t last_signal_timestamp = 0;
 // ------------------------------------------------------------------------------------------------------ Logging to SD card
 char log_file_base_name[] = "Quadcopter.txt";
 char log_file_blackbox_base_name[] = "Quadcopter.BBL";
+char *new_log_file_blackbox_base_name;
+uint16_t file_index = 0;
+
 uint8_t sd_card_initialized = 0;
 uint8_t log_loop_count = 0;
 uint8_t sd_card_async = 0;
 const uint8_t use_simple_async = 0; // 0 is the complex async
-const uint8_t use_blackbox_logging = 0; 
+const uint8_t use_blackbox_logging = 1; 
 
 // ------------------------------------------------------------------------------------------------------ Stuff for blackbox logging
 uint32_t loop_iteration = 1;
@@ -461,8 +471,14 @@ int main(void){
     // check_calibrations();
     calibrate_gyro(); // Recalibrate the gyro as the temperature affects the calibration
     get_initial_position();
-    // setup_logging_to_sd(); // Hardware power issue currently
+    setup_logging_to_sd(0); // Hardware power issue currently
     initialize_control_abstractions();
+
+
+    // Disable gyro filtering
+    // Set accelerometer filtering up again
+    // Add D-term filtering using Biquad
+    // Add low pass to the yaw
 
     handle_pre_loop_start();
     while (1){
@@ -508,7 +524,7 @@ uint8_t init_sensors(){
 
     // Continue initializing
     nrf24_rx_mode(tx_address, 10);
-    bn357_start_uart_interrupt();
+    // bn357_start_uart_interrupt();
 
     return 1;
 }
@@ -760,23 +776,12 @@ void handle_pid_and_motor_control(){
         if(use_angle_mode){
             pid_set_desired_value(&angle_roll_pid, angle_target_roll + gps_hold_roll_adjustment);
             pid_set_desired_value(&angle_pitch_pid, angle_target_pitch + gps_hold_pitch_adjustment);
-            // printf("Angle r: %f, p: %f\n", angle_target_roll, angle_target_pitch);
 
-            // pitch is facing to the sides
-            // roll is facing forwards and backwards
-            // PID_set_points[0] = angle_target_pitch; // Logging
-            // PID_set_points[1] = angle_target_roll; // Logging
-            // PID_set_points[2] = acro_target_yaw; // Logging
+            // For now not logging desired angle mode
+
             error_angle_roll = pid_get_error(&angle_roll_pid, imu_orientation[0], HAL_GetTick());
-            // PID_proportional[1] = pid_get_last_proportional_error(&angle_roll_pid); // Logging
-            // PID_integral[1] = pid_get_last_integral_error(&angle_roll_pid); // Logging
-            // PID_derivative[1] = pid_get_last_derivative_error(&angle_roll_pid); // Logging
-            
             error_angle_pitch = pid_get_error(&angle_pitch_pid, imu_orientation[1], HAL_GetTick());
-            // PID_proportional[0] = pid_get_last_proportional_error(&angle_pitch_pid); // Logging
-            // PID_integral[0] = pid_get_last_integral_error(&angle_pitch_pid); // Logging
-            // PID_derivative[0] = pid_get_last_derivative_error(&angle_pitch_pid); // Logging
-            printf("Angle r: %.1f, p: %.1f, re: %.1f, pe: %.1f\n", angle_target_roll, angle_target_pitch, error_angle_roll, error_angle_pitch);
+
         }else{
             error_angle_roll = 0;
             error_angle_pitch = 0;
@@ -787,18 +792,39 @@ void handle_pid_and_motor_control(){
             pid_set_desired_value(&acro_roll_pid, error_angle_roll);
             pid_set_desired_value(&acro_pitch_pid, error_angle_pitch);
             pid_set_desired_value(&acro_yaw_pid, acro_target_yaw);
+            
+            PID_set_points[0] = error_angle_roll; // Logging
+            PID_set_points[1] = error_angle_pitch; // Logging
+            PID_set_points[2] = acro_target_yaw; // Logging
         }else{
-            printf("Acro r: %f, p: %f\n", acro_target_roll, acro_target_pitch);
             pid_set_desired_value(&acro_roll_pid, acro_target_roll);
             pid_set_desired_value(&acro_pitch_pid, acro_target_pitch);
             pid_set_desired_value(&acro_yaw_pid, acro_target_yaw);
+            
+            PID_set_points[0] = acro_target_roll; // Logging
+            PID_set_points[1] = acro_target_pitch; // Logging
+            PID_set_points[2] = acro_target_yaw; // Logging
         }
-        
-        error_acro_roll = pid_get_error(&acro_roll_pid, gyro_angular[0], HAL_GetTick()); // Logging
-        error_acro_pitch = pid_get_error(&acro_pitch_pid, gyro_angular[1], HAL_GetTick()); // Logging
-        error_acro_yaw = pid_get_error(&acro_yaw_pid, gyro_angular[2], HAL_GetTick()); // Logging
-        // PID_proportional[2] = pid_get_last_proportional_error(&acro_yaw_pid); // Logging
-        // PID_integral[2] = pid_get_last_integral_error(&acro_yaw_pid); // Logging
+
+
+        error_acro_roll = pid_get_error(&acro_roll_pid, gyro_angular[0], HAL_GetTick());
+
+        PID_proportional[1] = pid_get_last_proportional_error(&acro_roll_pid); // Logging
+        PID_integral[1] = pid_get_last_integral_error(&acro_roll_pid); // Logging
+        PID_derivative[1] = pid_get_last_derivative_error(&acro_roll_pid); // Logging
+
+
+        error_acro_pitch = pid_get_error(&acro_pitch_pid, gyro_angular[1], HAL_GetTick());
+        PID_proportional[0] = pid_get_last_proportional_error(&acro_pitch_pid); // Logging
+        PID_integral[0] = pid_get_last_integral_error(&acro_pitch_pid); // Logging
+        PID_derivative[0] = pid_get_last_derivative_error(&acro_pitch_pid); // Logging
+
+
+        error_acro_yaw = pid_get_error(&acro_yaw_pid, gyro_angular[2], HAL_GetTick());
+
+        PID_proportional[2] = pid_get_last_proportional_error(&acro_yaw_pid); // Logging
+        PID_integral[2] = pid_get_last_integral_error(&acro_yaw_pid); // Logging
+
 
         // ---------------------------------------------------------------------------------------------- Throttle
         error_throttle = throttle*0.9;
@@ -816,24 +842,32 @@ void handle_pid_and_motor_control(){
         motor_power[3] += error_throttle * (~use_vertical_velocity_control & 1) + error_vertical_velocity * use_vertical_velocity_control;
 
         // 2212
-        // Motor B (0) 14460 rpm
-        // Motor C (1) 14160 rpm
-        // Motor D (2) 14460 rpm
-        // Motor A (3) 13740 rpm
+        // Motor B (0) 14460 rpm BL but should be BL
+        // Motor C (1) 14160 rpm FL but should be BR
+        // Motor D (2) 14460 rpm BR but should be FR
+        // Motor A (3) 13740 rpm FR but should be FL
 
-        // GPS side BACK
+        // FPV cam side FRONT
+        // Front-right
         TIM2->CCR1 = setServoActivationPercent(motor_power[2], esc_lowest_motor_spin, actual_max_esc_pwm_value);
+        // Front-left
         TIM2->CCR2 = setServoActivationPercent(motor_power[3], esc_lowest_motor_spin, actual_max_esc_pwm_value);
-
-        // No gps side FRONT
-        TIM1->CCR1 = setServoActivationPercent(motor_power[0], esc_lowest_motor_spin, actual_max_esc_pwm_value);
-        TIM1->CCR4 = setServoActivationPercent(motor_power[1], esc_lowest_motor_spin, actual_max_esc_pwm_value);
         
+        // GPS side BACK
+        // Back-left
+        TIM1->CCR1 = setServoActivationPercent(motor_power[0], esc_lowest_motor_spin, actual_max_esc_pwm_value);
+        // Back-right
+        TIM1->CCR4 = setServoActivationPercent(motor_power[1], esc_lowest_motor_spin, actual_max_esc_pwm_value);
+
         // For logging
+        // BL <- BL
         motor_power[0] = setServoActivationPercent(motor_power[0], esc_lowest_motor_spin, actual_max_esc_pwm_value); // Logging
-        motor_power[1] = setServoActivationPercent(motor_power[1], esc_lowest_motor_spin, actual_max_esc_pwm_value); // Logging
-        motor_power[2] = setServoActivationPercent(motor_power[2], esc_lowest_motor_spin, actual_max_esc_pwm_value); // Logging
-        motor_power[3] = setServoActivationPercent(motor_power[3], esc_lowest_motor_spin, actual_max_esc_pwm_value); // Logging
+        // FL <- FL
+        motor_power[1] = setServoActivationPercent(motor_power[3], esc_lowest_motor_spin, actual_max_esc_pwm_value); // Logging
+        // BR <- BR
+        motor_power[2] = setServoActivationPercent(motor_power[1], esc_lowest_motor_spin, actual_max_esc_pwm_value); // Logging
+        // FR <- FR
+        motor_power[3] = setServoActivationPercent(motor_power[2], esc_lowest_motor_spin, actual_max_esc_pwm_value); // Logging
     }else{
         // GPS side
         TIM2->CCR1 = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
@@ -845,30 +879,36 @@ void handle_pid_and_motor_control(){
         
         // Reset the remote control set points also
         remote_control[0] = 0;
-        remote_control[1] = 50;
-        remote_control[2] = 50;
-        remote_control[3] = 50;
+        remote_control[1] = 0;
+        remote_control[2] = 0;
+        remote_control[3] = 0;
 
         motor_power[0] = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value); // Logging
         motor_power[1] = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value); // Logging
         motor_power[2] = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value); // Logging
         motor_power[3] = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value); // Logging
 
-        PID_proportional[0] = 0;
-        PID_proportional[1] = 0;
-        PID_proportional[2] = 0;
+        PID_proportional[0] = 0; // Logging
+        PID_proportional[1] = 0; // Logging
+        PID_proportional[2] = 0; // Logging
 
-        PID_integral[0] = 0;
-        PID_integral[1] = 0;
-        PID_integral[2] = 0;
+        PID_integral[0] = 0; // Logging
+        PID_integral[1] = 0; // Logging
+        PID_integral[2] = 0; // Logging
 
-        PID_derivative[0] = 0;
-        PID_derivative[1] = 0;
+        PID_derivative[0] = 0; // Logging
+        PID_derivative[1] = 0; // Logging
+
+
+        pid_reset_integral_sum(&acro_roll_pid);
+        pid_reset_integral_sum(&acro_pitch_pid);
+        pid_reset_integral_sum(&acro_yaw_pid);
 
         pid_reset_integral_sum(&angle_pitch_pid);
         pid_reset_integral_sum(&angle_roll_pid);
-        pid_reset_integral_sum(&vertical_velocity_pid);
-        pid_reset_integral_sum(&acro_yaw_pid);
+
+        pid_reset_integral_sum(&gps_longitude_pid);
+        pid_reset_integral_sum(&gps_latitude_pid);
     }
 }
 
@@ -889,7 +929,7 @@ void handle_radio_communication(){
             roll = (-(roll-50.0))+50.0;
 
             // For the blackbox log
-            remote_control[0] = roll; // Reversed for blackbox log
+            remote_control[0] = roll;
             remote_control[1] = pitch-50.0;
             remote_control[2] = yaw-50.0;
             remote_control[3] = throttle+100.0;
@@ -1000,6 +1040,71 @@ void handle_radio_communication(){
                 pid_reset_integral_sum(&angle_roll_pid);
             }
 
+
+            // Start new log blackbox log file if one was running.
+            if(sd_card_initialized && use_blackbox_logging){
+                HAL_Delay(300);
+
+                // Add end of file to the current file
+                uint16_t string_length = 0;
+                char *betaflight_end_file_string = betaflight_blackbox_get_end_of_log(&string_length);
+
+                char* sd_card_buffer = sd_card_get_buffer_pointer(1);
+                uint16_t sd_card_buffer_index = 0;
+                uint16_t betaflight_data_string_index = 0;
+                while(sd_card_buffer_index < string_length){
+                    sd_card_buffer[sd_card_buffer_index] = betaflight_end_file_string[sd_card_buffer_index];
+                    sd_card_buffer_increment_index();
+                    sd_card_buffer_index++;
+                    betaflight_data_string_index++;
+                }
+                free(betaflight_end_file_string);
+
+                if(use_simple_async){
+                    sd_special_write_chunk_of_string_data_no_slave_response(sd_card_get_buffer_pointer(1));
+                    sd_buffer_clear(1);
+                }else{
+                    if(use_blackbox_logging){
+                        sd_special_write_chunk_of_byte_data_async(sd_card_get_buffer_pointer(1), string_length);
+                        sd_buffer_swap();
+                        sd_buffer_clear(1);
+                    }else{
+                        sd_special_write_chunk_of_string_data_async(sd_card_get_buffer_pointer(1));
+                        sd_buffer_swap();
+                        sd_buffer_clear(1);
+                    }
+                }
+
+                printf("PID: Sent file ending\n");
+                
+                // Wait for the logger finish writing everything
+                HAL_Delay(300);
+                printf("PID: Delayed for 2s\n");
+
+                // Exit async mode
+                uint64_t i = 0;
+                while(1){
+                    printf("%lu\n", i);
+                    if(sd_special_leave_async_mode()){
+                        printf("Exit async mode\n");
+                        break;
+                    }
+                    i++;
+                }
+                printf("PID: Left async mode\n");
+
+                // Close the current file
+                sd_special_reset();
+                printf("PID: Reset the logger\n");
+
+                HAL_Delay(1000);
+                printf("PID: Waited for 1s\n");
+
+                // Initialize new_file
+                setup_logging_to_sd(1);
+                printf("PID: Initialized logging again\n");
+
+            }
             
 
         }else if(strcmp(rx_type, "remoteSyncBase") == 0){
@@ -1147,26 +1252,57 @@ void set_flight_mode(uint8_t mode){
 }
 
 
-void setup_logging_to_sd(){
+void setup_logging_to_sd(uint8_t use_updated_file_name){
     // Initialize sd card logging
-    sd_card_initialize_spi(&hspi3, GPIOA, GPIO_PIN_15, GPIOA, GPIO_PIN_12);
+    sd_card_initialized = 0;
+    if(!use_updated_file_name) sd_card_initialize_spi(&hspi3, GPIOA, GPIO_PIN_15, GPIOA, GPIO_PIN_12);
+
     if(sd_test_interface()){
         printf("SD logging: Logger module is working\n");
 
         if(use_blackbox_logging){
-            sd_card_initialized = sd_special_initialize(log_file_blackbox_base_name);
-            if(sd_card_initialized){
-                printf("SD logging: Initialized blackbox logging. Code %d\n", sd_get_response());
-            }else{
-                printf("SD logging: FAILED to initialize blackbox logging. Code %d\n", sd_get_response());
+            if(use_updated_file_name) sd_card_initialized = sd_special_initialize(new_log_file_blackbox_base_name);
+            else sd_card_initialized = sd_special_initialize(log_file_blackbox_base_name);
+            
+            if(sd_card_initialized) printf("SD logging: Initialized blackbox logging. Code %d\n", sd_get_response());
+            else printf("SD logging: FAILED to initialize blackbox logging. Code %d\n", sd_get_response());
+
+
+            // Only has to be done initially not when new files are opened after that
+            if(!use_updated_file_name){
+                // Get the index of the file
+                file_index = sd_special_get_file_index();
+
+                printf("File index: %d\n", file_index);
+
+                // Create the new file name string. Will be used for repeated log starts
+                uint16_t length = snprintf(
+                    NULL, 
+                    0,
+                    "-%d%s", 
+                    file_index,
+                    log_file_blackbox_base_name
+                );
+                
+                // allocate memory for the string
+                new_log_file_blackbox_base_name = (char*)malloc((length + 1) + sizeof(char)); // +1 for the null terminator
+
+                // format the string
+                snprintf(
+                    (char*)new_log_file_blackbox_base_name, 
+                    length + 1, 
+                    "-%d%s", 
+                    file_index,
+                    log_file_blackbox_base_name
+                );
             }
+
+
+
         }else{
             sd_card_initialized = sd_special_initialize(log_file_base_name);
-            if(sd_card_initialized){
-                printf("SD logging: Initialized txt logging. Code %d\n", sd_get_response());
-            }else{
-                printf("SD logging: FAILED to initialize txt logging. Code %d\n", sd_get_response());
-            }
+            if(sd_card_initialized) printf("SD logging: Initialized txt logging. Code %d\n", sd_get_response());
+            else printf("SD logging: FAILED to initialize txt logging. Code %d\n", sd_get_response());
         }
 
         if(sd_card_initialized){
@@ -1233,7 +1369,29 @@ void setup_logging_to_sd(){
 
     if(use_blackbox_logging && sd_card_initialized){
         uint16_t betaflight_header_length = 0;
-        char* betaflight_header = betaflight_blackbox_wrapper_get_header(min_esc_pwm_value, actual_max_esc_pwm_value, &betaflight_header_length);
+        char* betaflight_header = betaflight_blackbox_wrapper_get_header(
+            REFRESH_RATE_HZ,
+            acro_roll_pitch_gain_p,
+            acro_roll_pitch_gain_i,
+            acro_roll_pitch_gain_d,
+            acro_roll_pitch_gain_p,
+            acro_roll_pitch_gain_i,
+            acro_roll_pitch_gain_d,
+            acro_yaw_gain_p,
+            acro_yaw_gain_i,
+            0,
+            angle_roll_pitch_gain_p,
+            angle_roll_pitch_gain_i,
+            angle_roll_pitch_gain_d,
+            180, // Yaw lowpass cutoff
+            25, // Integral windup
+            21, // Gyro lowpass cutoff
+            20, // Accelerometer lowpass cutoff
+            pwm_frequency,
+            min_esc_pwm_value, 
+            actual_max_esc_pwm_value, 
+            &betaflight_header_length
+        );
         HAL_Delay(100); // wait a bit for it to sort its shit out
         sd_special_write_chunk_of_byte_data_no_slave_response(betaflight_header, betaflight_header_length);
         free(betaflight_header);
@@ -1291,7 +1449,7 @@ void handle_logging(){
             char* sd_card_buffer = sd_card_get_buffer_pointer(1);
             uint16_t sd_card_buffer_index = 0;
             uint16_t betaflight_data_string_index = 0;
-            while(sd_card_buffer_index< data_size){
+            while(sd_card_buffer_index < data_size){
                 sd_card_buffer[sd_card_buffer_index] = betaflight_data_string[sd_card_buffer_index];
                 sd_card_buffer_increment_index();
                 sd_card_buffer_index++;
@@ -1311,6 +1469,7 @@ void handle_logging(){
                     &data_size // it will append but not overwrite
                 );
 
+                // append the gps stuff
                 uint16_t betaflight_gps_string_index = 0;
                 while(sd_card_buffer_index < data_size){
                     sd_card_buffer[sd_card_buffer_index] = betaflight_gps_string[betaflight_gps_string_index];

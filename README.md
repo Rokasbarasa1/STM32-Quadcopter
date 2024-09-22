@@ -139,12 +139,14 @@ Test 18
 I was correct in thinking something was missing. As soon as i started testing with pid as angle mode -> acro mode -> motors things started to work great. The drone now balances a lot better in angle mode and is very easy to control compared to before. Acro mode works ok, i can see some wobble as it wants to settle down to to a angular rate, which means there is more tunning to do. The next step will be to get the sd card blackbox logger working again, by fixing the hardware problem it has. Using the logger I will be able to see how it responds to setpoints over many different pid values for the acro mode and in that way i can figure out which one fits it best.
 
 TODO after test 18
-* ! Fix the logger hardware problem.
-* ! Add more details to the betaflight log about the settings of the quadcopter, so that it allows the data to be analyzed more.
-* ! Make it so that when PID settings are changes, the quadcopter starts writing a new blackbox log file.
-* ! If the quadcopter starts a new log file it has to add the ending to the old one, so that opening it is easier on the computer.
+* X Fix the logger hardware problem.
+* X Add more details to the betaflight log about the settings of the quadcopter, so that it allows the data to be analyzed more.
+* X Make it so that when PID settings are changes, the quadcopter starts writing a new blackbox log file.
+* X If the quadcopter starts a new log file it has to add the ending to the old one, so that opening it is easier on the computer.
+* X Tune the blackbox log to the point that the log corresponds correctly to drone orientations
 * ! Perform tests as in Chris Rossers's video on PID tunning.
-* ! Fix broken legs.
+* X Fix broken legs.
+
 
 Test checklist:
 * Drone frame
@@ -163,3 +165,14 @@ Test checklist:
 * STM32 programmer
 * Charged battery
 * Battery checker
+
+
+### Hardware:
+* 4 x EMAX ECO II Series 2807 Motor
+* 4 x HGLRC 30amp 3-5S Dshot600 BLHeli_S 16.5 BB2 ESC
+* MPU6050 (Accelerometer + Gyro)
+* BMP280 (Barometer)
+* mmc5603 (Magnetometer)
+* BN357 (GPS)
+* STM32F411 blackpill board
+* HQProp DP 7x3.5x3 V1S 3 blade Propeller

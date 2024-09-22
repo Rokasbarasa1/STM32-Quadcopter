@@ -37,7 +37,10 @@
     "cSpell.words": [
         "acro",
         "axies",
+        "betaflight",
+        "Biquad",
         "blackbox",
+        "blackpill",
         "coplementary",
         "datasheet",
         "deadband",
@@ -47,6 +50,7 @@
         "FRESULT",
         "genfromtxt",
         "kalman",
+        "lowpass",
         "Quadcopter",
         "reflashed"
     ]
