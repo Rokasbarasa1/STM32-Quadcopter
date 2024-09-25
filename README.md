@@ -19,7 +19,7 @@ STM32F411, MPU6050, QMC5883l, BN357, BMP280, NRF24l01, Second STM32F411 SD Logge
 ### Frame bottom:
 ![IMG_4904](https://github.com/user-attachments/assets/6a92aa1c-1b76-4436-8c6b-8c039739f69b)
 
-[## Video of test  with problems](https://www.youtube.com/shorts/T7edImUDWZM)
+[# Video of latest test<br/>](https://www.youtube.com/shorts/T7edImUDWZM)
 ![image](https://github.com/user-attachments/assets/486cfe71-4dac-4b64-8877-ad49a3ccc6d2)
 
 ### Hardware:
