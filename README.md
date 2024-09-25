@@ -19,13 +19,20 @@ STM32F411, MPU6050, QMC5883l, BN357, BMP280, NRF24l01, Second STM32F411 SD Logge
 ### Frame bottom:
 ![IMG_4904](https://github.com/user-attachments/assets/6a92aa1c-1b76-4436-8c6b-8c039739f69b)
 
-## Video of test 3 with problems
-YT link: https://www.youtube.com/shorts/ODtNJZJHQQQ
-![Test 3 picture](./images/test3_image.png)
+[## Video of test  with problems](https://www.youtube.com/shorts/T7edImUDWZM)
+![image](https://github.com/user-attachments/assets/486cfe71-4dac-4b64-8877-ad49a3ccc6d2)
+
+### Hardware:
+* 4 x EMAX ECO II Series 2807 Motor
+* 4 x HGLRC 30amp 3-5S Dshot600 BLHeli_S 16.5 BB2 ESC
+* MPU6050 (Accelerometer + Gyro)
+* BMP280 (Barometer)
+* mmc5603 (Magnetometer)
+* BN357 (GPS)
+* STM32F411 blackpill board
+* HQProp DP 7x3.5x3 V1S 3 blade Propeller
 
 
-ESC name "Cheetah HW30A Brushless ESC"
-BEC from ESC powers the flight controller
 
 ## TODO lists
 
@@ -165,14 +172,3 @@ Test checklist:
 * STM32 programmer
 * Charged battery
 * Battery checker
-
-
-### Hardware:
-* 4 x EMAX ECO II Series 2807 Motor
-* 4 x HGLRC 30amp 3-5S Dshot600 BLHeli_S 16.5 BB2 ESC
-* MPU6050 (Accelerometer + Gyro)
-* BMP280 (Barometer)
-* mmc5603 (Magnetometer)
-* BN357 (GPS)
-* STM32F411 blackpill board
-* HQProp DP 7x3.5x3 V1S 3 blade Propeller
