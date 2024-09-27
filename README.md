@@ -1,6 +1,6 @@
 # STM32-Quadcopter
 
-![IMG_3291](https://github.com/Rokasbarasa1/STM32-Quadcopter/assets/50622827/86c02aab-86b6-40ef-8ede-8bf1fb79dea2)
+![IMG_4697](https://github.com/user-attachments/assets/5bd907f9-0777-416a-9e56-f72a6bac76c3)
 
 Work in progress. For in depth documentation use my self-balancing robot project which uses most of the same components, I am at the moment focusing on documenting the testing proccess of this robot. [<b>Link to self balancing robot</b>](https://github.com/Rokasbarasa1/ESP32-self-balancing-robot)
 
@@ -14,18 +14,25 @@ STM32F411, MPU6050, QMC5883l, BN357, BMP280, NRF24l01, Second STM32F411 SD Logge
 ![](./images/controller_with_sd.jpg)
 
 ### Frame top:
-![](./images/frame_top.jpg)
+![IMG_4899](https://github.com/user-attachments/assets/da05143e-058d-49e6-974b-7a364a5608be)
 
 ### Frame bottom:
-![](./images/frame_bottom.jpg)
+![IMG_4904](https://github.com/user-attachments/assets/6a92aa1c-1b76-4436-8c6b-8c039739f69b)
 
-## Video of test 3 with problems
-YT link: https://www.youtube.com/shorts/ODtNJZJHQQQ
-![Test 3 picture](./images/test3_image.png)
+[# Video of latest test<br/>](https://www.youtube.com/shorts/T7edImUDWZM)
+![image](https://github.com/user-attachments/assets/486cfe71-4dac-4b64-8877-ad49a3ccc6d2)
+
+### Hardware:
+* 4 x EMAX ECO II Series 2807 Motor
+* 4 x HGLRC 30amp 3-5S Dshot600 BLHeli_S 16.5 BB2 ESC
+* MPU6050 (Accelerometer + Gyro)
+* BMP280 (Barometer)
+* mmc5603 (Magnetometer)
+* BN357 (GPS)
+* STM32F411 blackpill board
+* HQProp DP 7x3.5x3 V1S 3 blade Propeller
 
 
-ESC name "Cheetah HW30A Brushless ESC"
-BEC from ESC powers the flight controller
 
 ## TODO lists
 
@@ -178,7 +185,6 @@ Test checklist:
 
 ### Hardware:
 * 4 x EMAX ECO II Series 2807 Motor
-
 * 4 x HGLRC 30amp 3-5S Dshot600 BLHeli_S 16.5 BB2 ESC. (F-H-40 flashed with BlueJay 0.21.0V)
 * MPU6050 (Accelerometer + Gyro)
 * BMP280 (Barometer)
