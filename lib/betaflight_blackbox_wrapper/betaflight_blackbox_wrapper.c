@@ -341,6 +341,7 @@ char* betaflight_blackbox_get_encoded_data_string(
 
     
     float scaling_factor = 10;
+    float gyro_scaling_factor = 131.0; // This is to convert it to raw degrees
 
     int32_t PID_proportion_int[3] = {lrintf(PID_proportion[0]*scaling_factor), lrintf(PID_proportion[1]*scaling_factor), lrintf(PID_proportion[2]*scaling_factor)};
     int32_t PID_integral_int[3] = {lrintf(PID_integral[0]*scaling_factor), lrintf(PID_integral[1]*scaling_factor), lrintf(PID_integral[2]*scaling_factor)};
@@ -348,8 +349,8 @@ char* betaflight_blackbox_get_encoded_data_string(
     int32_t PID_feed_forward_int[3] = {lrintf(PID_feed_forward[0]*scaling_factor), lrintf(PID_feed_forward[1]*scaling_factor), lrintf(PID_feed_forward[2]*scaling_factor)};
 
     int16_t remote_control_int[4] = {lrintf(remote_control[0]*scaling_factor), lrintf(remote_control[1]*scaling_factor), lrintf(remote_control[2]*scaling_factor), lrintf(remote_control[3]*scaling_factor)};
-    int16_t set_points_int[4] = {lrintf(set_points[0]), lrintf(set_points[1]), lrintf(set_points[2]), lrintf(set_points[3])};
-    int16_t gyro_sums_int[3] = {lrintf(gyro_sums[0]*131.0), lrintf(gyro_sums[1]*131.0), lrintf(gyro_sums[2]*131.0)};
+    int16_t set_points_int[4] = {lrintf(set_points[0]*gyro_scaling_factor), lrintf(set_points[1]*gyro_scaling_factor), lrintf(set_points[2]*gyro_scaling_factor), lrintf(set_points[3]*gyro_scaling_factor)};
+    int16_t gyro_sums_int[3] = {lrintf(gyro_sums[0]*gyro_scaling_factor), lrintf(gyro_sums[1]*gyro_scaling_factor), lrintf(gyro_sums[2]*gyro_scaling_factor)};
     int16_t accelerometer_values_int[3] = {lrintf(accelerometer_values[0]*16384.0), lrintf(accelerometer_values[1]*16384.0), lrintf(accelerometer_values[2]*16384.0)};
     uint16_t motor_power_int[4] = {
         lrintf(motor_power[2]), 
@@ -360,7 +361,6 @@ char* betaflight_blackbox_get_encoded_data_string(
 
     int32_t mag_int[3] = {lrintf(mag[0]*scaling_factor), lrintf(mag[1]*scaling_factor), lrintf(mag[2]*scaling_factor)};
 
-    float gyro_scaling_factor = 131; // This is to convert it to raw degrees
     int32_t gyro_post_sensor_fusion_int[4] = {lrintf(gyro_post_sensor_fusion[0]*gyro_scaling_factor), lrintf(gyro_post_sensor_fusion[1]*gyro_scaling_factor), lrintf(gyro_post_sensor_fusion[2]*gyro_scaling_factor), 0};
     int32_t altitude_int = lrintf(altitude*scaling_factor); // 10 float value is 1.0 meter after it arrives to the logger.
 

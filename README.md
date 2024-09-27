@@ -146,6 +146,15 @@ TODO after test 18
 * X Tune the blackbox log to the point that the log corresponds correctly to drone orientations
 * ! Perform tests as in Chris Rossers's video on PID tunning.
 * X Fix broken legs.
+* ! Try flashing BlueJay to the ESC's to have rpm data from the esc's
+
+
+
+Fix roll and pitch joystick
+Fix scaling of ALL degree values
+Fix right side motors not showing.
+The fft graphs don't show throttle vs frequency noise plot. No Throttle detected
+
 
 
 Test checklist:
@@ -169,10 +178,13 @@ Test checklist:
 
 ### Hardware:
 * 4 x EMAX ECO II Series 2807 Motor
-* 4 x HGLRC 30amp 3-5S Dshot600 BLHeli_S 16.5 BB2 ESC
+
+* 4 x HGLRC 30amp 3-5S Dshot600 BLHeli_S 16.5 BB2 ESC. (F-H-40 flashed with BlueJay 0.21.0V)
 * MPU6050 (Accelerometer + Gyro)
 * BMP280 (Barometer)
 * mmc5603 (Magnetometer)
 * BN357 (GPS)
 * STM32F411 blackpill board
 * HQProp DP 7x3.5x3 V1S 3 blade Propeller
+
+

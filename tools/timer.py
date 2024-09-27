@@ -1,8 +1,8 @@
 # helper script for making pwm calculations
 
 timer_peripheral_clock = 75000000
-pre_scaler = 1
-counter_period = 20000
+pre_scaler = 72
+counter_period = 1000
 
 print("Timer peripheral clock: " +str(timer_peripheral_clock) + "Hz")
 print("Pre scaler value: " +str(pre_scaler))

@@ -32,7 +32,8 @@
         "extended_kalman_filter.h": "c",
         "filtering.h": "c",
         "mmc56x3.h": "c",
-        "mmc5603.h": "c"
+        "mmc5603.h": "c",
+        "bidirectional_dshot600.h": "c"
     },
     "cSpell.words": [
         "acro",
@@ -41,17 +42,25 @@
         "Biquad",
         "blackbox",
         "blackpill",
+        "BSRR",
         "coplementary",
+        "CYCCNT",
+        "CYCCNTENA",
         "datasheet",
         "deadband",
+        "DEMCR",
+        "dshot",
         "escs",
         "FATFS",
         "FILINFO",
         "FRESULT",
         "genfromtxt",
+        "GPIO",
+        "GPIOA",
         "kalman",
         "lowpass",
         "Quadcopter",
-        "reflashed"
+        "reflashed",
+        "TRCENA"
     ]
 }

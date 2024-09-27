@@ -6,14 +6,14 @@ I2C_HandleTypeDef hi2c1;
 
 SPI_HandleTypeDef hspi1;
 SPI_HandleTypeDef hspi3;
+DMA_HandleTypeDef hdma_spi3_tx;
 
-TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 DMA_HandleTypeDef hdma_usart2_rx;
-DMA_HandleTypeDef hdma_spi3_tx;
+
 
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
@@ -23,7 +23,6 @@ static void MX_I2C1_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_SPI3_Init(void);
-static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 /* Actual functional code -----------------------------------------------*/
 
@@ -49,6 +48,7 @@ static void MX_TIM2_Init(void);
 #include "../lib/filtering/filtering.h"
 #include "../lib/kalman_filter/kalman_filter.h"
 #include "../lib/utils/matrix_operations/matrix_operations.h"
+#include "../lib/bidirectional_dshot600/bidirectional_dshot600.h"
 
 #ifndef M_PI
 #define M_PI (3.14159265358979323846)
@@ -60,7 +60,7 @@ uint16_t setServoActivationPercent(float percent, uint16_t minValue, uint16_t ma
 float mapValue(float value, float input_min, float input_max, float output_min, float output_max);
 void extract_request_values(char *request, uint8_t request_size, uint8_t *throttle, uint8_t *yaw, uint8_t *pitch, uint8_t *roll);
 float get_sensor_fusion_altitude(float gps_altitude, float barometer_altitude);
-u_int8_t init_sensors();
+u_int8_t init_drivers();
 void init_loop_timer();
 void check_calibrations();
 void calibrate_gyro();
@@ -97,6 +97,8 @@ void handle_loop_end();
 void handle_pre_loop_start();
 void initialize_control_abstractions();
 void set_flight_mode(uint8_t mode);
+void initialize_motor_communication();
+
 // PWM pins
 // PA8  - 1 TIM1 for motor back-left (BL)
 // PA11 - 4 TIM1 for motor back right (BR)
@@ -133,23 +135,6 @@ void set_flight_mode(uint8_t mode);
 // PB1 CS 
 // PB0 CE
 
-/**
- * Timer peripheral clock: 75000000Hz
- * Pre scaler value: 72
- * Counter period: 19997
- * Timer clock divided by pre scaler: 1041666.6666666666Hz
- * Frequency: 52.09114700538414Hz (Actually it is like 50.08Hz)
- * Max duty cycle: 19.19712ms
- * Pwm value range: 0-19997
- * Resolution per pwm step: 0.0009600000000000001ms
- *
-
- * 
- * The esc is shit so we have different max and min than normal
- * 1.08ms/20ms * 4000(Counter period) = 216
- * 1.94ms/20ms * 4000 = 388
- */
-
 // ------------------------------------------------------------------------------------------------------ Refresh rate
 // remember that the stm32 is not as fast as the esp32 and it cannot print lines at the same speed
 // const float refresh_rate_hz = 400;
@@ -172,7 +157,7 @@ uint8_t entered_loop = 0;
 
 // ------------------------------------------------------------------------------------------------------ Motor settings
 // C bullshit again...
-const uint32_t pwm_frequency = 50;
+const uint32_t dshot_refresh_rate = 50;
 
 #define max_esc_pwm_value 2000
 #define min_esc_pwm_value 1000
@@ -180,8 +165,34 @@ const uint16_t esc_lowest_motor_spin = 1033; // DYNAMIC IDLE
 // A2212 - 1917
 // 2807 - 75% of max
 // const uint16_t actual_max_esc_pwm_value = 1917; // (max lipo amp rating / max draw of a bldc motor being used x 4) 0.917 * (max_pwm - min_pwm) + min_pwm = 371.4
-const uint16_t actual_max_esc_pwm_value = min_esc_pwm_value + ((max_esc_pwm_value - min_esc_pwm_value) * 75) / 100; // (max lipo amp rating / max draw of a bldc motor being used x 4) 0.917 * (max_pwm - min_pwm) + min_pwm = 371.4
 
+#define max_dshot600_throttle_value 2047
+#define min_dshot600_throttle_value 48
+
+#define max_dshot600_command_value 47
+#define min_dshot600_command_value 1
+
+#define dshot600_neutral_value 0
+#define actual_min_dshot600_throttle_value 72
+// Take 75 percent of max because my battery can't handle all that current.
+const uint16_t actual_max_dshot600_throttle_value = min_dshot600_throttle_value + ((max_dshot600_throttle_value - min_dshot600_throttle_value) * 75) / 100; // (max lipo amp rating / max draw of a bldc motor being used x 4) 0.917 * (max_pwm - min_pwm) + min_pwm = 371.4
+
+// Motor handles
+uint8_t motor_BL;
+uint8_t motor_BR;
+uint8_t motor_FR;
+uint8_t motor_FL;
+
+// For calculations
+uint16_t throttle_value_FR;
+uint16_t throttle_value_FL;
+uint16_t throttle_value_BL;
+uint16_t throttle_value_BR;
+
+// Used by the dshot600 protocol for all the motors
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim){
+    dshot600_send_all_motor_data();
+}
 
 // ------------------------------------------------------------------------------------------------------ Sensor calibrations
 // https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfwmm
@@ -386,8 +397,8 @@ float pitch_effect_on_lon = 0;
 float complementary_ratio = 1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ)); // Depends on how often the loop runs. 1 second / (1 second + one loop time)
 float complementary_beta = 0.0;
 
-float filtering_alpha_magnetometer = 0.85; // 200Hz sample rate and 0.85 alpha gives 180Hz cutoff and around 1ms delay
-float filtering_alpha_accelerometer = 0.386; // 200Hz sample rate and 0.386 alpha gives 20Hz cutoff and around 1ms delay
+float filtering_magnetometer_cutoff_frequency = 180; // 200Hz sample rate and 0.85 alpha gives 180Hz cutoff and around 1ms delay
+float filtering_accelerometer_cutoff_frequency = 40; // 200Hz sample rate and 0.386 alpha gives 20Hz cutoff and around 1ms delay
 
 struct low_pass_filter filter_magnetometer_x;
 struct low_pass_filter filter_magnetometer_y;
@@ -458,7 +469,7 @@ int main(void){
     
     printf("STARTING PROGRAM\n"); 
     // calibrate_escs();
-    if(init_sensors() == 0){
+    if(init_drivers() == 0){
         return 0; // exit if initialization failed
     }
 
@@ -468,17 +479,14 @@ int main(void){
     HAL_Delay(2000); // Dont want to interfere in calibration
 
     set_flight_mode(flight_mode);
+    initialize_motor_communication();
     // check_calibrations();
     calibrate_gyro(); // Recalibrate the gyro as the temperature affects the calibration
     get_initial_position();
-    setup_logging_to_sd(0); // Hardware power issue currently
+    // setup_logging_to_sd(0); // Hardware power issue currently
     initialize_control_abstractions();
 
 
-    // Disable gyro filtering
-    // Set accelerometer filtering up again
-    // Add D-term filtering using Biquad
-    // Add low pass to the yaw
 
     handle_pre_loop_start();
     while (1){
@@ -491,7 +499,7 @@ int main(void){
     }
 }
 
-uint8_t init_sensors(){
+uint8_t init_drivers(){
     printf("-----------------------------INITIALIZING MODULES...\n");
 
     uint8_t mpu6050 = init_mpu6050(
@@ -499,6 +507,7 @@ uint8_t init_sensors(){
         ACCEL_CONFIG_RANGE_2G, 
         GYRO_CONFIG_RANGE_500_DEG, 
         LOW_PASS_FILTER_FREQUENCY_CUTOFF_GYRO_21HZ_ACCEL_20HZ,
+        // LOW_PASS_FILTER_FREQUENCY_CUTOFF_GYRO_260HZ_ACCEL_256HZ,
         1, 
         accelerometer_scale_factor_correction, 
         accelerometer_correction, 
@@ -569,20 +578,15 @@ void handle_get_and_calculate_sensor_values(){
     // Pitch device forwards -> Y axis positive. Roll device right -> X axis positive
 
     // ------------------------------------------------------------------------------------------------------ Filter the sensor data
-
-    // printf("%f;%f;%f;%f;%f;%f;\n", 
-    //     acceleration_data[0], 
-    //     acceleration_data[1], 
-    //     acceleration_data[2], 
-    //     gyro_angular[0], 
-    //     gyro_angular[1], 
-    //     gyro_angular[2]
-    // );
-
+    
+    // Gyro filtering is not needed as loop rate and gyro sample rate are the same
     magnetometer_data[0] = low_pass_filter_read(&filter_magnetometer_x, magnetometer_data[0]);
     magnetometer_data[1] = low_pass_filter_read(&filter_magnetometer_y, magnetometer_data[1]);
     magnetometer_data[2] = low_pass_filter_read(&filter_magnetometer_z, magnetometer_data[2]);
 
+    // acceleration_data[0] = low_pass_filter_read(&filter_accelerometer_x, acceleration_data[0]);
+    // acceleration_data[1] = low_pass_filter_read(&filter_accelerometer_y, acceleration_data[1]);
+    // acceleration_data[2] = low_pass_filter_read(&filter_accelerometer_z, acceleration_data[2]);
 
     // ------------------------------------------------------------------------------------------------------ Sensor fusion
     calculate_roll_pitch_from_accelerometer_data(acceleration_data, &accelerometer_roll, &accelerometer_pitch, accelerometer_roll_offset, accelerometer_pitch_offset); // Get roll and pitch from the data. I call it x and y. Ranges -90 to 90. 
@@ -808,23 +812,17 @@ void handle_pid_and_motor_control(){
 
 
         error_acro_roll = pid_get_error(&acro_roll_pid, gyro_angular[0], HAL_GetTick());
+        error_acro_pitch = pid_get_error(&acro_pitch_pid, gyro_angular[1], HAL_GetTick());
+        error_acro_yaw = pid_get_error(&acro_yaw_pid, gyro_angular[2], HAL_GetTick());
 
         PID_proportional[1] = pid_get_last_proportional_error(&acro_roll_pid); // Logging
         PID_integral[1] = pid_get_last_integral_error(&acro_roll_pid); // Logging
         PID_derivative[1] = pid_get_last_derivative_error(&acro_roll_pid); // Logging
-
-
-        error_acro_pitch = pid_get_error(&acro_pitch_pid, gyro_angular[1], HAL_GetTick());
         PID_proportional[0] = pid_get_last_proportional_error(&acro_pitch_pid); // Logging
         PID_integral[0] = pid_get_last_integral_error(&acro_pitch_pid); // Logging
         PID_derivative[0] = pid_get_last_derivative_error(&acro_pitch_pid); // Logging
-
-
-        error_acro_yaw = pid_get_error(&acro_yaw_pid, gyro_angular[2], HAL_GetTick());
-
         PID_proportional[2] = pid_get_last_proportional_error(&acro_yaw_pid); // Logging
         PID_integral[2] = pid_get_last_integral_error(&acro_yaw_pid); // Logging
-
 
         // ---------------------------------------------------------------------------------------------- Throttle
         error_throttle = throttle*0.9;
@@ -847,46 +845,53 @@ void handle_pid_and_motor_control(){
         // Motor D (2) 14460 rpm BR but should be FR
         // Motor A (3) 13740 rpm FR but should be FL
 
+        throttle_value_FR = setServoActivationPercent(motor_power[2], 48, actual_max_dshot600_throttle_value);
+        throttle_value_FL = setServoActivationPercent(throttle, 48, actual_max_dshot600_throttle_value);
+        throttle_value_BL = setServoActivationPercent(motor_power[0], 48, actual_max_dshot600_throttle_value);
+        throttle_value_BR = setServoActivationPercent(motor_power[1], 48, actual_max_dshot600_throttle_value);
+
         // FPV cam side FRONT
-        // Front-right
-        TIM2->CCR1 = setServoActivationPercent(motor_power[2], esc_lowest_motor_spin, actual_max_esc_pwm_value);
-        // Front-left
-        TIM2->CCR2 = setServoActivationPercent(motor_power[3], esc_lowest_motor_spin, actual_max_esc_pwm_value);
-        
+        dshot600_set_throttle(throttle_value_FR, motor_FR); // Front-right
+        dshot600_set_throttle(throttle_value_FL, motor_FL); // Front-left
         // GPS side BACK
-        // Back-left
-        TIM1->CCR1 = setServoActivationPercent(motor_power[0], esc_lowest_motor_spin, actual_max_esc_pwm_value);
-        // Back-right
-        TIM1->CCR4 = setServoActivationPercent(motor_power[1], esc_lowest_motor_spin, actual_max_esc_pwm_value);
+        dshot600_set_throttle(throttle_value_BL, motor_BL); // Back-left
+        dshot600_set_throttle(throttle_value_BR, motor_FR); // Back-right
 
         // For logging
-        // BL <- BL
-        motor_power[0] = setServoActivationPercent(motor_power[0], esc_lowest_motor_spin, actual_max_esc_pwm_value); // Logging
-        // FL <- FL
-        motor_power[1] = setServoActivationPercent(motor_power[3], esc_lowest_motor_spin, actual_max_esc_pwm_value); // Logging
-        // BR <- BR
-        motor_power[2] = setServoActivationPercent(motor_power[1], esc_lowest_motor_spin, actual_max_esc_pwm_value); // Logging
-        // FR <- FR
-        motor_power[3] = setServoActivationPercent(motor_power[2], esc_lowest_motor_spin, actual_max_esc_pwm_value); // Logging
+        motor_power[0] = throttle_value_BL; // Logging BL <- BL
+        motor_power[1] = throttle_value_FL; // Logging FL <- FL
+        motor_power[2] = throttle_value_BR; // Logging BR <- BR
+        motor_power[3] = throttle_value_FR; // Logging FR <- FR
     }else{
-        // GPS side
-        TIM2->CCR1 = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
-        TIM2->CCR2 = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
 
-        // No gps side
-        TIM1->CCR1 = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
-        TIM1->CCR4 = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value);
-        
+        throttle_value_FR = dshot600_neutral_value;
+        throttle_value_FL = dshot600_neutral_value;
+        throttle_value_BL = dshot600_neutral_value;
+        throttle_value_BR = dshot600_neutral_value;
+
+        // FPV cam side FRONT
+        dshot600_set_throttle(throttle_value_FR, motor_FR); // Front-right
+        dshot600_set_throttle(throttle_value_FL, motor_FL); // Front-left
+        // GPS side BACK
+        dshot600_set_throttle(throttle_value_BL, motor_BL); // Back-left
+        dshot600_set_throttle(throttle_value_BR, motor_FR); // Back-right
+
+        // For logging
+        motor_power[0] = throttle_value_BL; // Logging BL <- BL
+        motor_power[1] = throttle_value_FL; // Logging FL <- FL
+        motor_power[2] = throttle_value_BR; // Logging BR <- BR
+        motor_power[3] = throttle_value_FR; // Logging FR <- FR
+
         // Reset the remote control set points also
         remote_control[0] = 0;
         remote_control[1] = 0;
         remote_control[2] = 0;
         remote_control[3] = 0;
 
-        motor_power[0] = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value); // Logging
-        motor_power[1] = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value); // Logging
-        motor_power[2] = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value); // Logging
-        motor_power[3] = setServoActivationPercent(0, min_esc_pwm_value, actual_max_esc_pwm_value); // Logging
+        motor_power[0] = setServoActivationPercent(0, min_esc_pwm_value, actual_max_dshot600_throttle_value); // Logging
+        motor_power[1] = setServoActivationPercent(0, min_esc_pwm_value, actual_max_dshot600_throttle_value); // Logging
+        motor_power[2] = setServoActivationPercent(0, min_esc_pwm_value, actual_max_dshot600_throttle_value); // Logging
+        motor_power[3] = setServoActivationPercent(0, min_esc_pwm_value, actual_max_dshot600_throttle_value); // Logging
 
         PID_proportional[0] = 0; // Logging
         PID_proportional[1] = 0; // Logging
@@ -899,6 +904,9 @@ void handle_pid_and_motor_control(){
         PID_derivative[0] = 0; // Logging
         PID_derivative[1] = 0; // Logging
 
+        PID_set_points[0] = 0; // Logging
+        PID_set_points[1] = 0; // Logging
+        PID_set_points[2] = 0; // Logging
 
         pid_reset_integral_sum(&acro_roll_pid);
         pid_reset_integral_sum(&acro_pitch_pid);
@@ -1174,9 +1182,13 @@ void initialize_control_abstractions(){
     gps_longitude_pid = pid_init(gps_hold_gain_p, gps_hold_gain_i, gps_hold_gain_d, 0.0, HAL_GetTick(), gps_pid_angle_of_attack_max, -gps_pid_angle_of_attack_max, 1);
     gps_latitude_pid = pid_init(gps_hold_gain_p, gps_hold_gain_i, gps_hold_gain_d, 0.0, HAL_GetTick(), gps_pid_angle_of_attack_max, -gps_pid_angle_of_attack_max, 1);
 
-    filter_magnetometer_x = filtering_init_low_pass_filter(filtering_alpha_magnetometer);
-    filter_magnetometer_y = filtering_init_low_pass_filter(filtering_alpha_magnetometer);
-    filter_magnetometer_z = filtering_init_low_pass_filter(filtering_alpha_magnetometer);
+    filter_magnetometer_x = filtering_init_low_pass_filter(filtering_magnetometer_cutoff_frequency,REFRESH_RATE_HZ);
+    filter_magnetometer_y = filtering_init_low_pass_filter(filtering_magnetometer_cutoff_frequency,REFRESH_RATE_HZ);
+    filter_magnetometer_z = filtering_init_low_pass_filter(filtering_magnetometer_cutoff_frequency,REFRESH_RATE_HZ);
+
+    filter_accelerometer_x = filtering_init_low_pass_filter(filtering_accelerometer_cutoff_frequency,REFRESH_RATE_HZ);
+    filter_accelerometer_y = filtering_init_low_pass_filter(filtering_accelerometer_cutoff_frequency,REFRESH_RATE_HZ);
+    filter_accelerometer_z = filtering_init_low_pass_filter(filtering_accelerometer_cutoff_frequency,REFRESH_RATE_HZ);
 
     float S_state[2][1] = {
         {0},
@@ -1387,9 +1399,9 @@ void setup_logging_to_sd(uint8_t use_updated_file_name){
             25, // Integral windup
             21, // Gyro lowpass cutoff
             20, // Accelerometer lowpass cutoff
-            pwm_frequency,
-            min_esc_pwm_value, 
-            actual_max_esc_pwm_value, 
+            dshot_refresh_rate,
+            min_esc_pwm_value,
+            actual_max_dshot600_throttle_value,
             &betaflight_header_length
         );
         HAL_Delay(100); // wait a bit for it to sort its shit out
@@ -1534,34 +1546,40 @@ void handle_loop_end(){
     handle_loop_timing();
 }
 
+void initialize_motor_communication(){
+    dshot600_init(69465958 * (0.92)); // 69465958 * (0.96) //69465958 * (2);
+    motor_BL = dshot600_add_motor(GPIOA, GPIO_PIN_8);
+    motor_BR = dshot600_add_motor(GPIOA, GPIO_PIN_11);
+    motor_FR = dshot600_add_motor(GPIOA, GPIO_PIN_0);
+    motor_FL = dshot600_add_motor(GPIOA, GPIO_PIN_1);
+    dshot600_start_timer(&htim2);
+}
+
 void init_STM32_peripherals(){
     HAL_Init();
     SystemClock_Config();
     MX_GPIO_Init();
     // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 0);
 
+
+
     HAL_Delay(1);
     MX_DMA_Init(); // This has to be before the uart inits, otherwise dma interrupts dont work
     MX_I2C1_Init();
     MX_SPI1_Init();
-    MX_TIM1_Init();
-    MX_TIM2_Init();
     MX_SPI3_Init();
     HAL_Delay(1);
     MX_USART2_UART_Init();
     MX_USART1_UART_Init();
+    MX_TIM2_Init();
     RetargetInit(&huart1);
-
-    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
-    HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-    HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
 
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
 }
 
+// This is only for PWM, DSHOT600 does not need calibration as it is digital
 void calibrate_escs(){
     // Delay for things to settle down in the mcu init
     HAL_Delay(2000);
@@ -1573,6 +1591,8 @@ void calibrate_escs(){
     TIM1->CCR4 = max_pwm;
     TIM2->CCR1 = max_pwm;
     TIM2->CCR2 = max_pwm;
+
+
     HAL_Delay(3000);
     
     // Set the min value
@@ -1582,6 +1602,7 @@ void calibrate_escs(){
     TIM1->CCR4 = min_pwm;
     TIM2->CCR1 = min_pwm;
     TIM2->CCR2 = min_pwm;
+
 
     // 10 Seconds of min value init just to make sure
     HAL_Delay(6000);
@@ -1640,22 +1661,8 @@ void handle_loop_timing(){
     loop_end_time = HAL_GetTick();
     delta_loop_time = loop_end_time - loop_start_time;
 
-    // printf("b%d", delta_loop_time);
+    printf("b%d", delta_loop_time);
     
-    // if((float)delta_loop_time/1000 > time_needed_to_initiate_lockup){
-    //     uint8_t led_state = 0;
-    //     while (1){
-    //         printf("Loop exceed max loop time. Locking up. Check accelerometer and gyro\n");
-    //         HAL_Delay(500);
-    //         HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, led_state);
-    //         if(led_state == 1){
-    //             led_state = 0;
-    //         }else{
-    //             led_state = 1;
-    //         }
-    //     }
-        
-    // }
     // This one is more precise than using HAL_Delay
     while((1000 / REFRESH_RATE_HZ) > HAL_GetTick()-loop_start_time);
 
@@ -1664,7 +1671,7 @@ void handle_loop_timing(){
 
     loop_end_time = HAL_GetTick();
     delta_loop_time = loop_end_time - temp_loop_start_time;
-    // printf("a%d\n", delta_loop_time);
+    printf("a%d\n", delta_loop_time);
 }
 
 // 0.5ms to 2ms = range is 1.5ms
@@ -2271,84 +2278,6 @@ static void MX_SPI3_Init(void)
 
 }
 
-/**
-  * @brief TIM1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM1_Init(void)
-{
-
-  /* USER CODE BEGIN TIM1_Init 0 */
-
-  /* USER CODE END TIM1_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
-  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
-
-  /* USER CODE BEGIN TIM1_Init 1 */
-
-  /* USER CODE END TIM1_Init 1 */
-  htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 72-1;
-  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 19997-1;
-  htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim1.Init.RepetitionCounter = 0;
-  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
-  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
-  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_4) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
-  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
-  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
-  sBreakDeadTimeConfig.DeadTime = 0;
-  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
-  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
-  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
-  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM1_Init 2 */
-
-  /* USER CODE END TIM1_Init 2 */
-  HAL_TIM_MspPostInit(&htim1);
-
-}
 
 /**
   * @brief TIM2 Initialization Function
@@ -2364,7 +2293,6 @@ static void MX_TIM2_Init(void)
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
 
   /* USER CODE BEGIN TIM2_Init 1 */
 
@@ -2372,7 +2300,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 72-1;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 19997-1;
+  htim2.Init.Period = 1000-1;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -2384,32 +2312,15 @@ static void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
-  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
-  HAL_TIM_MspPostInit(&htim2);
 
 }
 
@@ -2543,16 +2454,15 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PA15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_15;
+  GPIO_InitStruct.Pin = GPIO_PIN_15 | GPIO_PIN_1 | GPIO_PIN_0 | GPIO_PIN_8 | GPIO_PIN_11;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(EXTI15_10_IRQn);
-
 }
 
 /* USER CODE BEGIN 4 */
