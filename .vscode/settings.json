@@ -33,11 +33,14 @@
         "filtering.h": "c",
         "mmc56x3.h": "c",
         "mmc5603.h": "c",
-        "bidirectional_dshot600.h": "c"
+        "bidirectional_dshot600.h": "c",
+        "dshot600.h": "c",
+        "bdshot600.h": "c"
     },
     "cSpell.words": [
         "acro",
         "axies",
+        "bdshot",
         "betaflight",
         "Biquad",
         "blackbox",
@@ -57,8 +60,10 @@
         "genfromtxt",
         "GPIO",
         "GPIOA",
+        "htim",
         "kalman",
         "lowpass",
+        "overcapture",
         "Quadcopter",
         "reflashed",
         "TRCENA"

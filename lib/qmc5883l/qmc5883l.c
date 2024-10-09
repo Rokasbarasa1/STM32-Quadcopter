@@ -53,7 +53,7 @@ uint8_t init_qmc5883l(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibrat
         1,
         &check,
         1,
-        100
+        5
     );
 
     // Check if the id value is as it should be
@@ -73,7 +73,7 @@ uint8_t init_qmc5883l(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibrat
         1,
         &settings2,
         1,
-        100
+        5
     );
 
     // Set some essential settings that control the data being outputted
@@ -90,7 +90,7 @@ uint8_t init_qmc5883l(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibrat
         1,
         &settings1,
         1,
-        100
+        5
     );
 
     printf("QMC5883L initialized\n");
@@ -108,7 +108,7 @@ void qmc5883l_magnetometer_readings_micro_teslas(float *data){
         1,
         retrieved_data,
         6, // read six registers in total so from 
-        100
+        5
     );
 
     // First is least significant and second is most significant

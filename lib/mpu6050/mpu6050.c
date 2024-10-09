@@ -77,9 +77,15 @@ uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, enum t_mpu6050_accel_co
 
 
     uint8_t check;
-    HAL_I2C_Mem_Read(i2c_handle, MPU6050 + 1, ID_REG, 1, &check, 1, 100);
+    HAL_StatusTypeDef response = HAL_I2C_Mem_Read(
+        i2c_handle, 
+        MPU6050 + 1, 
+        ID_REG, 1, 
+        &check, 
+        1, 
+        5);
     if (check != ID_VALUE){
-        printf("MPU6050 initialization failed\n");
+        printf("MPU6050 initialization failed %d\n", response);
         return 0;
     }
 
@@ -94,7 +100,7 @@ uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, enum t_mpu6050_accel_co
         1, 
         &data, 
         1, 
-        100
+        5
     );
     HAL_Delay(100);
 
@@ -107,7 +113,7 @@ uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, enum t_mpu6050_accel_co
         1, 
         &data, 
         1, 
-        100
+        5
     );
     HAL_Delay(100);
 
@@ -121,7 +127,7 @@ uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, enum t_mpu6050_accel_co
         1, 
         &data, 
         1, 
-        100
+        5
     );
 
     data = 0b00000000;
@@ -133,7 +139,7 @@ uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, enum t_mpu6050_accel_co
         1, 
         &data, 
         1, 
-        100
+        5
     );
 
     data = 0b00000000;
@@ -145,7 +151,7 @@ uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, enum t_mpu6050_accel_co
         1, 
         &data, 
         1, 
-        100
+        5
     );
 
     data = 0b00000000;
@@ -157,7 +163,7 @@ uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, enum t_mpu6050_accel_co
         1, 
         &data, 
         1, 
-        100
+        5
     );
 
     pitch_2_complementary = init_second_order_coplementary_filter(complementary_ratio, complementary_beta);
@@ -179,7 +185,7 @@ void mpu6050_get_accelerometer_readings_gravity(float *data){
         1,
         retrieved_data,
         6,  // Read all of the accelerometer registers
-        100);
+        5);
 
     int16_t X = ((int16_t)retrieved_data[0] << 8) | (int16_t)retrieved_data[1];
     int16_t Y = ((int16_t)retrieved_data[2] << 8) | (int16_t)retrieved_data[3];
@@ -211,7 +217,7 @@ void mpu6050_get_gyro_readings_dps(float *data){
         1,
         retrieved_data,
         6,  // Read all of the gyroscope registers
-        100);
+        5);
 
     int16_t X = ((int16_t)retrieved_data[0] << 8) | (int16_t)retrieved_data[1];
     int16_t Y = ((int16_t)retrieved_data[2] << 8) | (int16_t)retrieved_data[3];

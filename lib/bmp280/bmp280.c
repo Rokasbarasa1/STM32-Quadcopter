@@ -88,7 +88,7 @@ uint8_t init_bmp280(I2C_HandleTypeDef *i2c_handle_temp)
         1, 
         &check, 
         1, 
-        100);
+        5);
 
     // Check if reading was ok and if the value that was read is correct, matches id value
     if (ret != HAL_OK || check != ID_VALUE)
@@ -106,7 +106,8 @@ uint8_t init_bmp280(I2C_HandleTypeDef *i2c_handle_temp)
         RESET_REG, 
         1, 
         &reset_device, 
-        1, 100);
+        1, 
+        5);
 
     uint8_t ctrl_meas_register = 0b00000000;
     ctrl_meas_register |= NORMAL_MODE; // set it to normal mode
@@ -119,7 +120,7 @@ uint8_t init_bmp280(I2C_HandleTypeDef *i2c_handle_temp)
         1, 
         &ctrl_meas_register, 
         1, 
-        100);
+        5);
 
     uint8_t config_register = 0b00000000;
     config_register |= SB_MODE_0_5; // Set standby time to 0.5mx, disable spi on last bit
@@ -131,7 +132,7 @@ uint8_t init_bmp280(I2C_HandleTypeDef *i2c_handle_temp)
         1, 
         &config_register, 
         1, 
-        100);
+        5);
 
     printf("BMP280 initialized\n");
     HAL_Delay(100); // Wait a bit to let the new settings soak in
@@ -163,8 +164,7 @@ uint32_t bmp280_convert_raw_pres(int32_t adc_P)
     var2 = var2 + (((int64_t)dig_P4) << 35);
     var1 = ((var1 * var1 * (int64_t)dig_P3) >> 8) + ((var1 * (int64_t)dig_P2) << 12);
     var1 = (((((int64_t)1) << 47) + var1)) * ((int64_t)dig_P1) >> 33;
-    if (var1 == 0)
-    {
+    if (var1 == 0){
         return 0; // avoid exception caused by division by zero
     }
     p = 1048576 - adc_P;
@@ -186,7 +186,7 @@ uint8_t load_trim_registers()
         1,
         trim_data,
         26, // there are 26 bits of trim data
-        100);
+        5);
 
     // Check if reading failed
     if (ret != HAL_OK)
@@ -226,7 +226,7 @@ float bmp280_get_pressure_hPa()
         1,
         retrieved_data,
         3,
-        100);
+        5);
 
     // Combine the 3 bytes in a specific way to get a 16-20 bit value
     int32_t combined_pres = ((int32_t)retrieved_data[0] << 12) | ((int32_t)retrieved_data[1]) << 4 | ((int32_t)retrieved_data[2] >> 4);
@@ -252,7 +252,7 @@ float bmp280_get_temperature_celsius()
         1,
         retrieved_data,
         3,
-        100);
+        5);
 
     // Combine the 3 bytes in a specific way to get a 16-20 bit value
     int32_t combined_temp = ((int32_t)retrieved_data[0] << 12) | ((int32_t)retrieved_data[1]) << 4 | ((int32_t)retrieved_data[2] >> 4);

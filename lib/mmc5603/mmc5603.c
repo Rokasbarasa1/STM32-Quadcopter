@@ -94,7 +94,7 @@ uint8_t mmc5603_get_register_value(uint8_t register_address){
         1,
         &register_value,
         1,
-        100
+        5
     );
 
     return register_value;
@@ -151,7 +151,7 @@ uint8_t mmc5603_init(
         1,
         &check,
         1,
-        100
+        5
     );
 
     // Check if the id value is as it should be
@@ -174,7 +174,7 @@ uint8_t mmc5603_init(
         1,
         &data,
         1,
-        100
+        5
     );
     HAL_Delay(100);
 
@@ -188,7 +188,7 @@ uint8_t mmc5603_init(
         1,
         &data,
         1,
-        100
+        5
     );
     HAL_Delay(100);
 
@@ -210,7 +210,7 @@ uint8_t mmc5603_init(
             1,
             &data,
             1,
-            100
+            5
         );
         HAL_Delay(100);
 
@@ -225,7 +225,7 @@ uint8_t mmc5603_init(
                 1,
                 &data2,
                 1,
-                100
+                5
             );
             HAL_Delay(100);
 
@@ -241,7 +241,7 @@ uint8_t mmc5603_init(
             1,
             &data,
             1,
-            100
+            5
         );
         HAL_Delay(100);
 
@@ -256,7 +256,7 @@ uint8_t mmc5603_init(
                 1,
                 &data2,
                 1,
-                100
+                5
             );
         }
         HAL_Delay(100);
@@ -271,7 +271,7 @@ uint8_t mmc5603_init(
             1,
             &data,
             1,
-            100
+            5
         );
         HAL_Delay(100);
 
@@ -296,7 +296,7 @@ void mmc5603_magnetometer_readings_micro_teslas(float *data){
             1,
             &data2,
             1,
-            100
+            5
         );
 
         // Check if magnetic measurement done
@@ -314,7 +314,7 @@ void mmc5603_magnetometer_readings_micro_teslas(float *data){
         1,
         retrieved_data,
         9, // read nine registers in total
-        100
+        5
     );
  
     // Combine the bits into a integer value
@@ -357,7 +357,7 @@ void mmc5603_set(){
         1,
         &data,
         1,
-        100
+        5
     );
 }
 
@@ -376,7 +376,7 @@ void mmc5603_reset(){
         1,
         &data,
         1,
-        100
+        5
     );
 }
 
@@ -390,7 +390,7 @@ uint8_t mmc5603_read_status_register(){
         1,
         &data,
         1,
-        100
+        5
     );
 
     return data;
@@ -408,7 +408,7 @@ uint8_t mmc5603_perform_self_test(){
         1,
         retrieved_data,
         3, // read 3 in total x, y and z
-        100
+        5
     );
 
     // 2 Calculate the new value
@@ -425,7 +425,7 @@ uint8_t mmc5603_perform_self_test(){
         1,
         &data,
         1,
-        100
+        5
     );
 
     data = retrieved_data[1];
@@ -436,7 +436,7 @@ uint8_t mmc5603_perform_self_test(){
         1,
         &data,
         1,
-        100
+        5
     );
 
     data = retrieved_data[2];
@@ -447,7 +447,7 @@ uint8_t mmc5603_perform_self_test(){
         1,
         &data,
         1,
-        100
+        5
     );
 
     // 4 Initiate self test
@@ -463,7 +463,7 @@ uint8_t mmc5603_perform_self_test(){
         1,
         &data,
         1,
-        100
+        5
     );
 
     // 5 Read self test status bit

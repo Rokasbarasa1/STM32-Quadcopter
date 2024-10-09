@@ -6,4 +6,5 @@ You do not need a F3 discovery. A F4 Discovery or a blackpill F411 with a workin
 
 Do not try to use Arduino for this. I tried to use BlHeliSuite16 to flash the firmware but the software kept complaining if i tired to flash BlueJay firmware. It just does not work.
 
+Betaflight guide for F3: https://betaflight.com/docs/wiki/boards/archive/stm32discovery
 Guide to Bluejay: https://www.youtube.com/watch?v=yEDhnBUFQNI&t=350s
