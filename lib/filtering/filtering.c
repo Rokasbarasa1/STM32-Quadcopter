@@ -55,3 +55,38 @@ float high_pass_calculate_phase_delay_seconds(float cutoff_frequency, float samp
     return phase_shift / (2.0 * M_PI * cutoff_frequency); 
 }
 
+
+struct notch_filter notch_filter_init(float center_frequency, float notch_width_hz, float sample_time_seconds){
+    struct notch_filter new_filter;
+    
+    float center_frequency_radians = 2.0f * M_PI * center_frequency;
+    float notch_width_hz_radians = 2.0f * M_PI * notch_width_hz;
+
+    // Pre-wrap center frequency
+    float pre_wrap_radians = (2.0f / sample_time_seconds) * tanf(0.5f * center_frequency_radians * sample_time_seconds);
+
+    new_filter.alpha = 4.0f + center_frequency_radians * center_frequency_radians * sample_time_seconds * sample_time_seconds;
+    new_filter.beta = 2.0f * notch_width_hz_radians * sample_time_seconds;
+
+    // Clear arrays
+    memset(new_filter.input_array, 0, 3 * sizeof(float));
+    memset(new_filter.output_array, 0, 3 * sizeof(float));
+
+    return new_filter;
+}
+
+float notch_filter_read(struct notch_filter* filter, float input){
+    // Shift input samples and add the new one
+    filter->input_array[2] = filter->input_array[1];
+    filter->input_array[1] = filter->input_array[0];
+    filter->input_array[0] = input;
+    
+    // Shift the output samples and add the new computed one
+    filter->output_array[2] = filter->output_array[1];
+    filter->output_array[1] = filter->output_array[0];
+    filter->output_array[0] =  (filter->alpha * filter->input_array[0] + 2.0f * (filter->alpha - 8.0f) * filter->input_array[1] + filter->alpha * filter->input_array[2]
+                             - (2.0f * (filter->alpha - 8.0f) * filter->output_array[1] + (filter->alpha - filter->beta) * filter->output_array[2]))
+                             / (filter->alpha + filter->beta);
+
+    return filter->output_array[0];
+}

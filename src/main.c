@@ -134,7 +134,7 @@ void initialize_motor_communication();
 // PB0 CE
 
 // ------------------------------------------------------------------------------------------------------ Refresh rate
-#define REFRESH_RATE_HZ 200
+#define REFRESH_RATE_HZ 520 // The goal for now
 
 // ------------------------------------------------------------------------------------------------------ handling loop timing
 uint32_t loop_start_time = 0;
@@ -456,6 +456,22 @@ uint8_t use_angle_mode = 0;
 uint8_t use_vertical_velocity_control = 0;
 uint8_t use_gps_hold = 0;
 
+
+uint32_t radio = 0;
+uint32_t radio2 = 0;
+uint32_t sensors = 0;
+uint32_t sensors2 = 0;
+uint32_t sensors3 = 0;
+uint32_t sensors4 = 0;
+uint32_t sensors5 = 0;
+uint32_t sensors6 = 0;
+uint32_t sensors7 = 0;
+
+uint32_t motor = 0;
+uint32_t logging = 0;
+uint32_t logging2 = 0;
+uint32_t logging3 = 0;
+
 int main(void){
     init_STM32_peripherals();
     accelerometer_roll_offset = base_accelerometer_roll_offset;
@@ -476,14 +492,39 @@ int main(void){
     get_initial_position();
     setup_logging_to_sd(0);
     initialize_control_abstractions();
-    initialize_motor_communication();
+    // initialize_motor_communication();
 
     handle_pre_loop_start();
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;  
+    DWT->CYCCNT = 0;                                // Reset the cycle counter
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
     while (1){
+        DWT->CYCCNT = 0;
+        radio = DWT->CYCCNT;
         handle_radio_communication();
+        // printf("r%lu\n", DWT->CYCCNT - radio);
+        // printf("2r%lu\n", radio2 - radio);
+
+        sensors = DWT->CYCCNT;
         handle_get_and_calculate_sensor_values(); // Important do do this right before the pid stuff.
+        // printf("1s%lu\n", DWT->CYCCNT - sensors);
+        // printf("2s%lu\n", sensors2 - sensors);
+        // printf("3s%lu\n", sensors3 - sensors);
+        // printf("4s%lu\n", sensors4 - sensors);
+        // printf("5s%lu\n", sensors5 - sensors);
+        // printf("6s%lu\n", sensors6 - sensors);
+        // printf("7s%lu\n", sensors7 - sensors);
+
+        motor = DWT->CYCCNT;
         handle_pid_and_motor_control();
+        // printf("m%lu\n", DWT->CYCCNT - motor);
+
+        logging = DWT->CYCCNT;
         handle_logging();
+        // printf("1L%lu\n", DWT->CYCCNT - logging);
+        // printf("2L%lu\n", logging2 - logging);
+        // printf("3L%lu\n", logging3 - logging);
 
         handle_loop_end();
     }
@@ -553,15 +594,20 @@ void handle_get_and_calculate_sensor_values(){
         motor_rpm[2] = bdshot600_get_rpm(motor_FR);
         motor_rpm[3] = bdshot600_get_rpm(motor_FL);
     }
+    sensors2 = DWT->CYCCNT;
 
     // Disable interrupts as they heavily impact the i2c communication
     __disable_irq();
     temperature = bmp280_get_temperature_celsius();
     altitude = bmp280_get_height_centimeters_from_reference(0);
+    sensors3 = DWT->CYCCNT;
     mmc5603_magnetometer_readings_micro_teslas(magnetometer_data);
+    sensors4 = DWT->CYCCNT;
     mpu6050_get_accelerometer_readings_gravity(acceleration_data);
     mpu6050_get_gyro_readings_dps(gyro_angular);
     __enable_irq(); 
+
+    sensors5 = DWT->CYCCNT;
 
     gps_latitude = bn357_get_latitude_decimal_format();
     gps_longitude = bn357_get_linear_longitude_decimal_format(); // Linear for pid
@@ -582,7 +628,16 @@ void handle_get_and_calculate_sensor_values(){
 
     // printf("%f;%f;%f;\n", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
     // ------------------------------------------------------------------------------------------------------ Filter the sensor data
-    
+    sensors6 = DWT->CYCCNT;
+
+
+
+    // Gyro RPM filtering
+    // Filter the gyro using each of the rpm's from the motors
+    // 4 notch filters with 3 harmonics
+
+
+
     // Gyro filtering is not needed as loop rate and gyro sample rate are the same
     magnetometer_data[0] = low_pass_filter_read(&filter_magnetometer_x, magnetometer_data[0]);
     magnetometer_data[1] = low_pass_filter_read(&filter_magnetometer_y, magnetometer_data[1]);
@@ -616,6 +671,8 @@ void handle_get_and_calculate_sensor_values(){
     roll_effect_on_lat = -triangle_cos(imu_orientation[2] * (M_PI / 180.0)) * latitude_sign; // + GOOD, - GOOD  // If moving north roll right positive, roll left south negative
     pitch_effect_on_lon = triangle_cos(imu_orientation[2] * (M_PI / 180.0)) * longitude_sign; // + GOOD, - GOOD 
     roll_effect_on_lon = triangle_cos(imu_orientation[2] * (M_PI / 180.0)) * longitude_sign; // GOOD, - GOOD
+
+    sensors7 = DWT->CYCCNT;
 
     // printf("PLAT: %.2f RLAT: %.2f PLON: %.2f RLON: %.2f\n", 
     //     pitch_effect_on_lat,
@@ -670,6 +727,7 @@ void handle_get_and_calculate_sensor_values(){
     // printf("Alt %f vel %f ", altitude, vertical_velocity);
     // printf("IMU %f %f %f\n", imu_orientation[0], imu_orientation[1], imu_orientation[2]);
 }
+
 
 
 void handle_pid_and_motor_control(){
@@ -933,6 +991,7 @@ void handle_radio_communication(){
         // Get the type of request
         extract_request_type(rx_data, strlen(rx_data), rx_type);
 
+        radio2 = DWT->CYCCNT;
         if(strcmp(rx_type, "js") == 0){
             // printf("JOYSTICK\n");
             last_signal_timestamp = HAL_GetTick();
@@ -1275,7 +1334,7 @@ void setup_logging_to_sd(uint8_t use_updated_file_name){
     // Initialize sd card logging
     sd_card_initialized = 0;
     if(!use_updated_file_name) sd_card_initialize_spi(&hspi3, GPIOA, GPIO_PIN_15, GPIOA, GPIO_PIN_12);
-
+    
     if(sd_test_interface()){
         printf("SD logging: Logger module is working\n");
 
@@ -1442,14 +1501,14 @@ void handle_logging(){
     time_since_startup_minutes = (delta_time - time_since_startup_hours * 3600000) / 60000;
     time_since_startup_seconds = (delta_time - time_since_startup_hours * 3600000 - time_since_startup_minutes * 60000) / 1000;
     time_since_startup_ms = delta_time - time_since_startup_hours * 3600000 - time_since_startup_minutes * 60000 - time_since_startup_seconds * 1000;
-
     uint32_t time_blackbox = ((time_since_startup_hours * 60 + time_since_startup_minutes * 60) + time_since_startup_seconds) * 1000000 + time_since_startup_ms * 1000; 
 
     if(sd_card_initialized){
         uint16_t data_size = 0;
 
         if(use_blackbox_logging){
-            char* betaflight_data_string = betaflight_blackbox_get_encoded_data_string(
+            char* sd_card_buffer = sd_card_get_buffer_pointer(1);
+            betaflight_blackbox_get_encoded_data_string(
                 loop_iteration,
                 time_blackbox,
                 PID_proportional,
@@ -1464,21 +1523,15 @@ void handle_logging(){
                 magnetometer_data,
                 imu_orientation,
                 altitude,
-                &data_size
+                &data_size,
+                sd_card_buffer
             );
-            char* sd_card_buffer = sd_card_get_buffer_pointer(1);
-            uint16_t sd_card_buffer_index = 0;
-            uint16_t betaflight_data_string_index = 0;
-            while(sd_card_buffer_index < data_size){
-                sd_card_buffer[sd_card_buffer_index] = betaflight_data_string[sd_card_buffer_index];
-                sd_card_buffer_increment_index();
-                sd_card_buffer_index++;
-                betaflight_data_string_index++;
-            }
-            free(betaflight_data_string);
+            
+            sd_card_buffer_increment_index_by_amount(data_size);
 
             if(got_gps){
-                char* betaflight_gps_string = betaflight_blackbox_get_encoded_gps_string(
+                data_size = 0;
+                betaflight_blackbox_get_encoded_gps_string(
                     bn357_get_utc_time_raw(),
                     bn357_get_satellites_quantity(),
                     bn357_get_latitude_decimal_format(),
@@ -1486,19 +1539,12 @@ void handle_logging(){
                     bn357_get_altitude_meters(),
                     0,
                     0,
-                    &data_size // it will append but not overwrite
+                    &data_size, // it will append but not overwrite
+                    sd_card_buffer
                 );
-
-                // append the gps stuff
-                uint16_t betaflight_gps_string_index = 0;
-                while(sd_card_buffer_index < data_size){
-                    sd_card_buffer[sd_card_buffer_index] = betaflight_gps_string[betaflight_gps_string_index];
-                    sd_card_buffer_increment_index();
-                    sd_card_buffer_index++;
-                    betaflight_gps_string_index++;
-                }
-                free(betaflight_gps_string);
+                sd_card_buffer_increment_index_by_amount(data_size);
             }
+            data_size = sd_buffer_size(1);
         }else{
             // Log a bit of data
             // sd_card_append_to_buffer(1, "%02d:%02d:%02d:%03d;", time_since_startup_hours, time_since_startup_minutes, time_since_startup_seconds, time_since_startup_ms);
@@ -1522,9 +1568,12 @@ void handle_logging(){
                 sd_buffer_clear(1);
             }else{
                 if(use_blackbox_logging){
+                    logging2 = DWT->CYCCNT;
                     sd_special_write_chunk_of_byte_data_async(sd_card_get_buffer_pointer(1), data_size);
                     sd_buffer_swap();
-                    sd_buffer_clear(1);
+                    sd_buffer_clear_index(1); // Reset the index
+                    // sd_buffer_clear(1); 
+                    logging3 = DWT->CYCCNT;
                 }else{
                     sd_special_write_chunk_of_string_data_async(sd_card_get_buffer_pointer(1));
                     sd_buffer_swap();
@@ -1643,7 +1692,9 @@ void handle_loop_timing(){
     loop_end_time = HAL_GetTick();
     delta_loop_time = loop_end_time - loop_start_time;
 
-    printf("b%d", delta_loop_time);
+    // printf("%d\n", delta_loop_time);
+
+    // printf("b%d", delta_loop_time);
     
     // This one is more precise than using HAL_Delay
     while((1000 / REFRESH_RATE_HZ) > HAL_GetTick()-loop_start_time);
@@ -1653,7 +1704,7 @@ void handle_loop_timing(){
 
     loop_end_time = HAL_GetTick();
     delta_loop_time = loop_end_time - temp_loop_start_time;
-    printf("a%d\n", delta_loop_time);
+    // printf("a%d\n", delta_loop_time);
 }
 
 // 0.5ms to 2ms = range is 1.5ms
@@ -2028,9 +2079,8 @@ char* generate_message_pid_values_nrf24(float base_proportional, float base_inte
 }
 
 void reset_array_data(float *array, uint8_t array_size){
-    for (uint8_t i = 0; i < array_size; i++){
-        array[i] = 0.0f;
-    }
+    memset(array, 0, array_size * sizeof(float));
+
 }
 
 void switch_x_and_y_axis(float *data){
@@ -2127,7 +2177,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = 13;
-  RCC_OscInitStruct.PLL.PLLN = 75;
+  RCC_OscInitStruct.PLL.PLLN = 100;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = 4;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
@@ -2144,7 +2194,7 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
   {
     Error_Handler();
   }
@@ -2207,7 +2257,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -2279,7 +2329,7 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 72-1;
+  htim3.Init.Prescaler = 100-1;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim3.Init.Period = (1000000/dshot_refresh_rate)-1;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;

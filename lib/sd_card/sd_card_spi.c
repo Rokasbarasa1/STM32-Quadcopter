@@ -105,23 +105,37 @@ uint16_t sd_buffer_size(uint8_t local){
         return 0;
 }
 
-uint8_t sd_buffer_clear(uint8_t local){
+uint8_t sd_buffer_clear_index(uint8_t local){
     if(local){
         if(selected_buffer == 0){
-            for(int i=0; i< SD_BUFFER_SIZE; i++){
-                sd_buffer0[i] = 0;
-            }
             sd_buffer0_index = 0;
             return 1;
         }else if(selected_buffer == 1){
-            for(int i=0; i< SD_BUFFER_SIZE; i++){
-                sd_buffer1[i] = 0;
-            }
             sd_buffer1_index = 0;
             return 1;
         }
+    }
 
+    // Non local one is to be implemented
+}
 
+uint8_t sd_buffer_clear(uint8_t local){
+    if(local){
+        if(selected_buffer == 0){
+            memset(sd_buffer0, 0, SD_BUFFER_SIZE * sizeof(uint8_t));
+            // for(int i=0; i< SD_BUFFER_SIZE; i++){
+            //     sd_buffer0[i] = 0;
+            // }
+            sd_buffer0_index = 0;
+            return 1;
+        }else if(selected_buffer == 1){
+            memset(sd_buffer1, 0, SD_BUFFER_SIZE * sizeof(uint8_t));
+            // for(int i=0; i< SD_BUFFER_SIZE; i++){
+            //     sd_buffer1[i] = 0;
+            // }
+            sd_buffer1_index = 0;
+            return 1;
+        }
     }
 
     if(m_device_handle){
@@ -526,6 +540,11 @@ char* sd_card_get_buffer_pointer(uint8_t local){
 void sd_card_buffer_increment_index(){
     if(selected_buffer == 0) sd_buffer0_index++;
     else if(selected_buffer == 1) sd_buffer1_index++;
+}
+
+void sd_card_buffer_increment_index_by_amount(uint16_t index_increment_amount){
+    if(selected_buffer == 0) sd_buffer0_index += index_increment_amount;
+    else if(selected_buffer == 1) sd_buffer1_index += index_increment_amount;
 }
 
 uint32_t sd_card_get_selected_file_size(){
@@ -1007,8 +1026,10 @@ uint8_t sd_special_write_chunk_of_byte_data_async(const char *data, uint16_t len
     if(m_device_handle){
 
         sd_special_wait_until_async_write_done();
-        slave_deselect();
-        delay_us(25); // Need small delay for the slave to do internal reorganizing of buffers when it is ready to write new data
+
+        // No point deselecting
+        // slave_deselect();
+        // 382 us
         slave_select(); 
 
         // Use DMA to not block 

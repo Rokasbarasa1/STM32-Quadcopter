@@ -318,7 +318,7 @@ void blackbox_write_signed_16VB_array(int16_t *array, int count, uint8_t* byte_a
     }
 }
 
-char* betaflight_blackbox_get_encoded_data_string(
+void betaflight_blackbox_get_encoded_data_string(
     uint32_t loop_iteration,
     uint32_t time,
     float* PID_proportion,
@@ -333,60 +333,58 @@ char* betaflight_blackbox_get_encoded_data_string(
     float* mag,
     float* gyro_post_sensor_fusion,
     float altitude,
-    uint16_t* string_length_return
+    uint16_t* string_length_return,
+    uint8_t *buffer
 ){
-    uint16_t string_length_total = 200;
-    char* new_string = malloc(string_length_total+1);
     uint16_t string_index = 0;
 
     
     float scaling_factor = 10;
     float gyro_scaling_factor = 131.0; // This is to convert it to raw degrees
 
-    int32_t PID_proportion_int[3] = {lrintf(PID_proportion[0]*scaling_factor), lrintf(PID_proportion[1]*scaling_factor), lrintf(PID_proportion[2]*scaling_factor)};
-    int32_t PID_integral_int[3] = {lrintf(PID_integral[0]*scaling_factor), lrintf(PID_integral[1]*scaling_factor), lrintf(PID_integral[2]*scaling_factor)};
-    int32_t PID_derivative_int[3] = {lrintf(PID_derivative[0]*scaling_factor), lrintf(PID_derivative[1]*scaling_factor), lrintf(PID_derivative[2]*scaling_factor)};
-    int32_t PID_feed_forward_int[3] = {lrintf(PID_feed_forward[0]*scaling_factor), lrintf(PID_feed_forward[1]*scaling_factor), lrintf(PID_feed_forward[2]*scaling_factor)};
+    int32_t PID_proportion_int[3] = {(int32_t)PID_proportion[0]*scaling_factor, (int32_t)PID_proportion[1]*scaling_factor, (int32_t)PID_proportion[2]*scaling_factor};
+    int32_t PID_integral_int[3] = {(int32_t)PID_integral[0]*scaling_factor, (int32_t)PID_integral[1]*scaling_factor, (int32_t)PID_integral[2]*scaling_factor};
+    int32_t PID_derivative_int[3] = {(int32_t)PID_derivative[0]*scaling_factor, (int32_t)PID_derivative[1]*scaling_factor, (int32_t)PID_derivative[2]*scaling_factor};
+    int32_t PID_feed_forward_int[3] = {(int32_t)PID_feed_forward[0]*scaling_factor, (int32_t)PID_feed_forward[1]*scaling_factor, (int32_t)PID_feed_forward[2]*scaling_factor};
 
-    int16_t remote_control_int[4] = {lrintf(remote_control[0]*scaling_factor), lrintf(remote_control[1]*scaling_factor), lrintf(remote_control[2]*scaling_factor), lrintf(remote_control[3]*scaling_factor)};
-    int16_t set_points_int[4] = {lrintf(set_points[0]*gyro_scaling_factor), lrintf(set_points[1]*gyro_scaling_factor), lrintf(set_points[2]*gyro_scaling_factor), lrintf(set_points[3]*gyro_scaling_factor)};
-    int16_t gyro_sums_int[3] = {lrintf(gyro_sums[0]*gyro_scaling_factor), lrintf(gyro_sums[1]*gyro_scaling_factor), lrintf(gyro_sums[2]*gyro_scaling_factor)};
-    int16_t accelerometer_values_int[3] = {lrintf(accelerometer_values[0]*16384.0), lrintf(accelerometer_values[1]*16384.0), lrintf(accelerometer_values[2]*16384.0)};
+    int16_t remote_control_int[4] = {(int16_t)remote_control[0]*scaling_factor, (int16_t)remote_control[1]*scaling_factor, (int16_t)remote_control[2]*scaling_factor, (int16_t)remote_control[3]*scaling_factor};
+    int16_t set_points_int[4] = {(int16_t)set_points[0]*gyro_scaling_factor, (int16_t)set_points[1]*gyro_scaling_factor, (int16_t)set_points[2]*gyro_scaling_factor, (int16_t)set_points[3]*gyro_scaling_factor};
+    int16_t gyro_sums_int[3] = {(int16_t)gyro_sums[0]*gyro_scaling_factor, (int16_t)gyro_sums[1]*gyro_scaling_factor, (int16_t)gyro_sums[2]*gyro_scaling_factor};
+    int16_t accelerometer_values_int[3] = {(int16_t)accelerometer_values[0]*16384.0, (int16_t)accelerometer_values[1]*16384.0, (int16_t)accelerometer_values[2]*16384.0};
     uint16_t motor_power_int[4] = {
-        lrintf(motor_power[2]), 
-        lrintf(motor_power[3]), 
-        lrintf(motor_power[0]),
-        lrintf(motor_power[1]),
+        (uint16_t)motor_power[2], 
+        (uint16_t)motor_power[3], 
+        (uint16_t)motor_power[0],
+        (uint16_t)motor_power[1],
     };
 
-    int32_t mag_int[3] = {lrintf(mag[0]*scaling_factor), lrintf(mag[1]*scaling_factor), lrintf(mag[2]*scaling_factor)};
+    int32_t mag_int[3] = {(int32_t)mag[0]*scaling_factor, (int32_t)mag[1]*scaling_factor, (int32_t)mag[2]*scaling_factor};
 
-    int32_t gyro_post_sensor_fusion_int[4] = {lrintf(gyro_post_sensor_fusion[0]*gyro_scaling_factor), lrintf(gyro_post_sensor_fusion[1]*gyro_scaling_factor), lrintf(gyro_post_sensor_fusion[2]*gyro_scaling_factor), 0};
-    int32_t altitude_int = lrintf(altitude*scaling_factor); // 10 float value is 1.0 meter after it arrives to the logger.
-
+    int32_t gyro_post_sensor_fusion_int[4] = {(int32_t)gyro_post_sensor_fusion[0]*gyro_scaling_factor, (int32_t)gyro_post_sensor_fusion[1]*gyro_scaling_factor, (int32_t)gyro_post_sensor_fusion[2]*gyro_scaling_factor, 0};
+    int32_t altitude_int = (int32_t)altitude*scaling_factor; // 10 float value is 1.0 meter after it arrives to the logger.
 
     // The big writes are not that meaningful here as in the header one, assume everything is ugly bytes here
-    new_string[string_index++] = 'I';
-    blackbox_write_unsigned_VB(loop_iteration, (uint8_t *)new_string, &string_index); // loopIteration 0 1 GOOD
-    blackbox_write_unsigned_VB(time, (uint8_t *)new_string, &string_index); // time 0 1 GOOD
-    blackbox_write_signed_VB_array(PID_proportion_int, 3, (uint8_t *)new_string, &string_index); // axisP[0],axisP[1],axisP[2] 1,1,1 0,0,0 GOOD
-    blackbox_write_signed_VB_array(PID_integral_int, 3, (uint8_t *)new_string, &string_index); // axisI[0],axisI[1],axisI[2] 1,1,1 0,0,0 GOOD
-    blackbox_write_signed_VB_array(PID_derivative_int, 2, (uint8_t *)new_string, &string_index); //axisD[0],axisD[1] 1,1 0,0 GOOD
-    blackbox_write_signed_VB_array(PID_feed_forward_int, 3, (uint8_t *)new_string, &string_index); // axisF[0],axisF[1],axisF[2] 1,1,1 0,0,0 GOOD
+    buffer[string_index++] = 'I';
+    blackbox_write_unsigned_VB(loop_iteration, buffer, &string_index); // loopIteration 0 1 GOOD
+    blackbox_write_unsigned_VB(time, buffer, &string_index); // time 0 1 GOOD
+    blackbox_write_signed_VB_array(PID_proportion_int, 3, buffer, &string_index); // axisP[0],axisP[1],axisP[2] 1,1,1 0,0,0 GOOD
+    blackbox_write_signed_VB_array(PID_integral_int, 3, buffer, &string_index); // axisI[0],axisI[1],axisI[2] 1,1,1 0,0,0 GOOD
+    blackbox_write_signed_VB_array(PID_derivative_int, 2, buffer, &string_index); //axisD[0],axisD[1] 1,1 0,0 GOOD
+    blackbox_write_signed_VB_array(PID_feed_forward_int, 3, buffer, &string_index); // axisF[0],axisF[1],axisF[2] 1,1,1 0,0,0 GOOD
     // yaw is inverted when you go left it goes right
-    blackbox_write_signed_16VB_array(remote_control_int, 3, (uint8_t *)new_string, &string_index); // rcCommand[0],rcCommand[1],rcCommand[2] 1,1,1 0,0,0 GOOD
-    blackbox_write_unsigned_VB(remote_control_int[3] ,(uint8_t *)new_string, &string_index); // rcCommand[3] 0 1 GOOD
-    blackbox_write_signed_16VB_array(set_points_int, 4, (uint8_t *)new_string, &string_index); // setpoint[0],setpoint[1],setpoint[2],setpoint[3] 1,1,1,1 0,0,0,0 NOT
-    blackbox_write_signed_16VB_array(gyro_sums_int, 3, (uint8_t *)new_string, &string_index); // gyroADC[0],gyroADC[1],gyroADC[2] 1,1,1 0,0,0 GOOD
-    blackbox_write_signed_16VB_array(accelerometer_values_int, 3, (uint8_t *)new_string, &string_index); // accG[0],accG[1],accG[2] 1,1,1 0,0,0 GOOD
-    blackbox_write_unsigned_VB(motor_power_int[0], (uint8_t *)new_string, &string_index); // motor[0] 0 1 GOOD
-    blackbox_write_unsigned_VB(motor_power_int[1], (uint8_t *)new_string, &string_index); // motor[1] 0 1 GOOD
-    blackbox_write_unsigned_VB(motor_power_int[2], (uint8_t *)new_string, &string_index); // motor[2] 0 1 GOOD
-    blackbox_write_unsigned_VB(motor_power_int[3], (uint8_t *)new_string, &string_index); // motor[3] 0 1 GOOD
+    blackbox_write_signed_16VB_array(remote_control_int, 3, buffer, &string_index); // rcCommand[0],rcCommand[1],rcCommand[2] 1,1,1 0,0,0 GOOD
+    blackbox_write_unsigned_VB(remote_control_int[3] ,buffer, &string_index); // rcCommand[3] 0 1 GOOD
+    blackbox_write_signed_16VB_array(set_points_int, 4, buffer, &string_index); // setpoint[0],setpoint[1],setpoint[2],setpoint[3] 1,1,1,1 0,0,0,0 NOT
+    blackbox_write_signed_16VB_array(gyro_sums_int, 3, buffer, &string_index); // gyroADC[0],gyroADC[1],gyroADC[2] 1,1,1 0,0,0 GOOD
+    blackbox_write_signed_16VB_array(accelerometer_values_int, 3, buffer, &string_index); // accG[0],accG[1],accG[2] 1,1,1 0,0,0 GOOD
+    blackbox_write_unsigned_VB(motor_power_int[0], buffer, &string_index); // motor[0] 0 1 GOOD
+    blackbox_write_unsigned_VB(motor_power_int[1], buffer, &string_index); // motor[1] 0 1 GOOD
+    blackbox_write_unsigned_VB(motor_power_int[2], buffer, &string_index); // motor[2] 0 1 GOOD
+    blackbox_write_unsigned_VB(motor_power_int[3], buffer, &string_index); // motor[3] 0 1 GOOD
 
-    blackbox_write_signed_VB_array(mag_int, 3, (uint8_t *)new_string, &string_index); // magADC[0],magADC[1],magADC[2] 1,1,1 0,0,0
-    blackbox_write_signed_VB(altitude_int, (uint8_t *)new_string, &string_index); // BaroAlt 1 0
-    blackbox_write_signed_VB_array(gyro_post_sensor_fusion_int, 4, (uint8_t *)new_string, &string_index); // debug[0],debug[1],debug[2],debug[3] 1,1,1,1 0,0,0,0
+    blackbox_write_signed_VB_array(mag_int, 3, buffer, &string_index); // magADC[0],magADC[1],magADC[2] 1,1,1 0,0,0
+    blackbox_write_signed_VB(altitude_int, buffer, &string_index); // BaroAlt 1 0
+    blackbox_write_signed_VB_array(gyro_post_sensor_fusion_int, 4, buffer, &string_index); // debug[0],debug[1],debug[2],debug[3] 1,1,1,1 0,0,0,0
 
     // printf("loopIteration=%ld\n", loop_iteration);
     // printf("time=%ld\n", time);
@@ -403,11 +401,9 @@ char* betaflight_blackbox_get_encoded_data_string(
 
 
     *string_length_return += string_index;
-    return new_string;
 }
 
 char* betaflight_blackbox_get_end_of_log(uint16_t* string_length_return){
-
     uint16_t string_length_total = 10;
     char* new_string = malloc(string_length_total+1);
     buffer_append(new_string, string_length_total, 0, "End of log\n");
@@ -416,7 +412,7 @@ char* betaflight_blackbox_get_end_of_log(uint16_t* string_length_return){
     return new_string;
 }
 
-char* betaflight_blackbox_get_encoded_gps_string(
+void betaflight_blackbox_get_encoded_gps_string(
     uint32_t time_raw,
     uint8_t number_of_satellites,
     float latitude,
@@ -424,30 +420,29 @@ char* betaflight_blackbox_get_encoded_gps_string(
     float altitude,
     float speed,
     float ground_course,
-    uint16_t* string_length_return
+    uint16_t* string_length_return,
+    uint8_t *buffer
 ){
-    uint16_t string_length_total = 200;
-    char* new_string = malloc(string_length_total+1);
     uint16_t string_index = 0;
 
     float scaling_factor = 10;
     // time
     // number_of_satellites
-    int32_t latitude_int = lrintf(latitude*10.0);
-    int32_t longitude_int = lrintf(longitude*10.0);
-    uint32_t altitude_int = lrintf(altitude*scaling_factor);
-    uint32_t speed_int = lrintf(longitude*10.0);
-    uint32_t ground_course_int = lrintf(longitude*10.0);
+    int32_t latitude_int = (int32_t)latitude*10.0;
+    int32_t longitude_int = (int32_t)longitude*10.0;
+    uint32_t altitude_int = (uint32_t)altitude*scaling_factor;
+    uint32_t speed_int = (uint32_t)longitude*10.0;
+    uint32_t ground_course_int = (uint32_t)longitude*10.0;
 
-    new_string[string_index++] = 'G';
+    buffer[string_index++] = 'G';
 
-    blackbox_write_unsigned_VB(time_raw, (uint8_t *)new_string, &string_index); // time 0 1 GOOD
-    blackbox_write_unsigned_VB(number_of_satellites, (uint8_t *)new_string, &string_index); // GPS_numSat 0 1 GOOD
-    blackbox_write_signed_VB(latitude_int, (uint8_t *)new_string, &string_index); // GPS_coord[0] 1 0
-    blackbox_write_signed_VB(longitude_int, (uint8_t *)new_string, &string_index); // GPS_coord[1] 1 0
-    blackbox_write_unsigned_VB(altitude_int, (uint8_t *)new_string, &string_index); // GPS_altitude 0 1 GOOD
-    blackbox_write_unsigned_VB(speed_int, (uint8_t *)new_string, &string_index); // GPS_speed 0 1 GOOD
-    blackbox_write_unsigned_VB(ground_course_int, (uint8_t *)new_string, &string_index); // GPS_ground_course 0 1 GOOD
+    blackbox_write_unsigned_VB(time_raw, buffer, &string_index); // time 0 1 GOOD
+    blackbox_write_unsigned_VB(number_of_satellites, buffer, &string_index); // GPS_numSat 0 1 GOOD
+    blackbox_write_signed_VB(latitude_int, buffer, &string_index); // GPS_coord[0] 1 0
+    blackbox_write_signed_VB(longitude_int, buffer, &string_index); // GPS_coord[1] 1 0
+    blackbox_write_unsigned_VB(altitude_int, buffer, &string_index); // GPS_altitude 0 1 GOOD
+    blackbox_write_unsigned_VB(speed_int, buffer, &string_index); // GPS_speed 0 1 GOOD
+    blackbox_write_unsigned_VB(ground_course_int, buffer, &string_index); // GPS_ground_course 0 1 GOOD
 
     // printf("time=%ld\n", time_raw);
     // printf("number_of_satellites=%ld\n", time_raw);
@@ -458,5 +453,4 @@ char* betaflight_blackbox_get_encoded_gps_string(
     // printf("ground_course_int=%ld\n", ground_course_int);
 
     *string_length_return = string_index;
-    return new_string;
 }

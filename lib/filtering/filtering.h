@@ -1,5 +1,6 @@
 #pragma once
 #include <stdio.h>
+#include <math.h>
 
 // PT1 type
 struct low_pass_filter{
@@ -20,8 +21,11 @@ struct high_pass_filter filtering_init_high_pass_filter(float cutoff_frequency, 
 float high_pass_filter_read(struct high_pass_filter* filter, float current_value);
 
 struct notch_filter {
-    float a1, a2;  // Denominator coefficients
-    float b0, b1, b2;  // Numerator coefficients
-    float previous_input1, previous_input2;  // Previous input values
-    float previous_output1, previous_output2;  // Previous output values
+    float alpha;
+    float beta;
+    float input_array[3];
+    float output_array[3];
 };
+
+struct notch_filter notch_filter_init(float center_frequency, float notch_width_hz, float sample_time_seconds);
+float notch_filter_read(struct notch_filter* filter, float input);

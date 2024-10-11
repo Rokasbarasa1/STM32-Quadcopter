@@ -300,8 +300,11 @@ void mmc5603_magnetometer_readings_micro_teslas(float *data){
         );
 
         // Check if magnetic measurement done
-        uint8_t status = mmc5603_read_status_register();
-        while(!(status & MMC5603_STATUS_REGISTER_MEASUREMENT_MAGNETIC_DONE)); // It is done when the flag is set to 1
+        uint8_t status;
+        do
+        {
+            status = mmc5603_read_status_register();
+        } while (!(status & MMC5603_STATUS_REGISTER_MEASUREMENT_MAGNETIC_DONE));
     }
 
 

@@ -27,7 +27,7 @@ char* betaflight_blackbox_wrapper_get_header(
     uint16_t* string_length_return
 );
 
-char* betaflight_blackbox_get_encoded_data_string(
+void betaflight_blackbox_get_encoded_data_string(
     uint32_t loop_iteration,
     uint32_t time,
     float* PID_proportion,
@@ -42,11 +42,13 @@ char* betaflight_blackbox_get_encoded_data_string(
     float* mag,
     float* gyro_post_sensor_fusion,
     float altitude,
-    uint16_t* string_length_return
+    uint16_t* string_length_return,
+    uint8_t *buffer
 );
+
 char* betaflight_blackbox_get_end_of_log(uint16_t* string_length_return);
 
-char* betaflight_blackbox_get_encoded_gps_string(
+void betaflight_blackbox_get_encoded_gps_string(
     uint32_t time_raw,
     uint8_t number_of_satellites,
     float latitude,
@@ -54,5 +56,6 @@ char* betaflight_blackbox_get_encoded_gps_string(
     float altitude,
     float speed,
     float ground_course,
-    uint16_t* string_length_return
+    uint16_t* string_length_return,
+    uint8_t *buffer
 );

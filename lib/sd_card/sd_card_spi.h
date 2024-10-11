@@ -57,6 +57,7 @@ enum t_logger_commands {
 uint8_t wait_for_slave_ready(uint16_t timeout_ms);
 uint8_t sd_card_initialize_spi(SPI_HandleTypeDef * device_handle, GPIO_TypeDef* slave_select_port, uint16_t slave_select_pin, GPIO_TypeDef* slave_ready_port, uint16_t slave_ready_pin);
 uint16_t sd_buffer_size(uint8_t local);
+uint8_t sd_buffer_clear_index(uint8_t local);
 uint8_t sd_buffer_clear(uint8_t local);
 uint8_t sd_card_initialize();
 uint8_t sd_open_file(const char *file_name, uint8_t instruction);
@@ -68,6 +69,7 @@ uint8_t sd_card_deinitialize();
 uint8_t sd_card_append_to_buffer(uint8_t local, const char *string_format, ...);
 char* sd_card_get_buffer_pointer(uint8_t local);
 void sd_card_buffer_increment_index();
+void sd_card_buffer_increment_index_by_amount(uint16_t index_increment_amount);
 
 uint32_t sd_card_get_selected_file_size();
 uint8_t sd_write_buffer_to_file();
