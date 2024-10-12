@@ -150,7 +150,7 @@ int8_t bdshot600_add_motor(GPIO_TypeDef* motor_port, uint16_t motor_pin, TIM_Typ
     bdshot600_timer[bdshot600_motor_list_size].Instance = timer_id;
     bdshot600_timer[bdshot600_motor_list_size].Init.Prescaler = 0;  // To divide the clock frequency and get accurate timing
     bdshot600_timer[bdshot600_motor_list_size].Init.CounterMode = TIM_COUNTERMODE_UP;
-    bdshot600_timer[bdshot600_motor_list_size].Init.Period = 2250-1;  // Maximum count to measure long pulses
+    bdshot600_timer[bdshot600_motor_list_size].Init.Period = 3000-1;  // Maximum count to measure long pulses
     bdshot600_timer[bdshot600_motor_list_size].Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     bdshot600_timer[bdshot600_motor_list_size].Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
     if((ret = HAL_TIM_IC_Init(&bdshot600_timer[bdshot600_motor_list_size])) != HAL_OK){
@@ -270,12 +270,12 @@ void bdshot600_send_command(uint8_t motor_index) {
 
         // Bit 1 Handling
         // How many NOP for bit 1 while it is LOW
-        ".rept 85                     \n"
+        ".rept 117                     \n"
         "NOP                          \n"
         ".endr                        \n"
         "STR r1, [r0]                 \n" // Set pin high
         // How many NOP for bit 1 while it is HIGH
-        ".rept 25        \n"
+        ".rept 34        \n"
         "NOP                          \n"
         ".endr                        \n"
         "B 3f                         \n" // Branch to next_bit
@@ -285,12 +285,12 @@ void bdshot600_send_command(uint8_t motor_index) {
         // Bit 0 Handling
         "2:                           \n"
         // How many NOP for bit 0 while it is LOW
-        ".rept 36                     \n"
+        ".rept 57                     \n"
         "NOP                          \n"
         ".endr                        \n"
         "STR r1, [r0]                 \n" // Set pin high
         // How many NOP for bit 0 while it is HIGH
-        ".rept 77                     \n"
+        ".rept 96                     \n"
         "NOP                          \n"
         ".endr                        \n"
 
@@ -316,7 +316,7 @@ void bdshot600_send_command(uint8_t motor_index) {
     HAL_GPIO_Init(bdshot600_motor_ports[motor_index], &GPIO_InitStruct);
 
     // Wait just enough to capture first edge
-    delay_cycles(1540);
+    delay_cycles(2053);
 
     // Start capturing on the input channel. It does not need to be interrupt one
     HAL_TIM_IC_Start(&bdshot600_timer[motor_index], bdshot600_timer_channel_id[motor_index]);
