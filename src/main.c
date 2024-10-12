@@ -152,7 +152,7 @@ uint8_t time_since_startup_hours = 0;
 uint8_t entered_loop = 0;
 
 // ------------------------------------------------------------------------------------------------------ Motor settings
-const uint32_t dshot_refresh_rate = 555; // Hz
+const uint32_t dshot_refresh_rate = 550; // Hz
 
 #define max_dshot600_throttle_value 2047
 #define min_dshot600_throttle_value 48
@@ -186,6 +186,8 @@ uint16_t throttle_value_BR;
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim){
     if(htim->Instance == TIM3){
         bdshot600_send_all_motor_data();
+        // printf("dshot600\n");
+        // dshot600_send_all_motor_data();
     }
 }
 
@@ -481,6 +483,7 @@ int main(void){
     printf("STARTING PROGRAM\n"); 
     
 
+    
     if(init_drivers() == 0) return 0; // exit if initialization failed
 
 
@@ -490,9 +493,9 @@ int main(void){
     // check_calibrations();
     calibrate_gyro(); // Recalibrate the gyro as the temperature affects the calibration
     get_initial_position();
-    setup_logging_to_sd(0);
+    // setup_logging_to_sd(0);
     initialize_control_abstractions();
-    // initialize_motor_communication();
+    initialize_motor_communication();
 
     handle_pre_loop_start();
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;  
@@ -923,6 +926,7 @@ void handle_pid_and_motor_control(){
         bdshot600_set_throttle(throttle_value_BL, motor_BL); // Back-left
         bdshot600_set_throttle(throttle_value_BR, motor_BR); // Back-right
 
+
         // For logging
         motor_power[0] = throttle_value_BL; // Logging BL <- BL
         motor_power[1] = throttle_value_FL; // Logging FL <- FL
@@ -940,6 +944,7 @@ void handle_pid_and_motor_control(){
         // GPS side BACK
         bdshot600_set_throttle(throttle_value_BL, motor_BL); // Back-left
         bdshot600_set_throttle(throttle_value_BR, motor_BR); // Back-right
+
 
         // For logging
         motor_power[0] = throttle_value_BL; // Logging BL <- BL
@@ -1589,7 +1594,7 @@ void handle_logging(){
         }
     }
 
-    // printf("Motor BL: %5.1f BR: %5.1f FR: %5.1f FL: %5.1f ",
+    // printf("Motor BL: %5.1f BR: %5.1f FR: %5.1f FL: %5.1f \n",
     //     motor_rpm[0],
     //     motor_rpm[1],
     //     motor_rpm[2],
@@ -1611,7 +1616,6 @@ void handle_loop_end(){
 }
 
 void initialize_motor_communication(){
-    // dshot600_init(69465958 * (0.92)); // 69465958 * (0.96) //69465958 * (2);
     motor_BL = bdshot600_add_motor(GPIOA, GPIO_PIN_8, TIM1, TIM_CHANNEL_1);
     motor_BR = bdshot600_add_motor(GPIOA, GPIO_PIN_11, TIM1, TIM_CHANNEL_4);
 
@@ -2490,6 +2494,21 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+
+//   GPIO_InitStruct.Pin = GPIO_PIN_0;
+//   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+//   GPIO_InitStruct.Pull = GPIO_NOPULL;
+//   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+//   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+// HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 1);
+
+
+//  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_8 | GPIO_PIN_11;
+//   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+//   GPIO_InitStruct.Pull = GPIO_NOPULL;
+//   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+//   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);

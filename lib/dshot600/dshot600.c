@@ -11,13 +11,31 @@ GPIO_TypeDef* dshot600_motor_port[20];
 uint16_t dshot600_motor_pin[20];
 uint8_t dshot600_motor_list_size = 0;
 
-uint8_t dshot600_add_motor(GPIO_TypeDef* GPIOx, uint16_t GPIO_Pin){
+int8_t dshot600_add_motor(GPIO_TypeDef* motor_port, uint16_t motor_pin){
     // Save some data for the motor
-    dshot600_motor_port[dshot600_motor_list_size] = GPIOx;
-    dshot600_motor_pin[dshot600_motor_list_size] = GPIO_Pin;
+    dshot600_motor_port[dshot600_motor_list_size] = motor_port;
+    dshot600_motor_pin[dshot600_motor_list_size] = motor_pin;
 
+    // This initializes the pin from scratch, no config for it is needed before hand
+    if(motor_port == GPIOA){
+        __HAL_RCC_GPIOA_CLK_ENABLE();
+    }else if(motor_port == GPIOB){
+        __HAL_RCC_GPIOB_CLK_ENABLE();
+    }else if(motor_port == GPIOC){
+        __HAL_RCC_GPIOC_CLK_ENABLE();
+    }else if(motor_port == GPIOD){
+        __HAL_RCC_GPIOD_CLK_ENABLE();
+    }
+
+    // Initialize the pin as output
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    GPIO_InitStruct.Pin = motor_pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+    HAL_GPIO_Init(motor_port, &GPIO_InitStruct);
     // set the motor low as this is normal dshot600
-    HAL_GPIO_WritePin(GPIOx, GPIO_Pin, 0);
+    HAL_GPIO_WritePin(motor_port, motor_pin, 1);
 
     dshot600_motor_list_size++;
     return dshot600_motor_list_size-1;
@@ -67,6 +85,15 @@ void dshot600_send_command(uint8_t motor_index) {
     GPIO_TypeDef* port = dshot600_motor_port[motor_index];
     uint32_t gpio_bsrr_addr = (uint32_t)&(port->BSRR); // Use the register of the port 
     
+    HAL_GPIO_WritePin(dshot600_motor_port[motor_index], dshot600_motor_pin[motor_index], 1);
+    HAL_GPIO_WritePin(dshot600_motor_port[motor_index], dshot600_motor_pin[motor_index], 1);
+    HAL_GPIO_WritePin(dshot600_motor_port[motor_index], dshot600_motor_pin[motor_index], 1);
+    HAL_GPIO_WritePin(dshot600_motor_port[motor_index], dshot600_motor_pin[motor_index], 1);
+    HAL_GPIO_WritePin(dshot600_motor_port[motor_index], dshot600_motor_pin[motor_index], 1);
+    HAL_GPIO_WritePin(dshot600_motor_port[motor_index], dshot600_motor_pin[motor_index], 1);
+    HAL_GPIO_WritePin(dshot600_motor_port[motor_index], dshot600_motor_pin[motor_index], 0);
+
+    printf("From dshot600 command\n");
     __asm__ volatile (
         // Setup registers
         "MOV r0, %[gpio_bsrr_addr]    \n" // r0 = gpio_bsrr_addr

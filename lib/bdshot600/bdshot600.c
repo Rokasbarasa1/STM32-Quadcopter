@@ -150,7 +150,7 @@ int8_t bdshot600_add_motor(GPIO_TypeDef* motor_port, uint16_t motor_pin, TIM_Typ
     bdshot600_timer[bdshot600_motor_list_size].Instance = timer_id;
     bdshot600_timer[bdshot600_motor_list_size].Init.Prescaler = 0;  // To divide the clock frequency and get accurate timing
     bdshot600_timer[bdshot600_motor_list_size].Init.CounterMode = TIM_COUNTERMODE_UP;
-    bdshot600_timer[bdshot600_motor_list_size].Init.Period = 3000-1;  // Maximum count to measure long pulses
+    bdshot600_timer[bdshot600_motor_list_size].Init.Period = 5100-1;  // Maximum count to measure long pulses
     bdshot600_timer[bdshot600_motor_list_size].Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     bdshot600_timer[bdshot600_motor_list_size].Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
     if((ret = HAL_TIM_IC_Init(&bdshot600_timer[bdshot600_motor_list_size])) != HAL_OK){
@@ -270,12 +270,12 @@ void bdshot600_send_command(uint8_t motor_index) {
 
         // Bit 1 Handling
         // How many NOP for bit 1 while it is LOW
-        ".rept 117                     \n"
+        ".rept 110                     \n"
         "NOP                          \n"
         ".endr                        \n"
         "STR r1, [r0]                 \n" // Set pin high
         // How many NOP for bit 1 while it is HIGH
-        ".rept 34        \n"
+        ".rept 36        \n"
         "NOP                          \n"
         ".endr                        \n"
         "B 3f                         \n" // Branch to next_bit
@@ -284,13 +284,13 @@ void bdshot600_send_command(uint8_t motor_index) {
 
         // Bit 0 Handling
         "2:                           \n"
-        // How many NOP for bit 0 while it is LOW
-        ".rept 57                     \n"
+        // How many NOP for bit 0 while it is LOW 
+        ".rept 47                     \n"
         "NOP                          \n"
         ".endr                        \n"
         "STR r1, [r0]                 \n" // Set pin high
         // How many NOP for bit 0 while it is HIGH
-        ".rept 96                     \n"
+        ".rept 100                     \n"
         "NOP                          \n"
         ".endr                        \n"
 
@@ -316,8 +316,6 @@ void bdshot600_send_command(uint8_t motor_index) {
     HAL_GPIO_Init(bdshot600_motor_ports[motor_index], &GPIO_InitStruct);
 
     // Wait just enough to capture first edge
-    delay_cycles(2053);
-
     // Start capturing on the input channel. It does not need to be interrupt one
     HAL_TIM_IC_Start(&bdshot600_timer[motor_index], bdshot600_timer_channel_id[motor_index]);
     // Clear capture flag (CC1)
@@ -342,11 +340,10 @@ void bdshot600_send_command(uint8_t motor_index) {
         __HAL_TIM_CLEAR_FLAG(&bdshot600_timer[motor_index], bdshot600_timer_channel_flag[motor_index]);
 
         // Do not calculate the cycles if there is no previous value
-        // if(previous_value != 0) counter_compare_capture_cycles[i-1] = value - previous_value;
         if(previous_value != 0) bdshot600_motor_response_clock_cycles[motor_index][i-1] = value - previous_value;
         previous_value = value;
 
-        // If you want to see what edges are captured use this and hoop up two probes
+        // If you want to see what edges are captured use this and hook up two probes
         // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 1);
         // HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 0);
     }
@@ -420,7 +417,7 @@ uint8_t bdshot600_convert_response_to_data(uint8_t motor_index){
 
 
         // Rounding to nearest integer is important here. Default integer rounding down is not good.
-        uint8_t number_of_bits_in_this_clock_cycle_capture = (uint8_t)round((float)response_clock_cycles_copy[i]/100.0); // 100 is just precalculated 1.33us * 75Mhz = 100
+        uint8_t number_of_bits_in_this_clock_cycle_capture = (uint8_t)round((float)response_clock_cycles_copy[i]/125.0); // 125 is a good number between 117 and 134
 
         // Place the number of bits in the response
         for (size_t j = 0; j < number_of_bits_in_this_clock_cycle_capture; j++){
@@ -445,7 +442,8 @@ uint8_t bdshot600_convert_response_to_data(uint8_t motor_index){
     }
 
     // -------------------------------------------------------------------Result of getting the bits from the signal
-    // 179 97 92 91 179 91 92 100 170 91 100 94 89 91 265 0 0 0 0 0 
+    // 235 133 126 118 239 126 117 122 231 125 118 122 121 126 353 for 100Mhz
+    // 179 97 92 91 179 91 92 100 170 91 100 94 89 91 265 0 0 0 0 0  for 75Mhz
     // becomes
     // 00101 00101001 01010001
     // data2 = response_in_bits;
