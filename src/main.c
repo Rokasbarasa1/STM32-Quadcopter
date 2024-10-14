@@ -134,7 +134,9 @@ void initialize_motor_communication();
 // PB0 CE
 
 // ------------------------------------------------------------------------------------------------------ Refresh rate
-#define REFRESH_RATE_HZ 520 // The goal for now
+// Nyquist: sampling frequency must be at least double that of the highest frequency of interest
+// The MPU6050 has a lowpass set to 260Hz we need to be able to manipulate all the frequencies until that. So 260 * 2 = 520
+#define REFRESH_RATE_HZ 520
 
 // ------------------------------------------------------------------------------------------------------ handling loop timing
 uint32_t loop_start_time = 0;
@@ -493,7 +495,7 @@ int main(void){
     // check_calibrations();
     calibrate_gyro(); // Recalibrate the gyro as the temperature affects the calibration
     get_initial_position();
-    // setup_logging_to_sd(0);
+    setup_logging_to_sd(0);
     initialize_control_abstractions();
     initialize_motor_communication();
 
@@ -540,8 +542,8 @@ uint8_t init_drivers(){
         &hi2c1, 
         ACCEL_CONFIG_RANGE_2G, 
         GYRO_CONFIG_RANGE_500_DEG, 
-        LOW_PASS_FILTER_FREQUENCY_CUTOFF_GYRO_21HZ_ACCEL_20HZ,
-        // LOW_PASS_FILTER_FREQUENCY_CUTOFF_GYRO_260HZ_ACCEL_256HZ,
+        // LOW_PASS_FILTER_FREQUENCY_CUTOFF_GYRO_21HZ_ACCEL_20HZ,
+        LOW_PASS_FILTER_FREQUENCY_CUTOFF_GYRO_260HZ_ACCEL_256HZ,
         1, 
         accelerometer_scale_factor_correction, 
         accelerometer_correction, 
@@ -633,6 +635,8 @@ void handle_get_and_calculate_sensor_values(){
     // ------------------------------------------------------------------------------------------------------ Filter the sensor data
     sensors6 = DWT->CYCCNT;
 
+    // Notch filter: https://www.youtube.com/watch?v=ysS4bIXFAsU
+    // Filtering rpm: https://www.youtube.com/watch?v=NCDyA9bnf4I&t=192s
 
 
     // Gyro RPM filtering
@@ -1601,6 +1605,13 @@ void handle_logging(){
     //     motor_rpm[3]
     // );
 
+    printf("ACCEL,%.2f,%.2f,%.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+    printf("GYRO,%.2f,%.2f,%.2f;", gyro_angular[0], gyro_angular[1], gyro_angular[2]);
+    printf("MAG,%.2f,%.2f,%.2f;", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
+    printf("TEMP,%.2f;", temperature);
+    printf("ALT %.2f;", altitude);
+    printf("\n");
+
     // Update the blue led with current sd state
     if(sd_card_initialized){
         HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
@@ -2220,7 +2231,7 @@ static void MX_I2C1_Init(void)
 
   /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
-  hi2c1.Init.ClockSpeed = 400000;
+  hi2c1.Init.ClockSpeed = 800000; // Max i tested was 1600000 and everything worked. But i am afraid to run it that high
   hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
   hi2c1.Init.OwnAddress1 = 0;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
