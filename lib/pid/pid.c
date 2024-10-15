@@ -7,7 +7,7 @@
  * @param gain_integral 
  * @param gain_derivative 
  * @param desired_value value that you want to achieve
- * @param time the current time in ticks. Stm32 tick
+ * @param time time since system start in microseconds
  * @return struct pid 
  */
 struct pid pid_init(
@@ -15,7 +15,7 @@ struct pid pid_init(
     float gain_integral, 
     float gain_derivative, 
     float desired_value,
-    uint32_t time,
+    uint64_t time,
     float max_value,
     float min_value,
     uint8_t stop_windup
@@ -45,16 +45,16 @@ struct pid pid_init(
  * 
  * @param pid_instance pid config
  * @param value current value that the error will be calculated for 
- * @param time current time in ticks. Stm32 tick 
+ * @param time time since system start in microseconds
  * @return float error result
  */
-float pid_get_error(struct pid* pid_instance, float value, uint32_t time){
+float pid_get_error(struct pid* pid_instance, float value, uint64_t time){
 
     float error_p = 0, error_i = 0, error_d = 0;
 
     float error = (pid_instance->m_desired_value - value);
 
-    float elapsed_time_sec = ((float)time-(float)pid_instance->m_previous_time)/1000.0;
+    float elapsed_time_sec = ((float)time-(float)pid_instance->m_previous_time)/1000000.0;
 
     // proportional
     {
@@ -119,10 +119,10 @@ float pid_get_error(struct pid* pid_instance, float value, uint32_t time){
  * 
  * @param pid_instance pid config
  * @param error your own calculated error that will be used to get pid error
- * @param time current time in ticks. Stm32 tick 
+ * @param time time since system start in microseconds
  * @return float error result
  */
-float pid_get_error_own_error(struct pid* pid_instance, float error, uint32_t time){
+float pid_get_error_own_error(struct pid* pid_instance, float error, uint64_t time){
 
     float error_p = 0, error_i = 0, error_d = 0;
 
@@ -205,7 +205,7 @@ void pid_reset_integral_sum(struct pid* pid_instance){
     pid_instance->m_integral_sum = 0;
 }
 
-void pid_set_previous_time(struct pid* pid_instance, uint32_t time){
+void pid_set_previous_time(struct pid* pid_instance, uint64_t time){
     pid_instance->m_previous_time = time;
 }
 

@@ -9,6 +9,7 @@ SPI_HandleTypeDef hspi3;
 DMA_HandleTypeDef hdma_spi3_tx;
 
 TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim4;
 
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
@@ -24,6 +25,7 @@ static void MX_USART2_UART_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_SPI3_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_TIM4_Init(void);
 /* Actual functional code -----------------------------------------------*/
 
 #include "../lib/printf/retarget.h"
@@ -61,7 +63,6 @@ float mapValue(float value, float input_min, float input_max, float output_min, 
 void extract_request_values(char *request, uint8_t request_size, uint8_t *throttle, uint8_t *yaw, uint8_t *pitch, uint8_t *roll);
 float get_sensor_fusion_altitude(float gps_altitude, float barometer_altitude);
 u_int8_t init_drivers();
-void init_loop_timer();
 void check_calibrations();
 void calibrate_gyro();
 void get_initial_position();
@@ -93,8 +94,10 @@ void handle_radio_communication();
 void handle_logging();
 void handle_pid_and_motor_control();
 void setup_logging_to_sd(uint8_t use_updated_file_name);
-void handle_loop_end();
 void handle_pre_loop_start();
+void handle_loop_start();
+void handle_loop_end();
+uint64_t get_absolute_time();
 void initialize_control_abstractions();
 void set_flight_mode(uint8_t mode);
 void initialize_motor_communication();
@@ -138,13 +141,21 @@ void initialize_motor_communication();
 // The MPU6050 has a lowpass set to 260Hz we need to be able to manipulate all the frequencies until that. So 260 * 2 = 520
 #define REFRESH_RATE_HZ 520
 
+const uint16_t precalculated_timing_miliseconds = (1000000 / REFRESH_RATE_HZ);
 // ------------------------------------------------------------------------------------------------------ handling loop timing
 uint32_t loop_start_time = 0;
 uint32_t loop_end_time = 0;
 int16_t delta_loop_time = 0;
 
+// Timing
+uint64_t absolute_microseconds_since_start = 0;
+uint16_t loop_start_microseconds = 0; // The timer is only 16 bits
+uint16_t loop_start_miliseconds = 0; // Fallback if the microseconds overflew
+uint16_t loop_end_microseconds = 0;
+int32_t loop_delta_microseconds = 0;
+
 // Keep track of time in each loop. Since loop start
-uint32_t startup_time = 0;
+uint32_t startup_time_microseconds = 0;
 uint32_t delta_time = 0;
 uint16_t time_since_startup_ms = 0;
 uint8_t time_since_startup_minutes = 0;
@@ -423,7 +434,7 @@ float pitch = 50.0;
 float roll = 50.0;
 
 float minimum_signal_timing_seconds = 0.2; // Seconds
-uint32_t last_signal_timestamp = 0;
+uint64_t last_signal_timestamp_microseconds = 0;
 
 // ------------------------------------------------------------------------------------------------------ Logging to SD card
 char log_file_base_name[] = "Quadcopter.txt";
@@ -476,6 +487,8 @@ uint32_t logging = 0;
 uint32_t logging2 = 0;
 uint32_t logging3 = 0;
 
+
+
 int main(void){
     init_STM32_peripherals();
     accelerometer_roll_offset = base_accelerometer_roll_offset;
@@ -495,7 +508,7 @@ int main(void){
     // check_calibrations();
     calibrate_gyro(); // Recalibrate the gyro as the temperature affects the calibration
     get_initial_position();
-    setup_logging_to_sd(0);
+    // setup_logging_to_sd(0);
     initialize_control_abstractions();
     initialize_motor_communication();
 
@@ -505,6 +518,10 @@ int main(void){
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 
     while (1){
+        // Get current time
+        handle_loop_start();
+
+        
         DWT->CYCCNT = 0;
         radio = DWT->CYCCNT;
         handle_radio_communication();
@@ -656,7 +673,7 @@ void handle_get_and_calculate_sensor_values(){
 
     // ------------------------------------------------------------------------------------------------------ Sensor fusion
     calculate_roll_pitch_from_accelerometer_data(acceleration_data, &accelerometer_roll, &accelerometer_pitch, accelerometer_roll_offset, accelerometer_pitch_offset); // Get roll and pitch from the data. I call it x and y. Ranges -90 to 90. 
-    sensor_fusion_roll_pitch(gyro_angular, accelerometer_roll, accelerometer_pitch, HAL_GetTick(), 1, imu_orientation);
+    sensor_fusion_roll_pitch(gyro_angular, accelerometer_roll, accelerometer_pitch, get_absolute_time(), 1, imu_orientation);
 
     // Sensor fusion imu degrees > accelerometer degrees
     calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw, imu_orientation[0], imu_orientation[1], yaw_offset);
@@ -737,17 +754,14 @@ void handle_get_and_calculate_sensor_values(){
 
 
 
-void handle_pid_and_motor_control(){
-    // float error_altitude = mapValue(pid_get_error(&altitude_pid, altitude, HAL_GetTick()), -180.0, 180.0, -100.0, 100.0);
-    // printf("Altitude error %6.2f ", error_altitude);
-    
+void handle_pid_and_motor_control(){    
     // For the robot to do work it needs to be receiving radio signals and at the correct angles, facing up
     if(
         imu_orientation[0] <  30 && 
         imu_orientation[0] > -30 && 
         imu_orientation[1] <  30 && 
         imu_orientation[1] > -30 && 
-        ((float)HAL_GetTick() - (float)last_signal_timestamp) / 1000.0 <= minimum_signal_timing_seconds
+        ((float)get_absolute_time() - (float)last_signal_timestamp_microseconds) / 1000000.0 <= minimum_signal_timing_seconds
     ){
         // ---------------------------------------------------------------------------------------------- GPS position hold
         float gps_hold_roll_adjustment = 0.0f;
@@ -757,8 +771,8 @@ void handle_pid_and_motor_control(){
                 pid_set_desired_value(&gps_latitude_pid, target_latitude);
                 pid_set_desired_value(&gps_longitude_pid, target_longitude);
 
-                error_latitude = pid_get_error(&gps_latitude_pid, gps_latitude, HAL_GetTick());
-                error_longitude = pid_get_error(&gps_longitude_pid, gps_longitude, HAL_GetTick());
+                error_latitude = pid_get_error(&gps_latitude_pid, gps_latitude, get_absolute_time());
+                error_longitude = pid_get_error(&gps_longitude_pid, gps_longitude, get_absolute_time());
 
 
                 float gps_hold_roll_adjustment_calculation = roll_effect_on_lat * error_latitude + roll_effect_on_lon * error_longitude;
@@ -840,7 +854,7 @@ void handle_pid_and_motor_control(){
         // ---------------------------------------------------------------------------------------------- Altitude hold
         if(use_vertical_velocity_control){
             pid_set_desired_value(&vertical_velocity_pid, target_vertical_velocity);
-            error_vertical_velocity = pid_get_error(&vertical_velocity_pid, vertical_velocity, HAL_GetTick());
+            error_vertical_velocity = pid_get_error(&vertical_velocity_pid, vertical_velocity, get_absolute_time());
         }else{
             error_vertical_velocity = 0;
         }
@@ -852,8 +866,8 @@ void handle_pid_and_motor_control(){
 
             // For now not logging desired angle mode
 
-            error_angle_roll = pid_get_error(&angle_roll_pid, imu_orientation[0], HAL_GetTick());
-            error_angle_pitch = pid_get_error(&angle_pitch_pid, imu_orientation[1], HAL_GetTick());
+            error_angle_roll = pid_get_error(&angle_roll_pid, imu_orientation[0], get_absolute_time());
+            error_angle_pitch = pid_get_error(&angle_pitch_pid, imu_orientation[1], get_absolute_time());
 
         }else{
             error_angle_roll = 0;
@@ -880,9 +894,9 @@ void handle_pid_and_motor_control(){
         }
 
 
-        error_acro_roll = pid_get_error(&acro_roll_pid, gyro_angular[0], HAL_GetTick());
-        error_acro_pitch = pid_get_error(&acro_pitch_pid, gyro_angular[1], HAL_GetTick());
-        error_acro_yaw = pid_get_error(&acro_yaw_pid, gyro_angular[2], HAL_GetTick());
+        error_acro_roll = pid_get_error(&acro_roll_pid, gyro_angular[0], get_absolute_time());
+        error_acro_pitch = pid_get_error(&acro_pitch_pid, gyro_angular[1], get_absolute_time());
+        error_acro_yaw = pid_get_error(&acro_yaw_pid, gyro_angular[2], get_absolute_time());
 
         PID_proportional[1] = pid_get_last_proportional_error(&acro_roll_pid); // Logging
         PID_integral[1] = pid_get_last_integral_error(&acro_roll_pid); // Logging
@@ -1003,7 +1017,7 @@ void handle_radio_communication(){
         radio2 = DWT->CYCCNT;
         if(strcmp(rx_type, "js") == 0){
             // printf("JOYSTICK\n");
-            last_signal_timestamp = HAL_GetTick();
+            last_signal_timestamp_microseconds = get_absolute_time();
 
             // extract_joystick_request_values_uint(rx_data, strlen(rx_data), &throttle, &yaw, &roll, &pitch);
             extract_joystick_request_values_float(rx_data, strlen(rx_data), &throttle, &yaw, &roll, &pitch);
@@ -1245,17 +1259,17 @@ void handle_radio_communication(){
 
 
 void initialize_control_abstractions(){
-    acro_roll_pid = pid_init(acro_roll_pitch_master_gain * acro_roll_pitch_gain_p, acro_roll_pitch_master_gain * acro_roll_pitch_gain_i, acro_roll_pitch_master_gain * acro_roll_pitch_gain_d, 0.0, HAL_GetTick(), 25, -25, 1);
-    acro_pitch_pid = pid_init(acro_roll_pitch_master_gain * acro_roll_pitch_gain_p, acro_roll_pitch_master_gain * acro_roll_pitch_gain_i, acro_roll_pitch_master_gain * acro_roll_pitch_gain_d, 0.0, HAL_GetTick(), 25, -25, 1);
-    acro_yaw_pid = pid_init(acro_yaw_gain_p, acro_yaw_gain_i, 0, 0.0, HAL_GetTick(), 10.0, -10.0, 1);
+    acro_roll_pid = pid_init(acro_roll_pitch_master_gain * acro_roll_pitch_gain_p, acro_roll_pitch_master_gain * acro_roll_pitch_gain_i, acro_roll_pitch_master_gain * acro_roll_pitch_gain_d, 0.0, get_absolute_time(), 25, -25, 1);
+    acro_pitch_pid = pid_init(acro_roll_pitch_master_gain * acro_roll_pitch_gain_p, acro_roll_pitch_master_gain * acro_roll_pitch_gain_i, acro_roll_pitch_master_gain * acro_roll_pitch_gain_d, 0.0, get_absolute_time(), 25, -25, 1);
+    acro_yaw_pid = pid_init(acro_yaw_gain_p, acro_yaw_gain_i, 0, 0.0, get_absolute_time(), 10.0, -10.0, 1);
 
-    angle_roll_pid = pid_init(angle_roll_pitch_master_gain * angle_roll_pitch_gain_p, angle_roll_pitch_master_gain * angle_roll_pitch_gain_i, angle_roll_pitch_master_gain * angle_roll_pitch_gain_d, 0.0, HAL_GetTick(), acro_mode_rate_degrees_per_second, -acro_mode_rate_degrees_per_second, 1);
-    angle_pitch_pid = pid_init(angle_roll_pitch_master_gain * angle_roll_pitch_gain_p, angle_roll_pitch_master_gain * angle_roll_pitch_gain_i, angle_roll_pitch_master_gain * angle_roll_pitch_gain_d, 0.0, HAL_GetTick(), acro_mode_rate_degrees_per_second, -acro_mode_rate_degrees_per_second, 1);
+    angle_roll_pid = pid_init(angle_roll_pitch_master_gain * angle_roll_pitch_gain_p, angle_roll_pitch_master_gain * angle_roll_pitch_gain_i, angle_roll_pitch_master_gain * angle_roll_pitch_gain_d, 0.0, get_absolute_time(), acro_mode_rate_degrees_per_second, -acro_mode_rate_degrees_per_second, 1);
+    angle_pitch_pid = pid_init(angle_roll_pitch_master_gain * angle_roll_pitch_gain_p, angle_roll_pitch_master_gain * angle_roll_pitch_gain_i, angle_roll_pitch_master_gain * angle_roll_pitch_gain_d, 0.0, get_absolute_time(), acro_mode_rate_degrees_per_second, -acro_mode_rate_degrees_per_second, 1);
 
-    vertical_velocity_pid = pid_init(vertical_velocity_gain_p, vertical_velocity_gain_i, vertical_velocity_gain_d, 0.0, HAL_GetTick(), 90.0, 0.0, 1); // Min value is 0 because motors dont go lower that that
+    vertical_velocity_pid = pid_init(vertical_velocity_gain_p, vertical_velocity_gain_i, vertical_velocity_gain_d, 0.0, get_absolute_time(), 90.0, 0.0, 1); // Min value is 0 because motors dont go lower that that
 
-    gps_longitude_pid = pid_init(gps_hold_gain_p, gps_hold_gain_i, gps_hold_gain_d, 0.0, HAL_GetTick(), gps_pid_angle_of_attack_max, -gps_pid_angle_of_attack_max, 1);
-    gps_latitude_pid = pid_init(gps_hold_gain_p, gps_hold_gain_i, gps_hold_gain_d, 0.0, HAL_GetTick(), gps_pid_angle_of_attack_max, -gps_pid_angle_of_attack_max, 1);
+    gps_longitude_pid = pid_init(gps_hold_gain_p, gps_hold_gain_i, gps_hold_gain_d, 0.0, get_absolute_time(), gps_pid_angle_of_attack_max, -gps_pid_angle_of_attack_max, 1);
+    gps_latitude_pid = pid_init(gps_hold_gain_p, gps_hold_gain_i, gps_hold_gain_d, 0.0, get_absolute_time(), gps_pid_angle_of_attack_max, -gps_pid_angle_of_attack_max, 1);
 
     filter_magnetometer_x = filtering_init_low_pass_filter(filtering_magnetometer_cutoff_frequency,REFRESH_RATE_HZ);
     filter_magnetometer_y = filtering_init_low_pass_filter(filtering_magnetometer_cutoff_frequency,REFRESH_RATE_HZ);
@@ -1490,7 +1504,6 @@ void setup_logging_to_sd(uint8_t use_updated_file_name){
 
 void handle_pre_loop_start(){
     printf("Looping\n");
-    altitude = 10;
 
     // Capture any radio messages that were sent durring the boot proccess and discard them
     for (uint8_t i = 0; i < 50; i++){
@@ -1499,13 +1512,26 @@ void handle_pre_loop_start(){
         }
     }
 
-    init_loop_timer();
-    startup_time = HAL_GetTick();
+    startup_time_microseconds = get_absolute_time();
     entered_loop = 1;
+
+    // Reset the timer
+    __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
+    __HAL_TIM_SET_COUNTER(&htim4, 0);
+}
+
+void handle_loop_start(){
+    loop_start_microseconds = __HAL_TIM_GET_COUNTER(&htim4);
+    loop_start_miliseconds = HAL_GetTick();
+}
+
+uint64_t get_absolute_time(){
+    // Get the current updated absolute timestamp
+    return absolute_microseconds_since_start + __HAL_TIM_GET_COUNTER(&htim4);
 }
 
 void handle_logging(){
-    delta_time = HAL_GetTick() - startup_time;
+    delta_time = (get_absolute_time() - startup_time_microseconds)/1000; // Miliseconds
     time_since_startup_hours = delta_time / 3600000;
     time_since_startup_minutes = (delta_time - time_since_startup_hours * 3600000) / 60000;
     time_since_startup_seconds = (delta_time - time_since_startup_hours * 3600000 - time_since_startup_minutes * 60000) / 1000;
@@ -1605,12 +1631,12 @@ void handle_logging(){
     //     motor_rpm[3]
     // );
 
-    printf("ACCEL,%.2f,%.2f,%.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
-    printf("GYRO,%.2f,%.2f,%.2f;", gyro_angular[0], gyro_angular[1], gyro_angular[2]);
-    printf("MAG,%.2f,%.2f,%.2f;", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
-    printf("TEMP,%.2f;", temperature);
-    printf("ALT %.2f;", altitude);
-    printf("\n");
+    // printf("ACCEL,%.2f,%.2f,%.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+    // printf("GYRO,%.2f,%.2f,%.2f;", gyro_angular[0], gyro_angular[1], gyro_angular[2]);
+    // printf("MAG,%.2f,%.2f,%.2f;", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
+    // printf("TEMP,%.2f;", temperature);
+    // printf("ALT %.2f;", altitude);
+    // printf("\n");
 
     // Update the blue led with current sd state
     if(sd_card_initialized){
@@ -1623,7 +1649,25 @@ void handle_logging(){
 
 void handle_loop_end(){
     loop_iteration++;
-    handle_loop_timing();
+
+    printf("b%.1f", (float)(__HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds)/1000.0);
+
+    // If the delta is less than the target keep looping
+    while (precalculated_timing_miliseconds > (__HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds));
+
+    // Get the final count and add it to the total microsecond
+    // If the timer overflew use the ticks instead
+    if(__HAL_TIM_GET_FLAG(&htim4, TIM_FLAG_UPDATE)){
+        absolute_microseconds_since_start += (HAL_GetTick() - loop_start_miliseconds) * 1000;
+
+        printf("a%lu\n", HAL_GetTick() - loop_start_miliseconds);
+    }else{
+        absolute_microseconds_since_start += __HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds;
+        printf("a%.1f\n", (float)(__HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds)/1000.0);
+    }
+
+    // Reset the counter
+    __HAL_TIM_SET_COUNTER(&htim4, 0);
 }
 
 void initialize_motor_communication(){
@@ -1651,15 +1695,15 @@ void init_STM32_peripherals(){
     MX_USART2_UART_Init();
     MX_USART1_UART_Init();
     MX_TIM3_Init();
+    MX_TIM4_Init();
     RetargetInit(&huart1);
 
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_SET);
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
-}
 
-void init_loop_timer(){
-    loop_start_time = HAL_GetTick();
+    // Initialize timer 4
+    HAL_TIM_Base_Start(&htim4);
 }
 
 void check_calibrations(){
@@ -1701,25 +1745,6 @@ void get_initial_position(){
     imu_orientation[1] = accelerometer_pitch;
     imu_orientation[2] = magnetometer_yaw;
     printf("Initial imu orientation x: %.2f y: %.2f, z: %.2f\n", imu_orientation[0], imu_orientation[1], imu_orientation[2]);
-}
-
-void handle_loop_timing(){
-    loop_end_time = HAL_GetTick();
-    delta_loop_time = loop_end_time - loop_start_time;
-
-    // printf("%d\n", delta_loop_time);
-
-    // printf("b%d", delta_loop_time);
-    
-    // This one is more precise than using HAL_Delay
-    while((1000 / REFRESH_RATE_HZ) > HAL_GetTick()-loop_start_time);
-
-    uint32_t temp_loop_start_time = loop_start_time;
-    loop_start_time = HAL_GetTick();
-
-    loop_end_time = HAL_GetTick();
-    delta_loop_time = loop_end_time - temp_loop_start_time;
-    // printf("a%d\n", delta_loop_time);
 }
 
 // 0.5ms to 2ms = range is 1.5ms
@@ -2367,6 +2392,51 @@ static void MX_TIM3_Init(void)
   /* USER CODE BEGIN TIM3_Init 2 */
 
   /* USER CODE END TIM3_Init 2 */
+
+}
+
+/**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 100-1;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 65535;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
 
 }
 
