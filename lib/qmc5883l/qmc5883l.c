@@ -1,8 +1,5 @@
 #include "./qmc5883l.h"
-
-#ifndef M_PI
-#define M_PI (3.14159265358979323846)
-#endif
+#include "../utils/math_constants.h"
 
 #define QMC5883L_I2C_ID (0x0D << 1)
 #define ID_REG 0x0D
@@ -140,7 +137,7 @@ void calculate_yaw_using_magnetometer_data(float *magnetometer_data, float *yaw_
     float y = magnetometer_data[1];
 
     // Rotation around the z-axis (simple yaw calculation)
-    *yaw_output = atan2f(y, x) * (180 / M_PI);
+    *yaw_output = atan2f(y, x) * M_180_DIV_BY_PI;
 
     // Convert yaw to [0, 360] range
     if (*yaw_output < 0) {
@@ -154,8 +151,8 @@ void calculate_yaw_tilt_compensated_using_magnetometer_data(float *magnetometer_
     // You better make sure yur roll and pitch are in good shape as well as the magnetometer being aligned with device front when north facing
     // Otherwise the data you will get will be trash.
 
-    float roll_radians = roll * (M_PI / 180);  // Convert roll from degrees to radians
-    float pitch_radians = pitch * (M_PI / 180);  // Convert pitch from degrees to radians
+    float roll_radians = roll * M_PI_DIV_BY_180;  // Convert roll from degrees to radians
+    float pitch_radians = pitch * M_PI_DIV_BY_180;  // Convert pitch from degrees to radians
 
     float mx = magnetometer_data[0];
     float my = magnetometer_data[1];
@@ -165,7 +162,7 @@ void calculate_yaw_tilt_compensated_using_magnetometer_data(float *magnetometer_
     float Mx = mx * cos(pitch_radians) + mz * sin(pitch_radians);
     float My = mx * sin(roll_radians) * sin(pitch_radians) + my * cos(roll_radians) - mz * sin(roll_radians) * cos(pitch_radians);
 
-    *yaw_output = atan2(My, Mx) * (180 / M_PI);
+    *yaw_output = atan2(My, Mx) * M_180_DIV_BY_PI;
 
 
     *yaw_output += yaw_offset;

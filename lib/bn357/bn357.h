@@ -28,3 +28,4 @@ uint8_t bn357_get_utc_time_minutes();
 uint8_t bn357_get_utc_time_seconds();
 uint8_t bn357_get_utc_time_raw();
 uint8_t bn357_get_fix_type();
+uint8_t bn357_parse_data();

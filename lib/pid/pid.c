@@ -96,12 +96,6 @@ float pid_get_error(struct pid* pid_instance, float value, uint64_t time){
     pid_instance->m_last_proportional_error = pid_instance->m_gain_proportional * error_p;
     pid_instance->m_last_integral_error = pid_instance->m_gain_integral * error_i;
     pid_instance->m_last_derivative_error = pid_instance->m_gain_derivative * error_d;
-    // printf("p: %8.4f, ", pid_instance->m_gain_proportional * error_p);
-    // printf("i: %8.4f, ", pid_instance->m_gain_integral * error_i);
-    // printf("d: %8.4f, ", pid_instance->m_gain_derivative * error_d);
-
-    // printf("%8.4f, %8.4f, %8.4f, ", pid_instance->m_gain_proportional * error_p, pid_instance->m_gain_integral * error_i, pid_instance->m_gain_derivative * error_d);
-
 
     // end result
     float total_error = (pid_instance->m_gain_proportional * error_p) + 
@@ -163,11 +157,6 @@ float pid_get_error_own_error(struct pid* pid_instance, float error, uint64_t ti
         // set the previous error for the next iteration
         pid_instance->m_last_error = error;
     }
-
-
-    // printf("p: %8.4f, ", pid_instance->m_gain_proportional * error_p);
-    // printf("i: %8.4f, ", pid_instance->m_gain_integral * error_i);
-    // printf("d: %8.4f, ", pid_instance->m_gain_derivative * error_d);
 
     // end result
     float total_error = (pid_instance->m_gain_proportional * error_p) + 

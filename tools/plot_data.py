@@ -2,26 +2,26 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # Read data from new_data.txt
-# data = np.genfromtxt('motors_off_no_filtering_data.txt', delimiter=';')
-# data = np.genfromtxt('raw_yaw_vs_sensor_fused.txt', delimiter=';')
+# data = np.genfromtxt('../misc/motors_off_no_filtering_data.txt', delimiter=';')
+# data = np.genfromtxt('../misc/raw_yaw_vs_sensor_fused.txt', delimiter=';')
 
-# data = np.genfromtxt('motor_2212_bl_with_nuts_data.txt', delimiter=';')
-# data = np.genfromtxt('motor_2212_br_with_nuts_data.txt', delimiter=';')
-# data = np.genfromtxt('motor_2212_fl_with_nuts_data.txt', delimiter=';')
-# data = np.genfromtxt('motor_2212_fr_with_nuts_data.txt', delimiter=';')
+# data = np.genfromtxt('../misc/motor_2212_bl_with_nuts_data.txt', delimiter=';')
+# data = np.genfromtxt('../misc/motor_2212_br_with_nuts_data.txt', delimiter=';')
+# data = np.genfromtxt('../misc/motor_2212_fl_with_nuts_data.txt', delimiter=';')
+# data = np.genfromtxt('../misc/motor_2212_fr_with_nuts_data.txt', delimiter=';')
 
-# data = np.genfromtxt('motor_2807_bl_no_nuts_data.txt', delimiter=';')
-# data = np.genfromtxt('motor_2807_br_no_nuts_data.txt', delimiter=';')
-# data = np.genfromtxt('motor_2807_fl_no_nuts_data.txt', delimiter=';')
-# data = np.genfromtxt('motor_2807_fr_no_nuts_data.txt', delimiter=';')
-data = np.genfromtxt('motor_2807_bl_3_blade_propeller.txt', delimiter=';')
+# data = np.genfromtxt('../misc/motor_2807_bl_no_nuts_data.txt', delimiter=';')
+# data = np.genfromtxt('../misc/motor_2807_br_no_nuts_data.txt', delimiter=';')
+# data = np.genfromtxt('../misc/motor_2807_fl_no_nuts_data.txt', delimiter=';')
+# data = np.genfromtxt('../misc/motor_2807_fr_no_nuts_data.txt', delimiter=';')
+data = np.genfromtxt('../misc/motor_2807_bl_3_blade_propeller.txt', delimiter=';')
 
 
-# data2 = np.genfromtxt('motor_2807_bl_no_nuts_data.txt', delimiter=';')
-# data2 = np.genfromtxt('motor_2807_br_no_nuts_data.txt', delimiter=';')
-# data2 = np.genfromtxt('motor_2807_fl_no_nuts_data.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/motor_2807_bl_no_nuts_data.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/motor_2807_br_no_nuts_data.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/motor_2807_fl_no_nuts_data.txt', delimiter=';')
 # data2 = np.genfromtxt('motor_2807_fr_no_nuts_data.txt', delimiter=';')
-# data2 = np.genfromtxt('motor_2807_bl_3_blade_propeller.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/motor_2807_bl_3_blade_propeller.txt', delimiter=';')
 
 
 
@@ -30,27 +30,27 @@ data = np.genfromtxt('motor_2807_bl_3_blade_propeller.txt', delimiter=';')
 
 
 
-# data2 = np.genfromtxt('motors_on_no_filtering_data.txt', delimiter=';')
-# data2 = np.genfromtxt('motors_on_no_filtering_data_new_props.txt', delimiter=';')
-# data2 = np.genfromtxt('motors_on_new_props_tape_applied.txt', delimiter=';')
-# data2 = np.genfromtxt('motors_on_low_pass_10Hz.txt', delimiter=';')
-# data2 = np.genfromtxt('motors_on_low_pass_48Hz.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/motors_on_no_filtering_data.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/motors_on_no_filtering_data_new_props.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/motors_on_new_props_tape_applied.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/motors_on_low_pass_10Hz.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/motors_on_low_pass_48Hz.txt', delimiter=';')
 
-# data2 = np.genfromtxt('no_propellers_no_filtering_only_tape_dampening.txt', delimiter=';')
-# data2 = np.genfromtxt('no_propellers_no_filtering_tape_and_rubber_spacers.txt', delimiter=';')
-# data2 = np.genfromtxt('no_propellers_no_filtering_tape_rubber_standoffs_ruber_spacers.txt', delimiter=';')
-# data2 = np.genfromtxt('no_propellers_no_filtering_tape_rubber_standoffs_ruber_spacers.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/no_propellers_no_filtering_only_tape_dampening.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/no_propellers_no_filtering_tape_and_rubber_spacers.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/no_propellers_no_filtering_tape_rubber_standoffs_ruber_spacers.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/no_propellers_no_filtering_tape_rubber_standoffs_ruber_spacers.txt', delimiter=';')
 
-# data2 = np.genfromtxt('propellers_no_filtering_tape_rubber_standoffs_ruber_spacers.txt', delimiter=';')
-# data2 = np.genfromtxt('propellers_no_filtering_tape_and_rubber_spacers.txt', delimiter=';')
-# data2 = np.genfromtxt('propellers_no_filtering_tape_rubber_spacers_yaw_pid_match.txt', delimiter=';')
-# data2 = np.genfromtxt('propellers_no_filtering_tape_rubber_spacers_yaw_pid_match_21Hz.txt', delimiter=';')
-# data2 = np.genfromtxt('propellers_no_filtering_tape_rubber_spacers_yaw_pid_match_45Hz.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/propellers_no_filtering_tape_rubber_standoffs_ruber_spacers.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/propellers_no_filtering_tape_and_rubber_spacers.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/propellers_no_filtering_tape_rubber_spacers_yaw_pid_match.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/propellers_no_filtering_tape_rubber_spacers_yaw_pid_match_21Hz.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/propellers_no_filtering_tape_rubber_spacers_yaw_pid_match_45Hz.txt', delimiter=';')
 
-data2 = np.genfromtxt('motor_2212_bl_no_nuts_data.txt', delimiter=';')
-# data2 = np.genfromtxt('motor_2212_br_no_nuts_data.txt', delimiter=';')
-# data2 = np.genfromtxt('motor_2212_fl_no_nuts_data.txt', delimiter=';')
-# data2 = np.genfromtxt('motor_2212_fr_no_nuts_data.txt', delimiter=';')
+data2 = np.genfromtxt('../misc/motor_2212_bl_no_nuts_data.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/motor_2212_br_no_nuts_data.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/motor_2212_fl_no_nuts_data.txt', delimiter=';')
+# data2 = np.genfromtxt('../misc/motor_2212_fr_no_nuts_data.txt', delimiter=';')
 
 # Check if the data is read correctly
 if data.size == 0:

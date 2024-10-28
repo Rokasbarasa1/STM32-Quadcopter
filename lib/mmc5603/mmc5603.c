@@ -301,8 +301,7 @@ void mmc5603_magnetometer_readings_micro_teslas(float *data){
 
         // Check if magnetic measurement done
         uint8_t status;
-        do
-        {
+        do{
             status = mmc5603_read_status_register();
         } while (!(status & MMC5603_STATUS_REGISTER_MEASUREMENT_MAGNETIC_DONE));
     }
@@ -325,16 +324,10 @@ void mmc5603_magnetometer_readings_micro_teslas(float *data){
     int32_t Y = ((int32_t)retrieved_data[2] << 12) | ((int32_t)retrieved_data[3] << 4) | ((int32_t)retrieved_data[7] >> 4);
     int32_t Z = ((int32_t)retrieved_data[4] << 12) | ((int32_t)retrieved_data[5] << 4) | ((int32_t)retrieved_data[8] >> 4);
 
-    // // Fix center offsets
-    // X -= (uint32_t)1 << 19;
-    // Y -= (uint32_t)1 << 19;
-    // Z -= (uint32_t)1 << 19;
-
     // Turn the integer value into a micro tesla value
     data[0] = (float)X * DECIMAL_TO_MICRO_TESLA_RATIO;
     data[1] = (float)Y * DECIMAL_TO_MICRO_TESLA_RATIO;
     data[2] = (float)Z * DECIMAL_TO_MICRO_TESLA_RATIO;
-
 
     // Fix the micro tesla value with calibrations
     for (uint8_t i = 0; i < 3; i++){

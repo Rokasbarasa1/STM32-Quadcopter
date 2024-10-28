@@ -1,10 +1,7 @@
 #include "./bn357.h"
 
 #include "math.h"
-
-#ifndef M_PI
-#define M_PI (3.14159265358979323846)
-#endif
+#include "../utils/math_constants.h"
 
 UART_HandleTypeDef *uart;
 DMA_HandleTypeDef *hdma_uart_rx;
@@ -34,7 +31,13 @@ volatile uint8_t continue_with_gps_data = 0;
 #define GPS_RECEIVE_BUFFER_SIZE 550
 
 uint8_t gps_output_buffer[GPS_OUTPUT_BUFFER_SIZE];
-uint8_t receive_buffer[GPS_RECEIVE_BUFFER_SIZE];
+uint8_t receive_buffer_1[GPS_RECEIVE_BUFFER_SIZE];
+uint16_t receive_buffer_1_size;
+uint8_t receive_buffer_2[GPS_RECEIVE_BUFFER_SIZE];
+uint16_t receive_buffer_2_size;
+uint8_t buffer_for_dma = 0; // 0 is buf 1, 1 is buf 2
+
+volatile got_data = 0;
 
 // Interrupt for uart 2 data received
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
@@ -44,39 +47,22 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
     // If the stm32 is restarted  while it is initializing dma the
     // data arrives from the uart and it fucks up. So you have to restart it a few times
 
-#if(BN357_TRACK_TIMING)
-    uint32_t start_time = HAL_GetTick();
-#endif
-
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 1);
-
     if (huart->Instance == USART2){   
-        // char gps_data[] = "$GNGGA,164257.60,5551.76402,N,00950.62685,E,1,10,0.58,1.2,M,43.4,M,,*4B\n$GNGSA,A,3,30,07,09,11,18,14,,,,,,,1.05,0.58,0.87*1B\n$GNGSA,A,3,80,87,69,73,,,,,,,,,1.05,0.58,0.87*16\n";
-        // uint16_t gps_data_length = strlen(gps_data)+1;
-        
-        memcpy((uint8_t *)gps_output_buffer, receive_buffer, Size);
 
-        if(continue_with_gps_data){
-            bn357_parse_and_store((unsigned char*)gps_output_buffer, Size);
-            // if(bn357_parse_and_store((unsigned char*)gps_output_buffer, Size)){
-            //     // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-            //     // printf("Working UART2, %f, %f\n", bn357_get_latitude_decimal_format(), bn357_get_longitude_decimal_format());
-            // }else{
-            //     // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-            //     // printf("Failed UART2, %f, %f\n", bn357_get_latitude_decimal_format(), bn357_get_longitude_decimal_format());
-            // }
-        }else{
-            bn357_parse_and_store((unsigned char*)gps_output_buffer, Size);
+        // Pick which buffer to use next
+        if(buffer_for_dma == 0){
+            // If it was buffer 1 before then not it will be buf 2
+            HAL_UARTEx_ReceiveToIdle_DMA(uart, receive_buffer_2, GPS_RECEIVE_BUFFER_SIZE);
+            receive_buffer_1_size = Size;
+        }else if(buffer_for_dma == 1){
+            // If it was buffer 2 before then not it will be buf 1
+            HAL_UARTEx_ReceiveToIdle_DMA(uart, receive_buffer_1, GPS_RECEIVE_BUFFER_SIZE);
+            receive_buffer_2_size = Size;
         }
+        
+        got_data = 1;
 
-        /* start the DMA again */
-        HAL_UARTEx_ReceiveToIdle_DMA(uart, (uint8_t *)receive_buffer, GPS_RECEIVE_BUFFER_SIZE);
         __HAL_DMA_DISABLE_IT(hdma_uart_rx, DMA_IT_HT);
-
-#if(BN357_TRACK_TIMING)
-        uint32_t end_time = HAL_GetTick();
-        printf("Gpt %ld\n", end_time-start_time);
-#endif
     }
 }
 
@@ -87,7 +73,14 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart){
         HAL_UART_DeInit(uart);
         HAL_UART_Init(uart);
 
-        HAL_UARTEx_ReceiveToIdle_DMA(uart, receive_buffer, GPS_RECEIVE_BUFFER_SIZE);
+        if(buffer_for_dma == 0){
+            // If it was bugger 1 then it will be buffer 1 again because it failed
+            HAL_UARTEx_ReceiveToIdle_DMA(uart, receive_buffer_1, GPS_RECEIVE_BUFFER_SIZE);
+        }else if(buffer_for_dma == 1){
+            // If it was bugger 2 then it will be buffer 2 again because it failed
+            HAL_UARTEx_ReceiveToIdle_DMA(uart, receive_buffer_2, GPS_RECEIVE_BUFFER_SIZE);
+        }
+
         __HAL_DMA_DISABLE_IT(hdma_uart_rx, DMA_IT_HT);
     }
 }
@@ -117,12 +110,33 @@ void bn357_get_clear_status(){
 }
 
 void bn357_start_uart_interrupt(){
-    HAL_UARTEx_ReceiveToIdle_DMA(uart, receive_buffer, GPS_RECEIVE_BUFFER_SIZE);
+    // Always start on buffer 1
+    HAL_UARTEx_ReceiveToIdle_DMA(uart, receive_buffer_1, GPS_RECEIVE_BUFFER_SIZE);
     __HAL_DMA_DISABLE_IT(hdma_uart_rx, DMA_IT_HT);
 }
 
 void bn357_toggle_gps_logging(uint8_t status){
     continue_with_gps_data = status;
+}
+uint8_t bn357_parse_data(){
+    if(!got_data){
+        return 0;
+    }
+
+    uint8_t response;
+    if(buffer_for_dma == 0){
+        // If buffer 1 is used currently by dma then use the other buffer for data.
+        response = bn357_parse_and_store((unsigned char *)receive_buffer_2, receive_buffer_2_size);
+    }else if(buffer_for_dma == 1){
+        // If buffer 2 is used currently by dma then use the other buffer for data.
+        response = bn357_parse_and_store((unsigned char *)receive_buffer_1, receive_buffer_1_size);
+    }else{
+        response = 0;
+    }
+
+    got_data = 0;
+
+    return response;
 }
 
 uint8_t bn357_parse_and_store(unsigned char *gps_output_buffer, uint16_t size_of_buffer){
@@ -446,7 +460,7 @@ float bn357_get_linear_longitude_decimal_format(){
     // That is not good for pid which measures proportional error
     // The pid will think the longitude is more responsive
     // Scale it to be linear
-    return m_longitude*cos(m_latitude * (M_PI / 180.0));
+    return m_longitude*cos(m_latitude * M_PI_DIV_BY_180);
 }
 
 char bn357_get_longitude_direction(){

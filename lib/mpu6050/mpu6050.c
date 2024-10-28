@@ -1,10 +1,7 @@
 #include "./mpu6050.h"
 
 #include "../second_order_coplementary_filter/second_order_coplementary_filter.h"
-
-#ifndef M_PI
-#define M_PI (3.14159265358979323846)
-#endif
+#include "../utils/math_constants.h"
 
 #define MPU6050 (0b1101000 << 1)
 #define I2C_MASTER_TIMEOUT_MS 1000
@@ -237,8 +234,8 @@ void calculate_roll_pitch_from_accelerometer_data(float *data, float *accelerome
     float y = data[1];
     float z = data[2];
 
-    *accelerometer_roll = atan2f(y, sqrtf(x * x + z * z)) * (180.0 / M_PI) + roll_offset;
-    *accelerometer_pitch = -(atan2f(x, sqrtf(y * y + z * z)) * (180.0 / M_PI)) + pitch_offset;
+    *accelerometer_roll = atan2f(y, sqrtf(x * x + z * z)) * M_180_DIV_BY_PI + roll_offset;
+    *accelerometer_pitch = -(atan2f(x, sqrtf(y * y + z * z)) * M_180_DIV_BY_PI) + pitch_offset;
 }
 
 // Get many values of the accelerometer error and average them together. Then print out the result
@@ -497,7 +494,7 @@ float angle_difference(float a, float b) {
 }
 
 uint64_t last_vertical_sample_time = 0;
-#define G ((float) 9.81f)
+#define G 9.81
 
 float mpu6050_calculate_vertical_speed(float last_vertical_speed, float acceleration_data[3], float gyro_degrees[3], int64_t time) {
     if (last_vertical_sample_time == 0) {
@@ -512,8 +509,8 @@ float mpu6050_calculate_vertical_speed(float last_vertical_speed, float accelera
     // printf("degrees: %f, %f, %f\n", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
 
     // Convert pitch and roll angles to radians
-    float pitch_rad = gyro_degrees[0] * (M_PI / 180.0f);
-    float roll_rad = gyro_degrees[1] * (M_PI / 180.0f);
+    float pitch_rad = gyro_degrees[0] * M_PI_DIV_BY_180;
+    float roll_rad = gyro_degrees[1] * M_PI_DIV_BY_180;
 
     // Calculate the vertical component of the acceleration
     float a_x = acceleration_data[0] * G;
@@ -539,8 +536,8 @@ float mpu6050_calculate_vertical_speed(float last_vertical_speed, float accelera
 float mpu6050_calculate_vertical_acceleration_cm_per_second(float acceleration_data[3], float gyro_degrees[3]){
 
     // Convert pitch and roll angles to radians
-    float pitch_rad = gyro_degrees[0] * (M_PI / 180.0f);
-    float roll_rad = gyro_degrees[1] * (M_PI / 180.0f);
+    float pitch_rad = gyro_degrees[0] * M_PI_DIV_BY_180;
+    float roll_rad = gyro_degrees[1] * M_PI_DIV_BY_180;
 
     // Calculate the vertical component of the acceleration
     float a_x = acceleration_data[0] * G;

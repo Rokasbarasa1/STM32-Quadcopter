@@ -10,28 +10,26 @@
 // A not so good implementation of bdshot600 but still gives clues: https://github.com/bird-sanctuary/arduino-bi-directional-dshot
 // A decent explanation of return signal on bdshot600: https://github.com/cinderblock/AVR/blob/master/AVR%2B%2B/BDShot.cpp
 
-uint16_t bdshot600_motor_data_packet[20];               // Data to be sent to motor
-GPIO_TypeDef* bdshot600_motor_ports[20];                // Port
-uint16_t bdshot600_motor_pins[20];                      // Pin
-
-TIM_HandleTypeDef bdshot600_timer[20];                  // Timer struct
-TIM_TypeDef* bdshot600_timer_id[20];                    // TImer id
-TIM_IC_InitTypeDef bdshot600_timer_channel[20];         // Timer channel struct
-uint32_t bdshot600_timer_channel_id[20];                // Timer channel id
-uint32_t bdshot600_timer_channel_flag[20];              // Timer channel edge detect flag
-uint8_t bdshot600_motor_input_pin_alternate_mode[20];   // Pin mode for timer functionality
-
-uint16_t bdshot600_motor_response_clock_cycles[20][20]; // Response from motor measured in clock cycles
-uint16_t bdshot600_motor_period_us[20];                 // Motor period in us from response
-float bdshot600_motor_frequency[20];                    // Motor frequency from response
-float bdshot600_motor_rpm[20];                          // Motor rpm from response
-
-uint8_t bdshot600_motor_list_size = 0;                  // How many motors are used by this library
-
-const uint8_t counter_compare_capture_cycles_size = 20; // How many rounds of capture to do for the response
-volatile uint8_t busy_flag = 0;                         // To know when data is being written to the clock cycle array
+#define BDSHOT600_CAPTURE_COMPARE_CYCLES_SIZE 20                                                                               // How many rounds of capture to do for the response
+uint16_t bdshot600_motor_data_packet[BDSHOT600_AMOUNT_OF_MOTORS];                                                              // Data packet to be sent to motor
+GPIO_TypeDef* bdshot600_motor_ports[BDSHOT600_AMOUNT_OF_MOTORS];                                                               // Port
+uint16_t bdshot600_motor_pins[BDSHOT600_AMOUNT_OF_MOTORS];                                                                     // Pin
+TIM_HandleTypeDef bdshot600_timer[BDSHOT600_AMOUNT_OF_MOTORS];                                                                 // Timer struct
+TIM_TypeDef* bdshot600_timer_id[BDSHOT600_AMOUNT_OF_MOTORS];                                                                   // TImer id (ex. TIM2)
+TIM_IC_InitTypeDef bdshot600_timer_channel[BDSHOT600_AMOUNT_OF_MOTORS];                                                        // Timer channel struct
+uint32_t bdshot600_timer_channel_id[BDSHOT600_AMOUNT_OF_MOTORS];                                                               // Timer channel id  (ex. TIM_CHANNEL_2)
+uint32_t bdshot600_timer_channel_flag[BDSHOT600_AMOUNT_OF_MOTORS];                                                             // Timer channel edge detect flag. For optimizing
+uint8_t bdshot600_motor_input_pin_alternate_mode[BDSHOT600_AMOUNT_OF_MOTORS];                                                  // Pin mode for timer functionality. For optimizing
+volatile uint16_t bdshot600_motor_response_clock_cycles[BDSHOT600_AMOUNT_OF_MOTORS][BDSHOT600_CAPTURE_COMPARE_CYCLES_SIZE];    // Response from motor measured in clock cycles
+uint16_t bdshot600_motor_period_us[BDSHOT600_AMOUNT_OF_MOTORS];                                                                // Motor period in us from response
+float bdshot600_motor_frequency[BDSHOT600_AMOUNT_OF_MOTORS];                                                                   // Motor frequency from response
+float bdshot600_motor_rpm[BDSHOT600_AMOUNT_OF_MOTORS];                                                                         // Motor rpm from response
+uint8_t bdshot600_motor_list_size = 0;                                                                                         // How many motors are initialized in the array
+volatile uint8_t bdshot600_busy_flag = 0;                                                                                      // To know when data is being written to the clock cycle array by the driver
+volatile uint8_t bdshot600_conversion_finished = 0;                                                                            // Status flag to remember that data is stale
 
 // Reverse GCR mapping table
+// The zero returns are not important
 const uint8_t reverse_gcr_map[32] = {
     0, // 0
     0, // 1
@@ -67,7 +65,13 @@ const uint8_t reverse_gcr_map[32] = {
     0, // 1F
 };
 
+// Initialize all the peripherals the motor needs to function
 int8_t bdshot600_add_motor(GPIO_TypeDef* motor_port, uint16_t motor_pin, TIM_TypeDef* timer_id, uint32_t timer_channel_id){
+    if (bdshot600_motor_list_size >= BDSHOT600_AMOUNT_OF_MOTORS) {
+        printf("bdshot600 - Max number of motors reached\n");
+        return -1;
+    }
+
     // Save some data for the motor
     bdshot600_motor_ports[bdshot600_motor_list_size] = motor_port;
     bdshot600_motor_pins[bdshot600_motor_list_size] = motor_pin;
@@ -78,17 +82,12 @@ int8_t bdshot600_add_motor(GPIO_TypeDef* motor_port, uint16_t motor_pin, TIM_Typ
     HAL_StatusTypeDef ret;
 
     // This initializes the pin from scratch, no config for it is needed before hand
-    if(motor_port == GPIOA){
-        __HAL_RCC_GPIOA_CLK_ENABLE();
-    }else if(motor_port == GPIOB){
-        __HAL_RCC_GPIOB_CLK_ENABLE();
-    }else if(motor_port == GPIOC){
-        __HAL_RCC_GPIOC_CLK_ENABLE();
-    }else if(motor_port == GPIOD){
-        __HAL_RCC_GPIOD_CLK_ENABLE();
-    }
+    if(motor_port == GPIOA) __HAL_RCC_GPIOA_CLK_ENABLE();
+    else if(motor_port == GPIOB) __HAL_RCC_GPIOB_CLK_ENABLE();
+    else if(motor_port == GPIOC) __HAL_RCC_GPIOC_CLK_ENABLE();
+    else if(motor_port == GPIOD) __HAL_RCC_GPIOD_CLK_ENABLE();
 
-    // Initialize the clock for the timerand set the alternate pin mode 
+    // Initialize the clock for the timer and set the alternate pin mode 
     if(timer_id == TIM1){
         __HAL_RCC_TIM1_CLK_ENABLE();
         bdshot600_motor_input_pin_alternate_mode[bdshot600_motor_list_size] = GPIO_AF1_TIM1;
@@ -172,17 +171,7 @@ int8_t bdshot600_add_motor(GPIO_TypeDef* motor_port, uint16_t motor_pin, TIM_Typ
     return bdshot600_motor_list_size-1;
 }
 
-TIM_HandleTypeDef* bdshot600_get_motor_timer_pointer(uint8_t motor_index){
-    return &bdshot600_timer[motor_index];
-}
-
-void bdshot600_send_all_motor_data(){
-    // Set as busy so reading from the data arrays does not happen by the main loop
-    busy_flag = 1;
-    for (uint8_t i = 0; i < bdshot600_motor_list_size; i++) bdshot600_send_command(i);
-    busy_flag = 0;
-}
-
+// Computes the packet for sending it to motor. Can be used for commands also
 void bdshot600_set_throttle(uint16_t throttle, uint8_t motor_index_temp){
     // Reset the value
     bdshot600_motor_data_packet[motor_index_temp] = 0;
@@ -196,40 +185,23 @@ void bdshot600_set_throttle(uint16_t throttle, uint8_t motor_index_temp){
     bdshot600_motor_data_packet[motor_index_temp] = (bdshot600_motor_data_packet[motor_index_temp] << 4) | crc;
 }
 
-// Delay amount of cycles from now
-void delay_cycles(uint32_t cycles) {
-    uint32_t start = DWT->CYCCNT;
-    while ((DWT->CYCCNT - start) < cycles);
+// Send throttle that was set to all motors
+// Has to be called at 500Hz or more otherwise the motor wont do anything
+void bdshot600_send_all_motor_data(){
+    // Set as busy so reading from the data arrays does not happen by the main loop
+    bdshot600_busy_flag = 1;
+    bdshot600_conversion_finished = 0;
+    for (uint8_t i = 0; i < bdshot600_motor_list_size; i++) bdshot600_send_command(i);
+    bdshot600_busy_flag = 0;
 }
 
+// Check if the driver is busy sending and getting data from motors
 uint8_t bdshot600_get_busy(){
-    return busy_flag;
+    return bdshot600_busy_flag;
 }
 
-uint16_t bdshot600_get_period_us(uint8_t motor_index){
-    return bdshot600_motor_period_us[motor_index];
-}
-
-float bdshot600_get_frequency(uint8_t motor_index){
-    return bdshot600_motor_frequency[motor_index];
-}
-
-float bdshot600_get_rpm(uint8_t motor_index){
-    return bdshot600_motor_rpm[motor_index];
-}
-
-uint8_t bdshot600_convert_all_responses(){
-    for (uint8_t i = 0; i < bdshot600_motor_list_size; i++){ 
-        if (!bdshot600_convert_response_to_data(i)){
-            // printf("Failed to convert\n");
-            return 0;
-        }
-    }
-
-    return 1;
-}
-
-void bdshot600_send_command(uint8_t motor_index) {
+// Send data packet and wait for response from the motor
+void bdshot600_send_command(uint8_t motor_index){
     // Declare all the variables before starting time sensitive stuff
     uint16_t packet = bdshot600_motor_data_packet[motor_index];
     uint32_t pin_mask = bdshot600_motor_pins[motor_index];
@@ -243,13 +215,8 @@ void bdshot600_send_command(uint8_t motor_index) {
     memset(
         bdshot600_motor_response_clock_cycles[motor_index], 
         0, 
-        20 * sizeof(uint16_t)
+        BDSHOT600_CAPTURE_COMPARE_CYCLES_SIZE * sizeof(uint16_t)
     );
-
-    // Enable DWT. Will be used for delay after packet transmission
-    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;  
-    DWT->CYCCNT = 0;                                // Reset the cycle counter
-    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 
     // Inspired by: https://github.com/gueei/DShot-Arduino
     __asm__ volatile (
@@ -323,7 +290,7 @@ void bdshot600_send_command(uint8_t motor_index) {
     __HAL_TIM_CLEAR_FLAG(&bdshot600_timer[motor_index], TIM_FLAG_UPDATE);  // Clear update flag (overflow)
     __HAL_TIM_CLEAR_FLAG(&bdshot600_timer[motor_index], TIM_FLAG_CC1OF);  // Clear overcapture flag, even if not used
     
-    for( uint8_t i = 0; i <= counter_compare_capture_cycles_size; i++) {
+    for( uint8_t i = 0; i < BDSHOT600_CAPTURE_COMPARE_CYCLES_SIZE; i++) {
         // Wait for the counter overflow or the capture flag to be set.
         while (
             !(bdshot600_timer[motor_index].Instance->SR & bdshot600_timer_channel_flag[motor_index]) && 
@@ -383,7 +350,22 @@ void bdshot600_send_command(uint8_t motor_index) {
     */
 }
 
+// Convert all responses from motors to period, frequency and rpm
+uint8_t bdshot600_convert_all_responses(){
+    if(!bdshot600_conversion_finished){
+        for (uint8_t i = 0; i < bdshot600_motor_list_size; i++){ 
+            if (!bdshot600_convert_response_to_data(i)){
+                // printf("Failed to convert\n");
+                return 0;
+            }
+        }
+    }
 
+    bdshot600_conversion_finished = 1;
+    return 1;
+}
+
+// Convert the response from the motor to real data of period, frequency and rpm
 // This is a separate function form the interrupt to keep the interrupt as short as possible
 uint8_t bdshot600_convert_response_to_data(uint8_t motor_index){
 
@@ -410,7 +392,7 @@ uint8_t bdshot600_convert_response_to_data(uint8_t motor_index){
     volatile uint32_t response_in_bits = 0;
 
     // Loop over the clock cycles amounts and see how many bits in length each block of these cycles is
-    for (uint8_t i = 0; i < counter_compare_capture_cycles_size; i++){
+    for (uint8_t i = 0; i < BDSHOT600_CAPTURE_COMPARE_CYCLES_SIZE; i++){
         // If the clock cycle value is 0 at any point, break the loop
         // if(counter_compare_capture_cycles[i] == 0) break;
         if(response_clock_cycles_copy[i] == 0) break;
@@ -511,16 +493,80 @@ uint8_t bdshot600_convert_response_to_data(uint8_t motor_index){
         // for (int i = 3; i >= 0; i--) printf("%u", (payload_16bit_only_crc >> i) & 1); 
         // printf("\n");
 
-        // Return 0 to indicate that something wrong happened
+        // Return 0 to indicate that something wrong happened durring conversion
         return 0;
     }
 
     // Get the period in us, frequency and rpm
     bdshot600_motor_period_us[motor_index] = payload_16bit_only_payload << payload_16bit_only_exponent; // payload is 9 bits and the exponent can move it 7 bits to the left making it a 16 bit value at max
-    // This value occurs when throttle is 0
+    // 65408 means the motor is not spinning. Need to set everything to zero when this happens
     if(bdshot600_motor_period_us[motor_index] == 65408) bdshot600_motor_frequency[motor_index] = 0;
     else bdshot600_motor_frequency[motor_index] = 1.0/((float)bdshot600_motor_period_us[motor_index]/1000000.0);
     bdshot600_motor_rpm[motor_index] = 60 * bdshot600_motor_frequency[motor_index];
 
     return 1;
 }
+
+// Motor period
+uint16_t bdshot600_get_period_us(uint8_t motor_index){
+    return bdshot600_motor_period_us[motor_index];
+}
+
+// Motor frequency
+float bdshot600_get_frequency(uint8_t motor_index){
+    return bdshot600_motor_frequency[motor_index];
+}
+
+// Motor rpm
+float bdshot600_get_rpm(uint8_t motor_index){
+    return bdshot600_motor_rpm[motor_index];
+}
+
+// ----------------------------------------------------------------------------------------- Example use of driver
+// float motor_frequency[] = {0.0, 0.0, 0.0, 0.0};
+// float motor_rpm[] = {0.0, 0.0, 0.0, 0.0};
+
+// uint8_t motor_BL;
+// uint8_t motor_BR;
+// uint8_t motor_FR;
+// uint8_t motor_FL;
+
+// // Optional 
+// void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim){
+//     if(htim->Instance == TIM3){
+//         bdshot600_send_all_motor_data();
+//     }
+// }
+
+// int main(void){
+//     motor_FL = bdshot600_add_motor(GPIOA, GPIO_PIN_1,  TIM2, TIM_CHANNEL_2);
+//     motor_FR = bdshot600_add_motor(GPIOB, GPIO_PIN_10, TIM2, TIM_CHANNEL_3);
+//     motor_BL = bdshot600_add_motor(GPIOA, GPIO_PIN_8,  TIM1, TIM_CHANNEL_1);
+//     motor_BR = bdshot600_add_motor(GPIOA, GPIO_PIN_11, TIM1, TIM_CHANNEL_4);
+    
+//     while(1){
+//         if(bdshot600_convert_all_responses(1)){
+
+//             // Motor 0 - BL, 1 - BR, 2 - FR, 3 - FL
+//             motor_frequency[0] = bdshot600_get_frequency(motor_BL);
+//             motor_frequency[1] = bdshot600_get_frequency(motor_BR);
+//             motor_frequency[2] = bdshot600_get_frequency(motor_FR);
+//             motor_frequency[3] = bdshot600_get_frequency(motor_FL);
+
+//             motor_rpm[0] = bdshot600_get_rpm(motor_BL); 
+//             motor_rpm[1] = bdshot600_get_rpm(motor_BR);
+//             motor_rpm[2] = bdshot600_get_rpm(motor_FR);
+//             motor_rpm[3] = bdshot600_get_rpm(motor_FL);
+//         }
+
+//         bdshot600_set_throttle(100, motor_BL);
+//         bdshot600_set_throttle(100, motor_BR);
+//         bdshot600_set_throttle(100, motor_FR);
+//         bdshot600_set_throttle(100, motor_FL);
+
+//         // Loop must run at least at 500Hz if calling without a timer
+//         bdshot600_send_all_motor_data();
+//     }
+
+//     return 0;
+// }

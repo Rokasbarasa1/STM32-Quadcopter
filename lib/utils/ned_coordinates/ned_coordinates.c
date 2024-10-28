@@ -1,10 +1,7 @@
 #include "./ned_coordinates.h"
 #include <stdio.h>
 #include <math.h>
-
-#ifndef M_PI
-#define M_PI (3.14159265358979323846)
-#endif
+#include "../utils/math_constants.h"
 
 void get_ned_coordinates(float* acceleration_data, float* magnetometer_data, float* north_vector, float* east_vector, float* down_vector){
 
@@ -89,5 +86,5 @@ float angle_between_2d_vectors(float ax, float ay, float bx, float by ){
     return atan2(
         (ax * by - ay * bx), 
         (ax * bx + ay * by)
-    )*180/M_PI;
+    )*M_180_DIV_BY_PI;
 }

@@ -94,8 +94,6 @@ static void write_register(uint8_t reg, uint8_t data) {
     HAL_SPI_Transmit(device_handle, &reg_temp, 1, 5000);
     HAL_SPI_Transmit(device_handle, buf, 1, 5000);
     cs_deselect();
-
-    // HAL_Delay(1);
 }
 
 // Read one register and return it from function
@@ -106,8 +104,6 @@ static uint8_t read_register(uint8_t reg) {
     HAL_SPI_Transmit(device_handle, &reg, 1, 5000);
     HAL_SPI_Receive(device_handle, buf, 1, 5000);
     cs_deselect();
-
-    // HAL_Delay(1);
 
     return buf[0];
 }
@@ -122,8 +118,6 @@ static void write_register_multiple(uint8_t reg, uint8_t * data, uint8_t size, u
     HAL_SPI_Transmit(device_handle, &reg, 1, 5000);
     HAL_SPI_Transmit(device_handle, data, size, 5000);
     cs_deselect();
-
-    // HAL_Delay(1);
 }
 
 // send a specific command. Basically write and ignore response
@@ -132,7 +126,6 @@ static void send_command(uint8_t command){
     HAL_SPI_Transmit(device_handle, &command, 1, 5000);
     cs_deselect();
 
-    // HAL_Delay(1);
 }
 
 // read multiple registers from specified registers
@@ -141,8 +134,6 @@ static void read_register_multiple(uint8_t reg, uint8_t *buf, uint16_t len) {
     HAL_SPI_Transmit(device_handle, &reg, 1, 5000);
     HAL_SPI_Receive(device_handle, buf, len, 5000);
     cs_deselect();
-
-    // HAL_Delay(1);
 }
 
 // Test to see if spi setup is working for nrf24
@@ -297,7 +288,6 @@ uint8_t nrf24_data_available(int pipe_number){
 void nrf24_receive(char *data){
 	// payload command
     read_register_multiple(R_RX_PAYLOAD, data, 32);
-    // HAL_Delay(1);
 
 	send_command(FLUSH_RX);
 }

@@ -32,8 +32,9 @@ static void MX_TIM4_Init(void);
 #include "stdio.h"
 #include "string.h"
 #include "math.h"
+#include <inttypes.h>
 
-// Drivers
+// Drivers 
 #include "../lib/mpu6050/mpu6050.h"
 #include "../lib/qmc5883l/qmc5883l.h"
 #include "../lib/mmc5603/mmc5603.h"
@@ -50,11 +51,8 @@ static void MX_TIM4_Init(void);
 #include "../lib/filtering/filtering.h"
 #include "../lib/kalman_filter/kalman_filter.h"
 #include "../lib/utils/matrix_operations/matrix_operations.h"
-#include "../lib/bdshot600/bdshot600.h"
-
-#ifndef M_PI
-#define M_PI (3.14159265358979323846)
-#endif
+#include "../lib/bdshot600_dma/bdshot600_dma.h"
+#include "../utils/math_constants.h"
 
 void init_STM32_peripherals();
 void calibrate_escs();
@@ -74,7 +72,6 @@ void extract_joystick_request_values_float(char *request, uint8_t request_size, 
 void extract_request_type(char *request, uint8_t request_size, char *type_output);
 void extract_pid_request_values(char *request, uint8_t request_size, float *added_proportional, float *added_integral, float *added_derivative, float *added_master);
 void extract_accelerometer_offsets(char *request, uint8_t request_size, float *added_x_axis_offset, float *added_y_axis_offset);
-void track_time();
 float map_value(float value, float input_min, float input_max, float output_min, float output_max);
 float apply_dead_zone(float value, float max_value, float min_value, float dead_zone);
 void send_pid_base_info_to_remote();
@@ -102,11 +99,11 @@ void initialize_control_abstractions();
 void set_flight_mode(uint8_t mode);
 void initialize_motor_communication();
 
-// PWM pins
-// PA8  - 1 TIM1 for motor back-left (BL)
-// PA11 - 4 TIM1 for motor back right (BR)
-// PA0  - 1 TIM2 for motor front right (FR)
-// PA1  - 2 TIM2 for motor front left (FL)
+// bdshot600 pins
+// PA8  - TIM1_CH1 for motor back-left (BL)
+// PA11 - TIM1_CH4 for motor back right (BR)
+// PA1  - TIM2_CH2 for motor front left (FL)
+// PB10 - TIM2_CH3 for motor front right (FR)
 
 // UART pins
 // PA2  UART2 tx GPS
@@ -136,6 +133,14 @@ void initialize_motor_communication();
 // PB1 CS 
 // PB0 CE
 
+// DMAs used. They have to not be reused otherwise problems
+// TX SPI3  DMA1 stream 7
+// RX UART2 DMA1 stream 5
+// TIM1_CH1 DMA2 stream 1
+// TIM1_CH4 DMA2 stream 4
+// TIM2_CH2 DMA1 stream 6
+// TIM2_CH3 DMA1 stream 1
+
 // ------------------------------------------------------------------------------------------------------ Refresh rate
 // Nyquist: sampling frequency must be at least double that of the highest frequency of interest
 // The MPU6050 has a lowpass set to 260Hz we need to be able to manipulate all the frequencies until that. So 260 * 2 = 520
@@ -143,11 +148,8 @@ void initialize_motor_communication();
 
 const uint16_t precalculated_timing_miliseconds = (1000000 / REFRESH_RATE_HZ);
 // ------------------------------------------------------------------------------------------------------ handling loop timing
-uint32_t loop_start_time = 0;
-uint32_t loop_end_time = 0;
-int16_t delta_loop_time = 0;
-
 // Timing
+// TODO: Change this variable to uint64 later
 uint64_t absolute_microseconds_since_start = 0;
 uint16_t loop_start_microseconds = 0; // The timer is only 16 bits
 uint16_t loop_start_miliseconds = 0; // Fallback if the microseconds overflew
@@ -165,7 +167,7 @@ uint8_t time_since_startup_hours = 0;
 uint8_t entered_loop = 0;
 
 // ------------------------------------------------------------------------------------------------------ Motor settings
-const uint32_t dshot_refresh_rate = 550; // Hz
+const uint32_t dshot_refresh_rate = 520; // Hz
 
 #define max_dshot600_throttle_value 2047
 #define min_dshot600_throttle_value 48
@@ -195,13 +197,32 @@ uint16_t throttle_value_FL;
 uint16_t throttle_value_BL;
 uint16_t throttle_value_BR;
 
+// If REFRESH_RATE_HZ >= 500 HZ then the control loop will handle the bdshot600 sending
+// else the interrupt on timer 3 will handle it
+uint8_t manual_bdshot = 0;
+
 // Used by the bdshot600 protocol for all the motors
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim){
     if(htim->Instance == TIM3){
-        bdshot600_send_all_motor_data();
-        // printf("dshot600\n");
-        // dshot600_send_all_motor_data();
+        bdshot600_dma_send_all_motor_data();
     }
+}
+
+// Without the handlers the DMA will crash the system
+void DMA2_Stream1_IRQHandler(void){
+    HAL_DMA_IRQHandler(bdshot600_dma_get_dma_handle(motor_BL));
+}
+
+void DMA2_Stream4_IRQHandler(void){
+    HAL_DMA_IRQHandler(bdshot600_dma_get_dma_handle(motor_BR));
+}
+
+void DMA1_Stream6_IRQHandler(void){
+    HAL_DMA_IRQHandler(bdshot600_dma_get_dma_handle(motor_FL));
+}
+
+void DMA1_Stream1_IRQHandler(void){
+    HAL_DMA_IRQHandler(bdshot600_dma_get_dma_handle(motor_FR));
 }
 
 // ------------------------------------------------------------------------------------------------------ Sensor calibrations
@@ -404,11 +425,15 @@ float roll_effect_on_lon = 0;
 float pitch_effect_on_lon = 0;
 
 // ------------------------------------------------------------------------------------------------------ Sensor fusion and filtering stuff
-float complementary_ratio = 1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ)); // Depends on how often the loop runs. 1 second / (1 second + one loop time)
 float complementary_beta = 0.0;
+float complementary_ratio = 1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ)); // Depends on how often the loop runs. 1 second / (1 second + one loop time)
 
 float filtering_magnetometer_cutoff_frequency = 180; // 200Hz sample rate and 0.85 alpha gives 180Hz cutoff and around 1ms delay
 float filtering_accelerometer_cutoff_frequency = 40; // 200Hz sample rate and 0.386 alpha gives 20Hz cutoff and around 1ms delay
+
+float rpm_notch_filter_q_value = 500; // Default in betaflight
+
+float rpm_notch_filter_min_frequency = 100; // Hz
 
 struct low_pass_filter filter_magnetometer_x;
 struct low_pass_filter filter_magnetometer_y;
@@ -417,6 +442,21 @@ struct low_pass_filter filter_magnetometer_z;
 struct low_pass_filter filter_accelerometer_x;
 struct low_pass_filter filter_accelerometer_y;
 struct low_pass_filter filter_accelerometer_z;
+
+struct notch_filter gyro_x_filter_motor_FR;
+struct notch_filter gyro_x_filter_motor_FL;
+struct notch_filter gyro_x_filter_motor_BR;
+struct notch_filter gyro_x_filter_motor_BL;
+
+struct notch_filter gyro_y_filter_motor_FR;
+struct notch_filter gyro_y_filter_motor_FL;
+struct notch_filter gyro_y_filter_motor_BR;
+struct notch_filter gyro_y_filter_motor_BL;
+
+struct notch_filter gyro_z_filter_motor_FR;
+struct notch_filter gyro_z_filter_motor_FL;
+struct notch_filter gyro_z_filter_motor_BR;
+struct notch_filter gyro_z_filter_motor_BL;
 
 struct kalman_filter altitude_and_velocity_kalman;
 // ------------------------------------------------------------------------------------------------------ Remote control settings
@@ -471,9 +511,10 @@ uint8_t use_angle_mode = 0;
 uint8_t use_vertical_velocity_control = 0;
 uint8_t use_gps_hold = 0;
 
-
 uint32_t radio = 0;
 uint32_t radio2 = 0;
+uint32_t radio_end = 0;
+
 uint32_t sensors = 0;
 uint32_t sensors2 = 0;
 uint32_t sensors3 = 0;
@@ -481,11 +522,21 @@ uint32_t sensors4 = 0;
 uint32_t sensors5 = 0;
 uint32_t sensors6 = 0;
 uint32_t sensors7 = 0;
+uint32_t sensors8 = 0;
+uint32_t sensors_end = 0;
 
 uint32_t motor = 0;
+uint32_t motor2 = 0;
+uint32_t motor3 = 0;
+uint32_t motor4 = 0;
+uint32_t motor5 = 0;
+uint32_t motor6 = 0;
+uint32_t motor_end = 0;
+
 uint32_t logging = 0;
 uint32_t logging2 = 0;
 uint32_t logging3 = 0;
+uint32_t logging_end = 0;
 
 
 
@@ -500,7 +551,6 @@ int main(void){
 
     
     if(init_drivers() == 0) return 0; // exit if initialization failed
-
 
     HAL_Delay(2000); // Dont want to interfere in calibration
 
@@ -520,35 +570,71 @@ int main(void){
     while (1){
         // Get current time
         handle_loop_start();
-
-        
         DWT->CYCCNT = 0;
+
         radio = DWT->CYCCNT;
         handle_radio_communication();
-        // printf("r%lu\n", DWT->CYCCNT - radio);
-        // printf("2r%lu\n", radio2 - radio);
+        radio_end = DWT->CYCCNT;
 
         sensors = DWT->CYCCNT;
         handle_get_and_calculate_sensor_values(); // Important do do this right before the pid stuff.
-        // printf("1s%lu\n", DWT->CYCCNT - sensors);
-        // printf("2s%lu\n", sensors2 - sensors);
-        // printf("3s%lu\n", sensors3 - sensors);
-        // printf("4s%lu\n", sensors4 - sensors);
-        // printf("5s%lu\n", sensors5 - sensors);
-        // printf("6s%lu\n", sensors6 - sensors);
-        // printf("7s%lu\n", sensors7 - sensors);
+        sensors_end = DWT->CYCCNT;
+
 
         motor = DWT->CYCCNT;
         handle_pid_and_motor_control();
-        // printf("m%lu\n", DWT->CYCCNT - motor);
+        motor_end = DWT->CYCCNT;
+
 
         logging = DWT->CYCCNT;
         handle_logging();
-        // printf("1L%lu\n", DWT->CYCCNT - logging);
-        // printf("2L%lu\n", logging2 - logging);
-        // printf("3L%lu\n", logging3 - logging);
+        logging_end = DWT->CYCCNT;
 
         handle_loop_end();
+
+        // printf("2r %lu\n", radio2 - radio);
+        // printf("1r %lu\n", radio_end - radio);
+
+        // printf("2s %lu\n", sensors2 - sensors);
+        // printf("3s %lu\n", sensors3 - sensors2);
+        // printf("4s %lu\n", sensors4 - sensors3);
+        // printf("5s %lu\n", sensors5 - sensors4);
+        // printf("6s %lu\n", sensors6 - sensors5);
+        // printf("7s %lu\n", sensors7 - sensors6);
+        // printf("8s %lu\n", sensors8 - sensors7);
+        // printf("1s %lu\n", sensors_end - sensors);
+
+        // printf("2m %lu\n", motor2 - motor);
+        // printf("3m %lu\n", motor3 - motor2);
+        // printf("4m %lu\n", motor4 - motor3);
+        // printf("5m %lu\n", motor5 - motor4);
+        // printf("6m %lu\n", motor6 - motor6);
+        // printf("1m %lu\n", motor_end - motor);
+
+        // printf("2L %lu\n", logging2 - logging);
+        // printf("3L %lu\n", logging3 - logging2);
+        // printf("1L %lu\n", logging_end - logging);
+
+        // printf("(%lu + %lu + %lu + %lu)/100000000 = %.5f\n\n", 
+        //     radio_end - radio,
+        //     sensors_end - sensors,
+        //     motor_end - motor,
+        //     logging_end - logging,
+        //     ((float)(radio_end - radio) + (sensors_end - sensors) + (motor_end - motor) + (logging_end - logging)) / 100000000.0
+        // );
+
+        // printf("Motor BL: %5.1f BR: %5.1f FR: %5.1f FL: %5.1f\n",
+        //     motor_rpm[0],
+        //     motor_rpm[1],
+        //     motor_rpm[2],
+        //     motor_rpm[3]
+        // );
+
+        // printf("%.1f\n",
+        //     motor_rpm[0]
+        // );
+
+
     }
 }
 
@@ -586,7 +672,7 @@ uint8_t init_drivers(){
 
     // Continue initializing
     nrf24_rx_mode(tx_address, 10);
-    // bn357_start_uart_interrupt();
+    bn357_start_uart_interrupt();
 
     return 1;
 }
@@ -604,41 +690,42 @@ void handle_get_and_calculate_sensor_values(){
     // ------------------------------------------------------------------------------------------------------ Get the sensor data
     // Get data from motors
     // Block until the motors allow to convert the value
-    if(bdshot600_convert_all_responses()){
-        // Motor 0 - BL, 1 - BR, 2 - FR, 3 - FL
-        motor_frequency[0] = bdshot600_get_frequency(motor_BL);
-        motor_frequency[1] = bdshot600_get_frequency(motor_BR);
-        motor_frequency[2] = bdshot600_get_frequency(motor_FR);
-        motor_frequency[3] = bdshot600_get_frequency(motor_FL);
+    // if(bdshot600_convert_all_responses()){
+    if(bdshot600_dma_convert_all_responses(1)){
 
-        motor_rpm[0] = bdshot600_get_rpm(motor_BL); 
-        motor_rpm[1] = bdshot600_get_rpm(motor_BR);
-        motor_rpm[2] = bdshot600_get_rpm(motor_FR);
-        motor_rpm[3] = bdshot600_get_rpm(motor_FL);
+        // Motor 0 - BL, 1 - BR, 2 - FR, 3 - FL
+        motor_frequency[0] = bdshot600_dma_get_frequency(motor_BL);
+        motor_frequency[1] = bdshot600_dma_get_frequency(motor_BR);
+        motor_frequency[2] = bdshot600_dma_get_frequency(motor_FR);
+        motor_frequency[3] = bdshot600_dma_get_frequency(motor_FL);
+
+        motor_rpm[0] = bdshot600_dma_get_rpm(motor_BL); 
+        motor_rpm[1] = bdshot600_dma_get_rpm(motor_BR);
+        motor_rpm[2] = bdshot600_dma_get_rpm(motor_FR);
+        motor_rpm[3] = bdshot600_dma_get_rpm(motor_FL);
     }
+
     sensors2 = DWT->CYCCNT;
 
     // Disable interrupts as they heavily impact the i2c communication
     __disable_irq();
-    temperature = bmp280_get_temperature_celsius();
+    temperature = bmp280_get_temperature_celsius(); // Temperature will probably not change
     altitude = bmp280_get_height_centimeters_from_reference(0);
     sensors3 = DWT->CYCCNT;
     mmc5603_magnetometer_readings_micro_teslas(magnetometer_data);
     sensors4 = DWT->CYCCNT;
     mpu6050_get_accelerometer_readings_gravity(acceleration_data);
     mpu6050_get_gyro_readings_dps(gyro_angular);
-    __enable_irq(); 
+    __enable_irq();
 
     sensors5 = DWT->CYCCNT;
 
+    bn357_parse_data(); // Try to parse gps
     gps_latitude = bn357_get_latitude_decimal_format();
     gps_longitude = bn357_get_linear_longitude_decimal_format(); // Linear for pid
     gps_fix_type = bn357_get_fix_type();
-    if(bn357_get_status_up_to_date(1)) got_gps = 1; // Flag for logging
-    else got_gps = 0;
-    if(gps_fix_type == 3) HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-    else HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-    
+    got_gps = bn357_get_status_up_to_date(1);
+
     // Pitch (+)forwards - front of device nose goes down
     // Roll (+)right - the device banks to the right side while pointing forward
     // After yaw calculation yaw has to be 0/360 when facing north in the pitch+ axis
@@ -647,8 +734,6 @@ void handle_get_and_calculate_sensor_values(){
     invert_axies(acceleration_data);
     invert_axies(gyro_angular);
     // Pitch device forwards -> Y axis positive. Roll device right -> X axis positive
-
-    // printf("%f;%f;%f;\n", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
     // ------------------------------------------------------------------------------------------------------ Filter the sensor data
     sensors6 = DWT->CYCCNT;
 
@@ -656,11 +741,50 @@ void handle_get_and_calculate_sensor_values(){
     // Filtering rpm: https://www.youtube.com/watch?v=NCDyA9bnf4I&t=192s
 
 
+    
     // Gyro RPM filtering
     // Filter the gyro using each of the rpm's from the motors
     // 4 notch filters with 3 harmonics
+    
+    // Dynamic filtering
 
+    // if(motor_frequency[0] >= rpm_notch_filter_min_frequency){
+    if(motor_frequency[0] > 0){
 
+        // Apply new notch filter focus
+        notch_filter_set_center_frequency_Q_constant(&gyro_x_filter_motor_BL, motor_frequency[0]);
+        notch_filter_set_center_frequency_Q_constant(&gyro_x_filter_motor_BR, motor_frequency[1]);
+        notch_filter_set_center_frequency_Q_constant(&gyro_x_filter_motor_FR, motor_frequency[2]);
+        notch_filter_set_center_frequency_Q_constant(&gyro_x_filter_motor_FL, motor_frequency[3]);
+
+        notch_filter_set_center_frequency_Q_constant(&gyro_y_filter_motor_BL, motor_frequency[0]);
+        notch_filter_set_center_frequency_Q_constant(&gyro_y_filter_motor_BR, motor_frequency[1]);
+        notch_filter_set_center_frequency_Q_constant(&gyro_y_filter_motor_FR, motor_frequency[2]);
+        notch_filter_set_center_frequency_Q_constant(&gyro_y_filter_motor_FL, motor_frequency[3]);
+
+        notch_filter_set_center_frequency_Q_constant(&gyro_z_filter_motor_BL, motor_frequency[0]);
+        notch_filter_set_center_frequency_Q_constant(&gyro_z_filter_motor_BR, motor_frequency[1]);
+        notch_filter_set_center_frequency_Q_constant(&gyro_z_filter_motor_FR, motor_frequency[2]);
+        notch_filter_set_center_frequency_Q_constant(&gyro_z_filter_motor_FL, motor_frequency[3]);
+
+        // Apply the filter to each axis
+        gyro_angular[0] = notch_filter_read(&gyro_x_filter_motor_BL, gyro_angular[0]);
+        gyro_angular[0] = notch_filter_read(&gyro_x_filter_motor_BR, gyro_angular[0]);
+        gyro_angular[0] = notch_filter_read(&gyro_x_filter_motor_FR, gyro_angular[0]);
+        gyro_angular[0] = notch_filter_read(&gyro_x_filter_motor_FL, gyro_angular[0]);
+
+        gyro_angular[1] = notch_filter_read(&gyro_y_filter_motor_BL, gyro_angular[1]);
+        gyro_angular[1] = notch_filter_read(&gyro_y_filter_motor_BR, gyro_angular[1]);
+        gyro_angular[1] = notch_filter_read(&gyro_y_filter_motor_FR, gyro_angular[1]);
+        gyro_angular[1] = notch_filter_read(&gyro_y_filter_motor_FL, gyro_angular[1]);
+
+        gyro_angular[2] = notch_filter_read(&gyro_z_filter_motor_BL, gyro_angular[2]);
+        gyro_angular[2] = notch_filter_read(&gyro_z_filter_motor_BR, gyro_angular[2]);
+        gyro_angular[2] = notch_filter_read(&gyro_z_filter_motor_FR, gyro_angular[2]);
+        gyro_angular[2] = notch_filter_read(&gyro_z_filter_motor_FL, gyro_angular[2]);
+    }
+
+    sensors7 = DWT->CYCCNT;
 
     // Gyro filtering is not needed as loop rate and gyro sample rate are the same
     magnetometer_data[0] = low_pass_filter_read(&filter_magnetometer_x, magnetometer_data[0]);
@@ -683,20 +807,12 @@ void handle_get_and_calculate_sensor_values(){
     
 
     // GPS STUFF
-    float latitude_sign = 1;
-    if(bn357_get_latitude_direction() == 'N') latitude_sign = 1;
-    else if(bn357_get_latitude_direction() == 'S') latitude_sign = -1;
-
-    float longitude_sign = 1;
-    if(bn357_get_longitude_direction() == 'E') longitude_sign = 1;
-    else if(bn357_get_longitude_direction() == 'W') longitude_sign = -1;
-
-    pitch_effect_on_lat = triangle_cos(imu_orientation[2] * (M_PI / 180.0)) * latitude_sign; // + GOOD, - GOOD  // If moving north forward positive, backwards negative
-    roll_effect_on_lat = -triangle_cos(imu_orientation[2] * (M_PI / 180.0)) * latitude_sign; // + GOOD, - GOOD  // If moving north roll right positive, roll left south negative
-    pitch_effect_on_lon = triangle_cos(imu_orientation[2] * (M_PI / 180.0)) * longitude_sign; // + GOOD, - GOOD 
-    roll_effect_on_lon = triangle_cos(imu_orientation[2] * (M_PI / 180.0)) * longitude_sign; // GOOD, - GOOD
-
-    sensors7 = DWT->CYCCNT;
+    float latitude_sign = 1 * (bn357_get_latitude_direction() == 'N') + (-1) * (bn357_get_latitude_direction() == 'S'); // Possible results: 0, 1 or -1
+    float longitude_sign = 1 * (bn357_get_longitude_direction() == 'E') + (-1) * (bn357_get_longitude_direction() == 'W');
+    roll_effect_on_lat = -triangle_cos(imu_orientation[0] * M_PI_DIV_BY_180) * latitude_sign; // + GOOD, - GOOD  // If moving north roll right positive, roll left south negative
+    pitch_effect_on_lat = triangle_cos(imu_orientation[1] * M_PI_DIV_BY_180) * latitude_sign; // + GOOD, - GOOD  // If moving north forward positive, backwards negative
+    roll_effect_on_lon = triangle_cos(imu_orientation[0] * M_PI_DIV_BY_180) * longitude_sign; // GOOD, - GOOD
+    pitch_effect_on_lon = triangle_cos(imu_orientation[1] * M_PI_DIV_BY_180) * longitude_sign; // + GOOD, - GOOD 
 
     // printf("PLAT: %.2f RLAT: %.2f PLON: %.2f RLON: %.2f\n", 
     //     pitch_effect_on_lat,
@@ -736,11 +852,11 @@ void handle_get_and_calculate_sensor_values(){
     //     gps_longitude = in_between_gps_longitude;
     // }
 
+    sensors8 = DWT->CYCCNT;
 
     // ------------------------------------------------------------------------------------------------------ Use sensor fused data for more data
     float vertical_acceleration[1] = {mpu6050_calculate_vertical_acceleration_cm_per_second(acceleration_data, imu_orientation)};
     float vertical_altitude[1] = {altitude};
-
 
     kalman_filter_predict(&altitude_and_velocity_kalman, vertical_acceleration);
     kalman_filter_update(&altitude_and_velocity_kalman, vertical_altitude);
@@ -757,10 +873,10 @@ void handle_get_and_calculate_sensor_values(){
 void handle_pid_and_motor_control(){    
     // For the robot to do work it needs to be receiving radio signals and at the correct angles, facing up
     if(
-        imu_orientation[0] <  30 && 
-        imu_orientation[0] > -30 && 
-        imu_orientation[1] <  30 && 
-        imu_orientation[1] > -30 && 
+        // imu_orientation[0] <  30 && 
+        // imu_orientation[0] > -30 && 
+        // imu_orientation[1] <  30 && 
+        // imu_orientation[1] > -30 && 
         ((float)get_absolute_time() - (float)last_signal_timestamp_microseconds) / 1000000.0 <= minimum_signal_timing_seconds
     ){
         // ---------------------------------------------------------------------------------------------- GPS position hold
@@ -850,6 +966,8 @@ void handle_pid_and_motor_control(){
                 gps_hold_pitch_adjustment = last_error_pitch;
             }
         }
+        motor2 = DWT->CYCCNT;
+        
 
         // ---------------------------------------------------------------------------------------------- Altitude hold
         if(use_vertical_velocity_control){
@@ -859,13 +977,14 @@ void handle_pid_and_motor_control(){
             error_vertical_velocity = 0;
         }
 
+        motor3 = DWT->CYCCNT;
+
         // ---------------------------------------------------------------------------------------------- Angle mode
         if(use_angle_mode){
             pid_set_desired_value(&angle_roll_pid, angle_target_roll + gps_hold_roll_adjustment);
             pid_set_desired_value(&angle_pitch_pid, angle_target_pitch + gps_hold_pitch_adjustment);
 
             // For now not logging desired angle mode
-
             error_angle_roll = pid_get_error(&angle_roll_pid, imu_orientation[0], get_absolute_time());
             error_angle_pitch = pid_get_error(&angle_pitch_pid, imu_orientation[1], get_absolute_time());
 
@@ -873,6 +992,8 @@ void handle_pid_and_motor_control(){
             error_angle_roll = 0;
             error_angle_pitch = 0;
         }
+
+        motor4 = DWT->CYCCNT;
 
         // ---------------------------------------------------------------------------------------------- Acro mode
         if(use_angle_mode){
@@ -907,6 +1028,8 @@ void handle_pid_and_motor_control(){
         PID_proportional[2] = pid_get_last_proportional_error(&acro_yaw_pid); // Logging
         PID_integral[2] = pid_get_last_integral_error(&acro_yaw_pid); // Logging
 
+        motor5 = DWT->CYCCNT;
+
         // ---------------------------------------------------------------------------------------------- Throttle
         error_throttle = throttle*0.9;
 
@@ -938,31 +1061,34 @@ void handle_pid_and_motor_control(){
         throttle_value_BR = setServoActivationPercent(motor_power[1], actual_min_dshot600_throttle_value, actual_max_dshot600_throttle_value);
 
         // FPV cam side FRONT
-        bdshot600_set_throttle(throttle_value_FR, motor_FR); // Front-right
-        bdshot600_set_throttle(throttle_value_FL, motor_FL); // Front-left
+        bdshot600_dma_set_throttle(throttle_value_FR, motor_FR); // Front-right
+        bdshot600_dma_set_throttle(throttle_value_FL, motor_FL); // Front-left
         // GPS side BACK
-        bdshot600_set_throttle(throttle_value_BL, motor_BL); // Back-left
-        bdshot600_set_throttle(throttle_value_BR, motor_BR); // Back-right
-
+        bdshot600_dma_set_throttle(throttle_value_BL, motor_BL); // Back-left
+        bdshot600_dma_set_throttle(throttle_value_BR, motor_BR); // Back-right
 
         // For logging
         motor_power[0] = throttle_value_BL; // Logging BL <- BL
         motor_power[1] = throttle_value_FL; // Logging FL <- FL
         motor_power[2] = throttle_value_BR; // Logging BR <- BR
         motor_power[3] = throttle_value_FR; // Logging FR <- FR
+
+        motor6 = DWT->CYCCNT;
+
+        // printf("g\n");
     }else{
+        // printf("b\n");
         throttle_value_FR = min_dshot600_throttle_value;
         throttle_value_FL = min_dshot600_throttle_value;
         throttle_value_BL = min_dshot600_throttle_value;
         throttle_value_BR = min_dshot600_throttle_value;
 
         // FPV cam side FRONT
-        bdshot600_set_throttle(throttle_value_FR, motor_FR); // Front-right
-        bdshot600_set_throttle(throttle_value_FL, motor_FL); // Front-left
+        bdshot600_dma_set_throttle(throttle_value_FR, motor_FR); // Front-right
+        bdshot600_dma_set_throttle(throttle_value_FL, motor_FL); // Front-left
         // GPS side BACK
-        bdshot600_set_throttle(throttle_value_BL, motor_BL); // Back-left
-        bdshot600_set_throttle(throttle_value_BR, motor_BR); // Back-right
-
+        bdshot600_dma_set_throttle(throttle_value_BL, motor_BL); // Back-left
+        bdshot600_dma_set_throttle(throttle_value_BR, motor_BR); // Back-right
 
         // For logging
         motor_power[0] = throttle_value_BL; // Logging BL <- BL
@@ -975,11 +1101,6 @@ void handle_pid_and_motor_control(){
         remote_control[1] = 0;
         remote_control[2] = 0;
         remote_control[3] = 0;
-
-        motor_power[0] = min_dshot600_throttle_value; // Logging
-        motor_power[1] = min_dshot600_throttle_value; // Logging
-        motor_power[2] = min_dshot600_throttle_value; // Logging
-        motor_power[3] = min_dshot600_throttle_value; // Logging
 
         PID_proportional[0] = 0; // Logging
         PID_proportional[1] = 0; // Logging
@@ -1006,6 +1127,9 @@ void handle_pid_and_motor_control(){
         pid_reset_integral_sum(&gps_longitude_pid);
         pid_reset_integral_sum(&gps_latitude_pid);
     }
+
+    // Immediately after getting the motor values send them to motors. If manual mode is on
+    if(manual_bdshot) bdshot600_dma_send_all_motor_data();
 }
 
 void handle_radio_communication(){
@@ -1279,6 +1403,34 @@ void initialize_control_abstractions(){
     filter_accelerometer_y = filtering_init_low_pass_filter(filtering_accelerometer_cutoff_frequency,REFRESH_RATE_HZ);
     filter_accelerometer_z = filtering_init_low_pass_filter(filtering_accelerometer_cutoff_frequency,REFRESH_RATE_HZ);
 
+    // Width does not matter and frequency will be set later using data from motors
+    gyro_x_filter_motor_FR = notch_filter_init(0, 0, REFRESH_RATE_HZ);
+    notch_filter_set_Q(&gyro_x_filter_motor_FR, rpm_notch_filter_q_value);
+    gyro_x_filter_motor_FL = notch_filter_init(0, 0, REFRESH_RATE_HZ);
+    notch_filter_set_Q(&gyro_x_filter_motor_FL, rpm_notch_filter_q_value);
+    gyro_x_filter_motor_BR = notch_filter_init(0, 0, REFRESH_RATE_HZ);
+    notch_filter_set_Q(&gyro_x_filter_motor_BR, rpm_notch_filter_q_value);
+    gyro_x_filter_motor_BL = notch_filter_init(0, 0, REFRESH_RATE_HZ);
+    notch_filter_set_Q(&gyro_x_filter_motor_BL, rpm_notch_filter_q_value);
+
+    gyro_y_filter_motor_FR = notch_filter_init(0, 0, REFRESH_RATE_HZ);
+    notch_filter_set_Q(&gyro_y_filter_motor_FR, rpm_notch_filter_q_value);
+    gyro_y_filter_motor_FL = notch_filter_init(0, 0, REFRESH_RATE_HZ);
+    notch_filter_set_Q(&gyro_y_filter_motor_FL, rpm_notch_filter_q_value);
+    gyro_y_filter_motor_BR = notch_filter_init(0, 0, REFRESH_RATE_HZ);
+    notch_filter_set_Q(&gyro_y_filter_motor_BR, rpm_notch_filter_q_value);
+    gyro_y_filter_motor_BL = notch_filter_init(0, 0, REFRESH_RATE_HZ);
+    notch_filter_set_Q(&gyro_y_filter_motor_BL, rpm_notch_filter_q_value);
+
+    gyro_z_filter_motor_FR = notch_filter_init(0, 0, REFRESH_RATE_HZ);
+    notch_filter_set_Q(&gyro_z_filter_motor_FR, rpm_notch_filter_q_value);
+    gyro_z_filter_motor_FL = notch_filter_init(0, 0, REFRESH_RATE_HZ);
+    notch_filter_set_Q(&gyro_z_filter_motor_FL, rpm_notch_filter_q_value);
+    gyro_z_filter_motor_BR = notch_filter_init(0, 0, REFRESH_RATE_HZ);
+    notch_filter_set_Q(&gyro_z_filter_motor_BR, rpm_notch_filter_q_value);
+    gyro_z_filter_motor_BL = notch_filter_init(0, 0, REFRESH_RATE_HZ);
+    notch_filter_set_Q(&gyro_z_filter_motor_BL, rpm_notch_filter_q_value);
+
     float S_state[2][1] = {
         {0},
         {0}
@@ -1515,6 +1667,11 @@ void handle_pre_loop_start(){
     startup_time_microseconds = get_absolute_time();
     entered_loop = 1;
 
+    // Temperature will probably not change durring the flight
+    // TODO: Needs more testing for long term stability
+    temperature = bmp280_get_temperature_celsius();
+
+
     // Reset the timer
     __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
     __HAL_TIM_SET_COUNTER(&htim4, 0);
@@ -1625,14 +1782,18 @@ void handle_logging(){
     }
 
     // printf("Motor BL: %5.1f BR: %5.1f FR: %5.1f FL: %5.1f \n",
-    //     motor_rpm[0],
-    //     motor_rpm[1],
-    //     motor_rpm[2],
-    //     motor_rpm[3]
+    //     motor_frequency[0],
+    //     motor_frequency[1],
+    //     motor_frequency[2],
+    //     motor_frequency[3]
+    // );
+
+    // printf("%5.1f\n",
+    //     motor_frequency[0]
     // );
 
     // printf("ACCEL,%.2f,%.2f,%.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
-    // printf("GYRO,%.2f,%.2f,%.2f;", gyro_angular[0], gyro_angular[1], gyro_angular[2]);
+    // printf("GYRO,%5.2f,%5.2f,%5.2f;", gyro_angular[0], gyro_angular[1], gyro_angular[2]);
     // printf("MAG,%.2f,%.2f,%.2f;", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
     // printf("TEMP,%.2f;", temperature);
     // printf("ALT %.2f;", altitude);
@@ -1650,7 +1811,8 @@ void handle_logging(){
 void handle_loop_end(){
     loop_iteration++;
 
-    printf("b%.1f", (float)(__HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds)/1000.0);
+    // printf("b%.1f\n", (float)(__HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds)/1000.0);
+    // printf("%.1f\n", (float)(__HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds)/1000.0);
 
     // If the delta is less than the target keep looping
     while (precalculated_timing_miliseconds > (__HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds));
@@ -1658,33 +1820,45 @@ void handle_loop_end(){
     // Get the final count and add it to the total microsecond
     // If the timer overflew use the ticks instead
     if(__HAL_TIM_GET_FLAG(&htim4, TIM_FLAG_UPDATE)){
-        absolute_microseconds_since_start += (HAL_GetTick() - loop_start_miliseconds) * 1000;
+        absolute_microseconds_since_start = absolute_microseconds_since_start + ((HAL_GetTick() - loop_start_miliseconds) * 1000);
 
-        printf("a%lu\n", HAL_GetTick() - loop_start_miliseconds);
+        // printf("a%lu\n", HAL_GetTick() - loop_start_miliseconds);
     }else{
-        absolute_microseconds_since_start += __HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds;
-        printf("a%.1f\n", (float)(__HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds)/1000.0);
+        absolute_microseconds_since_start = absolute_microseconds_since_start + (__HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds);
+        // printf("a%.1f\n", (float)(__HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds)/1000.0);
     }
 
     // Reset the counter
     __HAL_TIM_SET_COUNTER(&htim4, 0);
+    // printf("end %lu\n", absolute_microseconds_since_start);
 }
 
 void initialize_motor_communication(){
-    motor_BL = bdshot600_add_motor(GPIOA, GPIO_PIN_8, TIM1, TIM_CHANNEL_1);
-    motor_BR = bdshot600_add_motor(GPIOA, GPIO_PIN_11, TIM1, TIM_CHANNEL_4);
+    // The dma streams cannot be conflicting with other peripherals
 
-    motor_FR = bdshot600_add_motor(GPIOA, GPIO_PIN_0, TIM2, TIM_CHANNEL_1);
-    motor_FL = bdshot600_add_motor(GPIOA, GPIO_PIN_1, TIM2, TIM_CHANNEL_2);
+    motor_FL = bdshot600_dma_add_motor(GPIOA, GPIO_PIN_1,  TIM2, TIM_CHANNEL_2, DMA1_Stream6, DMA_CHANNEL_3);
+    motor_FR = bdshot600_dma_add_motor(GPIOB, GPIO_PIN_10, TIM2, TIM_CHANNEL_3, DMA1_Stream1, DMA_CHANNEL_3);
+    motor_BL = bdshot600_dma_add_motor(GPIOA, GPIO_PIN_8,  TIM1, TIM_CHANNEL_1, DMA2_Stream1, DMA_CHANNEL_6);
+    motor_BR = bdshot600_dma_add_motor(GPIOA, GPIO_PIN_11, TIM1, TIM_CHANNEL_4, DMA2_Stream4, DMA_CHANNEL_6);
 
-    HAL_TIM_Base_Start_IT(&htim3); // Start the timer that will be calling the dshot at a set frequneyc
+    bdshot600_dma_optimize_motor_calls();
+
+
+    // If if the control loop runs at 500Hz or more then it can handle the motors on its own. Without interrupt
+    if(dshot_refresh_rate == REFRESH_RATE_HZ && REFRESH_RATE_HZ >= 500){
+        manual_bdshot = 1;
+        printf("bdshot600 using manual mode\n");
+    }else{
+        manual_bdshot = 0;
+        HAL_TIM_Base_Start_IT(&htim3); // Start the timer that will be calling the dshot at a set frequneyc
+        printf("bdshot600 using interrupt trigger mode\n");
+    }
 }
 
 void init_STM32_peripherals(){
     HAL_Init();
     SystemClock_Config();
     MX_GPIO_Init();
-    // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, 0);
 
     HAL_Delay(1);
     MX_DMA_Init(); // This has to be before the uart inits, otherwise dma interrupts dont work
@@ -1753,16 +1927,14 @@ void get_initial_position(){
 // 100 - 25 = 75
 
 // default min and max is 25 and 75
-uint16_t setServoActivationPercent(float percent, uint16_t minValue, uint16_t maxValue)
-{
+uint16_t setServoActivationPercent(float percent, uint16_t minValue, uint16_t maxValue){
+    // Kind of annoying having these if statements
     if(percent > 100.0){
-        percent = 1.0;
+        percent = 100.0;
     }else if(percent < 0.0){
         percent = 0.0;
-    }else{
-        percent = percent / 100.0;
     }
-    return percent * (maxValue - minValue) + minValue;
+    return (percent / 100.0) * (maxValue - minValue) + minValue;
 }
 
 float mapValue(float value, float input_min, float input_max, float output_min, float output_max) {
@@ -1983,12 +2155,6 @@ void extract_flight_mode(char *request, uint8_t request_size, uint8_t *new_fligh
     //printf("'%s'\n", added_x_axis_offset);
 }
 
-// Print out how much time has passed since the start of the loop. To debug issues with performance
-void track_time(){
-    uint32_t delta_loop_time_temp = loop_end_time - loop_start_time;
-
-    printf("%5ld ms ", delta_loop_time_temp);
-}
 
 // Map value from a specified range to a new range
 float map_value(float value, float input_min, float input_max, float output_min, float output_max) {
@@ -2139,23 +2305,19 @@ void invert_axies(float *data){
 }
 
 float sawtooth_sin(float x_radian){
-    return 2.0f * (x_radian/ M_PI - floorf(x_radian/M_PI + 0.5f));
+    return 2.0f * (x_radian/M_PI - floorf(x_radian/M_PI + 0.5f));
 }
-
 
 float sawtooth_cos(float x_radian){
-    return 2.0f * ((x_radian + M_PI/2.0f)/ M_PI - floorf(x_radian/M_PI + 0.5f));
+    return 2.0f * ((x_radian + M_HALF_PI)/ M_PI - floorf(x_radian/M_PI + 0.5f));
 }
-
-#define TWO_M_PI (2.0f * M_PI)
-#define HALF_M_PI (M_PI / 2.0f)
 
 float triangle_wave(float x) {
     // Normalize x to be within the range [0, 2*PI)
-    x = fmodf(x, 2.0f * M_PI);
+    x = fmodf(x, M_PI_2);
     
     // Scale the normalized x to the range [0, 4]
-    float scaled_x = x / (M_PI / 2.0f);
+    float scaled_x = x / (M_HALF_PI);
     
     // Triangle wave calculation
     if (scaled_x < 1.0f) {
@@ -2172,7 +2334,7 @@ float triangle_sin(float x){
 }
 
 float triangle_cos(float x){
-    return triangle_wave(x + M_PI/2.0f);
+    return triangle_wave(x + M_HALF_PI);
 }
 
 
@@ -2576,20 +2738,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-
-//   GPIO_InitStruct.Pin = GPIO_PIN_0;
-//   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-//   GPIO_InitStruct.Pull = GPIO_NOPULL;
-//   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-//   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-// HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, 1);
-
-
-//  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_8 | GPIO_PIN_11;
-//   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-//   GPIO_InitStruct.Pull = GPIO_NOPULL;
-//   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-//   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  /*Configure GPIO pin : PA0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI15_10_IRQn, 0, 0);
