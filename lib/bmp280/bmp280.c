@@ -19,6 +19,10 @@
 #define DRY_AIR_MOLAR_MASS 0.0289644
 #define DRY_AIR_GAS_CONSTANT 287.058
 
+#define TEMPERATURE_VALUE_ACCURACY (1.0f / 100.0f)
+#define PRESSURE_PA_VALUE_ACCURACY (1.0f / 256.0f)
+#define PRESSURE_HPA_VALUE_ACCURACY (1.0f / 25600.0f) // Return the value after dividing by 100 to convert Pa -> hPa
+
 enum t_temp_oversampling {
     OS_TEMP_1  = 0b00100000,
     OS_TEMP_2  = 0b01000000,
@@ -230,10 +234,8 @@ float bmp280_get_pressure_hPa()
 
     // Combine the 3 bytes in a specific way to get a 16-20 bit value
     int32_t combined_pres = ((int32_t)retrieved_data[0] << 12) | ((int32_t)retrieved_data[1]) << 4 | ((int32_t)retrieved_data[2] >> 4);
-    float pressure = ((float)bmp280_convert_raw_pres(combined_pres)) / 256.0;
-
-    // Return the value after dividing by 100 to convert Pa -> hPa
-    return pressure / 100;
+    float pressure = ((float)bmp280_convert_raw_pres(combined_pres)) * PRESSURE_HPA_VALUE_ACCURACY;
+    return pressure;
 }
 
 float bmp280_get_temperature_celsius()
@@ -256,7 +258,9 @@ float bmp280_get_temperature_celsius()
 
     // Combine the 3 bytes in a specific way to get a 16-20 bit value
     int32_t combined_temp = ((int32_t)retrieved_data[0] << 12) | ((int32_t)retrieved_data[1]) << 4 | ((int32_t)retrieved_data[2] >> 4);
-    float temperature = ((float)bmp280_convert_raw_temp(combined_temp)) / 100.0;
+
+    float temperature = ((float)bmp280_convert_raw_temp(combined_temp)) * TEMPERATURE_VALUE_ACCURACY;
+
     return temperature;
 }
 
@@ -271,12 +275,12 @@ float bmp280_get_height_meters_from_reference(uint8_t reset_reference){
 
     if(reference_pressure == 0.0 || reset_reference == 1){
         // printf("data: %.2f %.2f\n",reference_pressure, pressure);
-        reference_pressure = pressure;
+        reference_pressure = 1.0f / pressure; // Pre divided to improve perofrmance
     }
     
     // printf("44330 * (1.0 - pow(%.2f / %.2f, 0.1903))\n", pressure, reference_pressure);
     // printf("BMP280 pressure %f / ref %f\n", pressure, reference_pressure);
-    return 44330 * (1.0 - pow(pressure / reference_pressure, 0.1903));
+    return 44330 * (1.0 - pow(pressure * reference_pressure, 0.1903));
 }
 
 float bmp280_get_height_centimeters_from_reference(uint8_t reset_reference){

@@ -12,7 +12,7 @@ void bn357_toggle_gps_logging(uint8_t status);
 void bn357_start_uart_interrupt();
 uint8_t bn357_get_status_up_to_date(uint8_t reset_afterwards);
 void bn357_get_clear_status();
-uint8_t bn357_parse_and_store(unsigned char *gps_output_buffer, uint16_t size_of_buf);
+uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buf);
 float bn357_get_latitude_decimal_format();
 char bn357_get_latitude_direction();
 float bn357_get_longitude_decimal_format();

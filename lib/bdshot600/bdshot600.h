@@ -12,6 +12,7 @@
 #endif
 
 int8_t bdshot600_add_motor(GPIO_TypeDef* motor_port, uint16_t motor_pin, TIM_TypeDef* timer_id, uint32_t timer_channel_id);
+uint8_t bdshot600_set_rotor_poles_amount(uint8_t rotor_poles);
 void bdshot600_set_throttle(uint16_t throttle, uint8_t motor_index_temp);
 void bdshot600_send_all_motor_data();
 uint8_t bdshot600_get_busy();

@@ -30,7 +30,6 @@ volatile uint8_t continue_with_gps_data = 0;
 #define GPS_OUTPUT_BUFFER_SIZE 550
 #define GPS_RECEIVE_BUFFER_SIZE 550
 
-uint8_t gps_output_buffer[GPS_OUTPUT_BUFFER_SIZE];
 uint8_t receive_buffer_1[GPS_RECEIVE_BUFFER_SIZE];
 uint16_t receive_buffer_1_size;
 uint8_t receive_buffer_2[GPS_RECEIVE_BUFFER_SIZE];
@@ -126,10 +125,10 @@ uint8_t bn357_parse_data(){
     uint8_t response;
     if(buffer_for_dma == 0){
         // If buffer 1 is used currently by dma then use the other buffer for data.
-        response = bn357_parse_and_store((unsigned char *)receive_buffer_2, receive_buffer_2_size);
+        response = bn357_parse_and_store((char *)receive_buffer_2, receive_buffer_2_size);
     }else if(buffer_for_dma == 1){
         // If buffer 2 is used currently by dma then use the other buffer for data.
-        response = bn357_parse_and_store((unsigned char *)receive_buffer_1, receive_buffer_1_size);
+        response = bn357_parse_and_store((char *)receive_buffer_1, receive_buffer_1_size);
     }else{
         response = 0;
     }
@@ -139,7 +138,7 @@ uint8_t bn357_parse_data(){
     return response;
 }
 
-uint8_t bn357_parse_and_store(unsigned char *gps_output_buffer, uint16_t size_of_buffer){
+uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
 #if(BN357_TRACK_TIMING)
     uint32_t start_time = HAL_GetTick();
 #endif

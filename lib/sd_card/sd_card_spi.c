@@ -24,6 +24,7 @@ uint8_t string_buffer[STRING_BUFFER_SIZE];
 volatile uint8_t slave_ready = 0;
 
 
+volatile uint8_t dma_transfer_call_status = 0;
 
 volatile uint8_t response_code = 0;
 
@@ -694,9 +695,9 @@ uint8_t sd_test_interface(){
         slave_select();
         start_waiting_for_slave_ready();
         volatile HAL_StatusTypeDef status;
-        status = HAL_SPI_Transmit(m_device_handle, &command, 1, 5000);
-        if(!wait_for_slave_ready(5000)) goto error;
-        status = HAL_SPI_Receive(m_device_handle, response, 1, 5000);
+        status = HAL_SPI_Transmit(m_device_handle, &command, 1, 60000);
+        if(!wait_for_slave_ready(60000)) goto error;
+        status = HAL_SPI_Receive(m_device_handle, response, 1, 60000);
         slave_deselect();
 
         if(response[0] == LOGGER_INTERFACE_TEST_VALUE){
@@ -726,15 +727,15 @@ uint8_t sd_special_initialize(const char *file_base_name){
 
         slave_select();
         start_waiting_for_slave_ready();
-        HAL_SPI_Transmit(m_device_handle, &command, 1, 12000); // send command
-        if(!wait_for_slave_ready(12000)) goto error;
+        HAL_SPI_Transmit(m_device_handle, &command, 1, 60000); // send command
+        if(!wait_for_slave_ready(60000)) goto error;
         start_waiting_for_slave_ready();
-        HAL_SPI_Transmit(m_device_handle, transmit_length, 2, 12000); // send how many bytes the dat will be
-        if(!wait_for_slave_ready(12000)) goto error;
+        HAL_SPI_Transmit(m_device_handle, transmit_length, 2, 60000); // send how many bytes the dat will be
+        if(!wait_for_slave_ready(60000)) goto error;
         start_waiting_for_slave_ready();
-        HAL_SPI_Transmit(m_device_handle, file_base_name, total_length, 12000); // send how many bytes the dat will be
-        if(!wait_for_slave_ready(12000)) goto error;
-        HAL_SPI_Receive(m_device_handle, response, 1, 12000);
+        HAL_SPI_Transmit(m_device_handle, file_base_name, total_length, 60000); // send how many bytes the dat will be
+        if(!wait_for_slave_ready(60000)) goto error;
+        HAL_SPI_Receive(m_device_handle, response, 1, 60000);
         slave_deselect();
 
         response_code = response[0];
@@ -759,9 +760,9 @@ uint16_t sd_special_get_file_index(){
 
         slave_select();
         start_waiting_for_slave_ready();
-        HAL_SPI_Transmit(m_device_handle, &command, 1, 12000); // send command
-        if(!wait_for_slave_ready(5000)) goto error;
-        HAL_SPI_Receive(m_device_handle, response, 2, 5000);
+        HAL_SPI_Transmit(m_device_handle, &command, 1, 60000); // send command
+        if(!wait_for_slave_ready(60000)) goto error;
+        HAL_SPI_Receive(m_device_handle, response, 2, 60000);
         slave_deselect();
 
         uint16_t file_index = response[0] << 8 | response[1];
@@ -911,9 +912,9 @@ uint8_t sd_special_enter_async_byte_mode(){
 
         slave_select();
         start_waiting_for_slave_ready();
-        HAL_SPI_Transmit(m_device_handle, &command, 1, 5000); // send command
-        if(!wait_for_slave_ready(5000)) goto error;
-        HAL_SPI_Receive(m_device_handle, response, 1, 5000);
+        HAL_SPI_Transmit(m_device_handle, &command, 1, 60000); // send command
+        if(!wait_for_slave_ready(60000)) goto error;
+        HAL_SPI_Receive(m_device_handle, response, 1, 60000);
         slave_deselect();
         
         if(!response[0]){
@@ -1025,16 +1026,26 @@ uint8_t sd_special_write_chunk_of_string_data_async(const char *data){
 uint8_t sd_special_write_chunk_of_byte_data_async(const char *data, uint16_t length){
     if(m_device_handle){
 
+        // Wait until DMA transfer complete if there was a previous call
         sd_special_wait_until_async_write_done();
+        while (dma_transfer_call_status == 1);
 
         // No point deselecting
         // slave_deselect();
+        // for (uint8_t i = 0; i < 30; i++){};
         // 382 us
+        // slave_deselect();
+        // delay_us(25); // Need small delay for the slave to do internal reorganizing of buffers when it is ready to write new data
         slave_select(); 
 
         // Use DMA to not block 
-        HAL_SPI_Transmit_DMA(m_device_handle, (uint8_t*)data, length);
+        HAL_StatusTypeDef ret = HAL_SPI_Transmit_DMA(m_device_handle, (uint8_t*)data, length);
 
+        if(ret != HAL_OK){
+            printf("sd_card_spi: sd_special_write_chunk_of_byte_data_async error %d\n", ret);
+            return 0;
+        }
+        dma_transfer_call_status = 1;
         // Do not deselect the slave as it needs to be active in the background
 
         return 1;
@@ -1064,7 +1075,36 @@ void sd_buffer_swap(){
 }
 
 uint8_t sd_get_response(){
+    
+	// FR_OK = 0,				/* (0) Succeeded */
+	// FR_DISK_ERR,			    /* (1) A hard error occurred in the low level disk I/O layer */
+	// FR_INT_ERR,				/* (2) Assertion failed */
+	// FR_NOT_READY,			/* (3) The physical drive cannot work */
+	// FR_NO_FILE,				/* (4) Could not find the file */
+	// FR_NO_PATH,				/* (5) Could not find the path */
+	// FR_INVALID_NAME,		    /* (6) The path name format is invalid */
+	// FR_DENIED,				/* (7) Access denied due to prohibited access or directory full */
+	// FR_EXIST,				/* (8) Access denied due to prohibited access */
+	// FR_INVALID_OBJECT,		/* (9) The file/directory object is invalid */
+	// FR_WRITE_PROTECTED,		/* (10) The physical drive is write protected */
+	// FR_INVALID_DRIVE,		/* (11) The logical drive number is invalid */
+	// FR_NOT_ENABLED,			/* (12) The volume has no work area */
+	// FR_NO_FILESYSTEM,		/* (13) There is no valid FAT volume */
+	// FR_MKFS_ABORTED,		    /* (14) The f_mkfs() aborted due to any problem */
+	// FR_TIMEOUT,				/* (15) Could not get a grant to access the volume within defined period */
+	// FR_LOCKED,				/* (16) The operation is rejected according to the file sharing policy */
+	// FR_NOT_ENOUGH_CORE,		/* (17) LFN working buffer could not be allocated */
+	// FR_TOO_MANY_OPEN_FILES,	/* (18) Number of open files > _FS_LOCK */
+	// FR_INVALID_PARAMETER 	/* (19) Given parameter is invalid */
+
     return response_code;
+}
+
+void sd_card_set_dma_transfer_call_status(uint8_t status){
+    dma_transfer_call_status = status;
+    if(dma_transfer_call_status == 0){
+        slave_deselect();
+    }
 }
 
 

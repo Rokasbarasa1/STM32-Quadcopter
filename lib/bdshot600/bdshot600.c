@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include "../utils/math_constants.h"
 
 // Inspired sources:
 // A good guide on dshot600 protocol: https://brushlesswhoop.com/dshot-and-bidirectional-dshot/
@@ -27,6 +28,9 @@ float bdshot600_motor_rpm[BDSHOT600_AMOUNT_OF_MOTORS];                          
 uint8_t bdshot600_motor_list_size = 0;                                                                                         // How many motors are initialized in the array
 volatile uint8_t bdshot600_busy_flag = 0;                                                                                      // To know when data is being written to the clock cycle array by the driver
 volatile uint8_t bdshot600_conversion_finished = 0;                                                                            // Status flag to remember that data is stale
+
+uint8_t bdshot600_number_of_rotor_pole_pairs = 0;
+float bdshot600_number_of_rotor_pole_pairs_division_precalculated = 0;
 
 // Reverse GCR mapping table
 // The zero returns are not important
@@ -169,6 +173,19 @@ int8_t bdshot600_add_motor(GPIO_TypeDef* motor_port, uint16_t motor_pin, TIM_Typ
 
     bdshot600_motor_list_size++;
     return bdshot600_motor_list_size-1;
+}
+
+uint8_t bdshot600_set_rotor_poles_amount(uint8_t rotor_poles){
+    // check if number is odd and if it is quit
+    if(rotor_poles % 2 == 1){
+        printf("bdshot600_set_rotor_poles_amount - rotor poles amount is odd, it should be even");
+        return 0;
+    }
+    bdshot600_number_of_rotor_pole_pairs = rotor_poles / 2; // Pairs so we half them
+
+    bdshot600_number_of_rotor_pole_pairs_division_precalculated = 1.0f / bdshot600_number_of_rotor_pole_pairs;
+
+    return 1;
 }
 
 // Computes the packet for sending it to motor. Can be used for commands also
@@ -500,8 +517,12 @@ uint8_t bdshot600_convert_response_to_data(uint8_t motor_index){
     // Get the period in us, frequency and rpm
     bdshot600_motor_period_us[motor_index] = payload_16bit_only_payload << payload_16bit_only_exponent; // payload is 9 bits and the exponent can move it 7 bits to the left making it a 16 bit value at max
     // 65408 means the motor is not spinning. Need to set everything to zero when this happens
-    if(bdshot600_motor_period_us[motor_index] == 65408) bdshot600_motor_frequency[motor_index] = 0;
-    else bdshot600_motor_frequency[motor_index] = 1.0/((float)bdshot600_motor_period_us[motor_index]/1000000.0);
+    if(bdshot600_motor_period_us[motor_index] == 65408){
+        bdshot600_motor_frequency[motor_index] = 0;
+    }else{
+        // frequency has to be divided by motor pole pairs to get the actual mechanical frequency
+        bdshot600_motor_frequency[motor_index] = (1.0/((float)bdshot600_motor_period_us[motor_index] * MICROSECONDS_TO_SECONDS) * bdshot600_number_of_rotor_pole_pairs_division_precalculated);
+    }
     bdshot600_motor_rpm[motor_index] = 60 * bdshot600_motor_frequency[motor_index];
 
     return 1;

@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-char* betaflight_blackbox_wrapper_get_header(
+void betaflight_blackbox_wrapper_get_header(
     uint32_t refresh_rate,
     float acro_roll_p, 
     float acro_roll_i, 
@@ -24,7 +24,17 @@ char* betaflight_blackbox_wrapper_get_header(
     uint32_t pwm_frequency,
     uint16_t min_throttle, 
     uint16_t max_throttle, 
-    uint16_t* string_length_return
+    uint16_t used_min_throttle, 
+    uint16_t used_max_throttle, 
+    uint8_t harmonics_filtered,
+    uint16_t rpm_filter_q_value,
+    uint16_t rpm_filter_min_hz,
+    uint16_t d_term_low_pass_min,
+    uint16_t d_term_low_pass_max,
+    uint16_t d_term_low_pass_expo,
+    uint16_t* string_length_return,
+    uint8_t* buffer,
+    uint16_t buffer_size
 );
 
 void betaflight_blackbox_get_encoded_data_string(
@@ -40,7 +50,7 @@ void betaflight_blackbox_get_encoded_data_string(
     float* accelerometer_values,
     float* motor_power,
     float* mag,
-    float* gyro_post_sensor_fusion,
+    float* motor_frequency,
     float altitude,
     uint16_t* string_length_return,
     uint8_t *buffer
@@ -50,12 +60,9 @@ char* betaflight_blackbox_get_end_of_log(uint16_t* string_length_return);
 
 void betaflight_blackbox_get_encoded_gps_string(
     uint32_t time_raw,
-    uint8_t number_of_satellites,
+    uint8_t fix_quality,
     float latitude,
     float longitude,
-    float altitude,
-    float speed,
-    float ground_course,
     uint16_t* string_length_return,
     uint8_t *buffer
 );

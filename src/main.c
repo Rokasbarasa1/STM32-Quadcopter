@@ -53,6 +53,7 @@ static void MX_TIM4_Init(void);
 #include "../lib/utils/matrix_operations/matrix_operations.h"
 #include "../lib/bdshot600_dma/bdshot600_dma.h"
 #include "../utils/math_constants.h"
+#include "../utils/reset_i2c/reset_i2c.h"
 
 void init_STM32_peripherals();
 void calibrate_escs();
@@ -85,6 +86,8 @@ float sawtooth_cos(float x_radian);
 float triangle_wave(float x);
 float triangle_sin(float x);
 float triangle_cos(float x);
+float map_value_to_expo_range(float value, float min_expo, float max_expo, uint8_t expo_curve);
+float map_value_to_expo_range_inverted(float value, float min_expo, float max_expo, uint8_t expo_curve);
 
 void handle_get_and_calculate_sensor_values();
 void handle_radio_communication();
@@ -134,17 +137,53 @@ void initialize_motor_communication();
 // PB0 CE
 
 // DMAs used. They have to not be reused otherwise problems
-// TX SPI3  DMA1 stream 7
+// TIM2_CH3 DMA1 stream 1
 // RX UART2 DMA1 stream 5
+// TIM2_CH2 DMA1 stream 6
+// TX SPI3  DMA1 stream 7
 // TIM1_CH1 DMA2 stream 1
 // TIM1_CH4 DMA2 stream 4
-// TIM2_CH2 DMA1 stream 6
-// TIM2_CH3 DMA1 stream 1
+
+// Measuring performance
+uint32_t radio = 0;
+uint32_t radio2 = 0;
+uint32_t radio_end = 0;
+
+uint32_t sensors = 0;
+uint32_t sensors2 = 0;
+uint32_t sensors3 = 0;
+uint32_t sensors4 = 0;
+uint32_t sensors5 = 0;
+uint32_t sensors6 = 0;
+uint32_t sensors7 = 0;
+uint32_t sensors8 = 0;
+uint32_t sensors9 = 0;
+uint32_t sensors10 = 0;
+uint32_t sensors11 = 0;
+uint32_t sensors_end = 0;
+
+uint32_t motor = 0;
+uint32_t motor2 = 0;
+uint32_t motor3 = 0;
+uint32_t motor4 = 0;
+uint32_t motor5 = 0;
+uint32_t motor6 = 0;
+uint32_t motor7 = 0;
+uint32_t motor_end = 0;
+
+uint32_t logging = 0;
+uint32_t logging2 = 0;
+uint32_t logging3 = 0;
+uint32_t logging_end = 0;
+
+
+uint32_t interrupt = 0;
+uint32_t interrupt_end = 0;
 
 // ------------------------------------------------------------------------------------------------------ Refresh rate
 // Nyquist: sampling frequency must be at least double that of the highest frequency of interest
 // The MPU6050 has a lowpass set to 260Hz we need to be able to manipulate all the frequencies until that. So 260 * 2 = 520
-#define REFRESH_RATE_HZ 520
+#define REFRESH_RATE_HZ 680
 
 const uint16_t precalculated_timing_miliseconds = (1000000 / REFRESH_RATE_HZ);
 // ------------------------------------------------------------------------------------------------------ handling loop timing
@@ -159,15 +198,16 @@ int32_t loop_delta_microseconds = 0;
 // Keep track of time in each loop. Since loop start
 uint32_t startup_time_microseconds = 0;
 uint32_t delta_time = 0;
-uint16_t time_since_startup_ms = 0;
+uint8_t time_since_startup_hours = 0;
 uint8_t time_since_startup_minutes = 0;
 uint8_t time_since_startup_seconds = 0;
-uint8_t time_since_startup_hours = 0;
+uint16_t time_since_startup_ms = 0;
+uint16_t time_since_startup_microseconds;
 
 uint8_t entered_loop = 0;
 
 // ------------------------------------------------------------------------------------------------------ Motor settings
-const uint32_t dshot_refresh_rate = 520; // Hz
+const uint32_t dshot_refresh_rate = 500; // Hz
 
 #define max_dshot600_throttle_value 2047
 #define min_dshot600_throttle_value 48
@@ -184,6 +224,7 @@ const uint16_t actual_max_dshot600_throttle_value = min_dshot600_throttle_value 
 float motor_power[] = {0.0, 0.0, 0.0, 0.0}; // Percent
 float motor_frequency[] = {0.0, 0.0, 0.0, 0.0};
 float motor_rpm[] = {0.0, 0.0, 0.0, 0.0};
+uint8_t motor_rotor_poles = 14; // it is the 14 value from 12N14P of ECO II 2807
 
 // Motor handles
 uint8_t motor_BL;
@@ -204,10 +245,13 @@ uint8_t manual_bdshot = 0;
 // Used by the bdshot600 protocol for all the motors
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim){
     if(htim->Instance == TIM3){
+        interrupt = DWT->CYCCNT;
         bdshot600_dma_send_all_motor_data();
+        interrupt_end = DWT->CYCCNT;
     }
 }
 
+// Handlers for dma bdshot600 pins
 // Without the handlers the DMA will crash the system
 void DMA2_Stream1_IRQHandler(void){
     HAL_DMA_IRQHandler(bdshot600_dma_get_dma_handle(motor_BL));
@@ -428,35 +472,75 @@ float pitch_effect_on_lon = 0;
 float complementary_beta = 0.0;
 float complementary_ratio = 1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ)); // Depends on how often the loop runs. 1 second / (1 second + one loop time)
 
+// This is used for filtering limits
+float nyquist_with_margin = REFRESH_RATE_HZ / 2.0f - 6.0f; // The -6 is the margin that greatly improves the quality of filtering for notch filters
+
+float motor_low_pass_filter_cutoff = 150;
+struct low_pass_pt1_filter filter_motor_0;
+struct low_pass_pt1_filter filter_motor_1;
+struct low_pass_pt1_filter filter_motor_2;
+struct low_pass_pt1_filter filter_motor_3;
+
 float filtering_magnetometer_cutoff_frequency = 180; // 200Hz sample rate and 0.85 alpha gives 180Hz cutoff and around 1ms delay
+struct low_pass_pt1_filter filter_magnetometer_x;
+struct low_pass_pt1_filter filter_magnetometer_y;
+struct low_pass_pt1_filter filter_magnetometer_z;
+
 float filtering_accelerometer_cutoff_frequency = 40; // 200Hz sample rate and 0.386 alpha gives 20Hz cutoff and around 1ms delay
+struct low_pass_pt1_filter filter_accelerometer_x;
+struct low_pass_pt1_filter filter_accelerometer_y;
+struct low_pass_pt1_filter filter_accelerometer_z;
 
-float rpm_notch_filter_q_value = 500; // Default in betaflight
+struct low_pass_pt1_filter filter_gyro_z;
 
-float rpm_notch_filter_min_frequency = 100; // Hz
+const float filter_gyro_z_yaw_cutoff_frequency = 100;
 
-struct low_pass_filter filter_magnetometer_x;
-struct low_pass_filter filter_magnetometer_y;
-struct low_pass_filter filter_magnetometer_z;
+// Do not go higher in q than 1000
+float rpm_notch_filter_q_harmonic_1 = 500;
+float rpm_notch_filter_q_harmonic_2 = 500;
+float rpm_notch_filter_q_harmonic_3 = 200;
 
-struct low_pass_filter filter_accelerometer_x;
-struct low_pass_filter filter_accelerometer_y;
-struct low_pass_filter filter_accelerometer_z;
+float rpm_notch_filter_min_frequency = 4; // Hz
 
-struct notch_filter gyro_x_filter_motor_FR;
-struct notch_filter gyro_x_filter_motor_FL;
-struct notch_filter gyro_x_filter_motor_BR;
-struct notch_filter gyro_x_filter_motor_BL;
+struct notch_filter_q gyro_x_notch_filter_harmonic_1_motor_0;
+struct notch_filter_q gyro_x_notch_filter_harmonic_1_motor_1;
+struct notch_filter_q gyro_x_notch_filter_harmonic_1_motor_2;
+struct notch_filter_q gyro_x_notch_filter_harmonic_1_motor_3;
 
-struct notch_filter gyro_y_filter_motor_FR;
-struct notch_filter gyro_y_filter_motor_FL;
-struct notch_filter gyro_y_filter_motor_BR;
-struct notch_filter gyro_y_filter_motor_BL;
+struct notch_filter_q gyro_y_notch_filter_harmonic_1_motor_0;
+struct notch_filter_q gyro_y_notch_filter_harmonic_1_motor_1;
+struct notch_filter_q gyro_y_notch_filter_harmonic_1_motor_2;
+struct notch_filter_q gyro_y_notch_filter_harmonic_1_motor_3;
 
-struct notch_filter gyro_z_filter_motor_FR;
-struct notch_filter gyro_z_filter_motor_FL;
-struct notch_filter gyro_z_filter_motor_BR;
-struct notch_filter gyro_z_filter_motor_BL;
+
+struct notch_filter_q gyro_x_notch_filter_harmonic_2_motor_0;
+struct notch_filter_q gyro_x_notch_filter_harmonic_2_motor_1;
+struct notch_filter_q gyro_x_notch_filter_harmonic_2_motor_2;
+struct notch_filter_q gyro_x_notch_filter_harmonic_2_motor_3;
+
+struct notch_filter_q gyro_y_notch_filter_harmonic_2_motor_0;
+struct notch_filter_q gyro_y_notch_filter_harmonic_2_motor_1;
+struct notch_filter_q gyro_y_notch_filter_harmonic_2_motor_2;
+struct notch_filter_q gyro_y_notch_filter_harmonic_2_motor_3;
+
+
+struct notch_filter_q gyro_x_notch_filter_harmonic_3_motor_0;
+struct notch_filter_q gyro_x_notch_filter_harmonic_3_motor_1;
+struct notch_filter_q gyro_x_notch_filter_harmonic_3_motor_2;
+struct notch_filter_q gyro_x_notch_filter_harmonic_3_motor_3;
+
+struct notch_filter_q gyro_y_notch_filter_harmonic_3_motor_0;
+struct notch_filter_q gyro_y_notch_filter_harmonic_3_motor_1;
+struct notch_filter_q gyro_y_notch_filter_harmonic_3_motor_2;
+struct notch_filter_q gyro_y_notch_filter_harmonic_3_motor_3;
+// Z axis is filtered in other way
+
+struct low_pass_biquad_filter roll_d_term_filtering;
+struct low_pass_biquad_filter pitch_d_term_filtering;
+
+const float d_term_filtering_min_cutoff = 75;
+const float d_term_filtering_max_cutoff = 100;
+const uint8_t d_term_filtering_expo = 7;
 
 struct kalman_filter altitude_and_velocity_kalman;
 // ------------------------------------------------------------------------------------------------------ Remote control settings
@@ -485,8 +569,19 @@ uint16_t file_index = 0;
 uint8_t sd_card_initialized = 0;
 uint8_t log_loop_count = 0;
 uint8_t sd_card_async = 0;
-const uint8_t use_simple_async = 0; // 0 is the complex async
+const uint8_t use_simple_async = 0; // 0 is the complex async and is faster
 const uint8_t use_blackbox_logging = 1; 
+
+
+void DMA1_Stream7_IRQHandler(void){
+    HAL_DMA_IRQHandler(&hdma_spi3_tx);
+}
+
+void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi){
+    if (hspi->Instance == SPI3){
+        sd_card_set_dma_transfer_call_status(0); // Set to zero as dma is not happening anymore
+    }
+}
 
 // ------------------------------------------------------------------------------------------------------ Stuff for blackbox logging
 uint32_t loop_iteration = 1;
@@ -503,42 +598,13 @@ float remote_control[4];
 // (1) - angle
 // (2) - angle with altitude hold
 // (3) - angle with altitude hold and gps hold
-// (4) - angle with gps hold and without ltitude hold
+// (4) - angle with gps hold and without latitude hold
 
 uint8_t flight_mode = 0;
 
 uint8_t use_angle_mode = 0;
 uint8_t use_vertical_velocity_control = 0;
 uint8_t use_gps_hold = 0;
-
-uint32_t radio = 0;
-uint32_t radio2 = 0;
-uint32_t radio_end = 0;
-
-uint32_t sensors = 0;
-uint32_t sensors2 = 0;
-uint32_t sensors3 = 0;
-uint32_t sensors4 = 0;
-uint32_t sensors5 = 0;
-uint32_t sensors6 = 0;
-uint32_t sensors7 = 0;
-uint32_t sensors8 = 0;
-uint32_t sensors_end = 0;
-
-uint32_t motor = 0;
-uint32_t motor2 = 0;
-uint32_t motor3 = 0;
-uint32_t motor4 = 0;
-uint32_t motor5 = 0;
-uint32_t motor6 = 0;
-uint32_t motor_end = 0;
-
-uint32_t logging = 0;
-uint32_t logging2 = 0;
-uint32_t logging3 = 0;
-uint32_t logging_end = 0;
-
-
 
 int main(void){
     init_STM32_peripherals();
@@ -558,7 +624,7 @@ int main(void){
     // check_calibrations();
     calibrate_gyro(); // Recalibrate the gyro as the temperature affects the calibration
     get_initial_position();
-    // setup_logging_to_sd(0);
+    setup_logging_to_sd(0); // If stopped working then re-flash the firmware of the logger and check hardware connection. Check if it works when Li-po connected
     initialize_control_abstractions();
     initialize_motor_communication();
 
@@ -580,11 +646,9 @@ int main(void){
         handle_get_and_calculate_sensor_values(); // Important do do this right before the pid stuff.
         sensors_end = DWT->CYCCNT;
 
-
         motor = DWT->CYCCNT;
         handle_pid_and_motor_control();
         motor_end = DWT->CYCCNT;
-
 
         logging = DWT->CYCCNT;
         handle_logging();
@@ -592,8 +656,16 @@ int main(void){
 
         handle_loop_end();
 
+        // printf("ACCEL,%.2f,%.2f,%.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+        // printf("GYRO,%.2f,%.2f,%.2f;", gyro_angular[0], gyro_angular[1], gyro_angular[2]);
+        // printf("MAG,%.2f,%.2f,%.2f;", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
+        // if(loop_iteration % 20 == 0){
+        //     printf("IMU,%.2f,%.2f,%.2f;", imu_orientation[0], imu_orientation[1], imu_orientation[2]);
+        //     printf("\n");
+        // }
+        
         // printf("2r %lu\n", radio2 - radio);
-        // printf("1r %lu\n", radio_end - radio);
+        // printf("r %lu\n", radio_end - radio);
 
         // printf("2s %lu\n", sensors2 - sensors);
         // printf("3s %lu\n", sensors3 - sensors2);
@@ -602,25 +674,52 @@ int main(void){
         // printf("6s %lu\n", sensors6 - sensors5);
         // printf("7s %lu\n", sensors7 - sensors6);
         // printf("8s %lu\n", sensors8 - sensors7);
-        // printf("1s %lu\n", sensors_end - sensors);
+        // printf("9s %lu\n", sensors9 - sensors8);
+        // printf("10s %lu\n", sensors10 - sensors9);
+        // printf("11s %lu\n", sensors11 - sensors10);
+        // printf("s %lu\n", sensors_end - sensors);
 
         // printf("2m %lu\n", motor2 - motor);
         // printf("3m %lu\n", motor3 - motor2);
         // printf("4m %lu\n", motor4 - motor3);
         // printf("5m %lu\n", motor5 - motor4);
         // printf("6m %lu\n", motor6 - motor6);
-        // printf("1m %lu\n", motor_end - motor);
+        // printf("7m %lu\n", motor7 - motor6);
+        // printf("m %lu\n", motor_end - motor);
 
         // printf("2L %lu\n", logging2 - logging);
         // printf("3L %lu\n", logging3 - logging2);
-        // printf("1L %lu\n", logging_end - logging);
+        // printf("L %lu\n", logging_end - logging);
 
-        // printf("(%lu + %lu + %lu + %lu)/100000000 = %.5f\n\n", 
+        // printf("IN %lu\n", interrupt_end - interrupt);
+
+        // printf("cv_all %lu\n", bdshot600_dma_get_timings()[4] - bdshot600_dma_get_timings()[0]);
+        // printf("cv_all2 %lu\n", bdshot600_dma_get_timings()[2] - bdshot600_dma_get_timings()[0]);
+        // printf("cv_all3 %lu\n", bdshot600_dma_get_timings()[3] - bdshot600_dma_get_timings()[2]);
+        // printf("cv_all5 %lu\n", bdshot600_dma_get_timings()[4] - bdshot600_dma_get_timings()[3]);
+
+        // printf("pre_res %lu\n", bdshot600_dma_get_timings()[6] - bdshot600_dma_get_timings()[5]);
+
+        // printf("cv_res %lu\n", bdshot600_dma_get_timings()[14] - bdshot600_dma_get_timings()[7]);
+        // printf("cv_res8 %lu\n", bdshot600_dma_get_timings()[8] - bdshot600_dma_get_timings()[7]);
+        // printf("cv_res9 %lu\n", bdshot600_dma_get_timings()[9] - bdshot600_dma_get_timings()[8]);
+        // printf("cv_res10 %lu\n", bdshot600_dma_get_timings()[10] - bdshot600_dma_get_timings()[9]);
+        // printf("cv_res11 %lu\n", bdshot600_dma_get_timings()[11] - bdshot600_dma_get_timings()[10]);
+        // printf("cv_res12 %lu\n", bdshot600_dma_get_timings()[12] - bdshot600_dma_get_timings()[11]);
+        // printf("cv_res13 %lu\n", bdshot600_dma_get_timings()[13] - bdshot600_dma_get_timings()[12]);
+        // printf("cv_res14 %lu\n", bdshot600_dma_get_timings()[14] - bdshot600_dma_get_timings()[13]);
+
+        // printf("cv_resin15 %lu\n", bdshot600_dma_get_timings()[15] - bdshot600_dma_get_timings()[8]);
+        // printf("cv_resin16 %lu\n", bdshot600_dma_get_timings()[16] - bdshot600_dma_get_timings()[15]);
+        // printf("cv_resin17 %lu\n", bdshot600_dma_get_timings()[17] - bdshot600_dma_get_timings()[16]);
+
+        // printf("(%lu + %lu + %lu + %lu + %lu)/100000000 = %.5f\n\n", 
         //     radio_end - radio,
         //     sensors_end - sensors,
         //     motor_end - motor,
         //     logging_end - logging,
-        //     ((float)(radio_end - radio) + (sensors_end - sensors) + (motor_end - motor) + (logging_end - logging)) / 100000000.0
+        //     interrupt_end - interrupt,
+        //     ((float)(radio_end - radio) + (sensors_end - sensors) + (motor_end - motor) + (logging_end - logging) + (interrupt_end - interrupt)) / 100000000.0
         // );
 
         // printf("Motor BL: %5.1f BR: %5.1f FR: %5.1f FL: %5.1f\n",
@@ -645,7 +744,6 @@ uint8_t init_drivers(){
         &hi2c1, 
         ACCEL_CONFIG_RANGE_2G, 
         GYRO_CONFIG_RANGE_500_DEG, 
-        // LOW_PASS_FILTER_FREQUENCY_CUTOFF_GYRO_21HZ_ACCEL_20HZ,
         LOW_PASS_FILTER_FREQUENCY_CUTOFF_GYRO_260HZ_ACCEL_256HZ,
         1, 
         accelerometer_scale_factor_correction, 
@@ -689,36 +787,29 @@ void handle_get_and_calculate_sensor_values(){
 
     // ------------------------------------------------------------------------------------------------------ Get the sensor data
     // Get data from motors
-    // Block until the motors allow to convert the value
-    // if(bdshot600_convert_all_responses()){
     if(bdshot600_dma_convert_all_responses(1)){
-
+         
         // Motor 0 - BL, 1 - BR, 2 - FR, 3 - FL
-        motor_frequency[0] = bdshot600_dma_get_frequency(motor_BL);
-        motor_frequency[1] = bdshot600_dma_get_frequency(motor_BR);
-        motor_frequency[2] = bdshot600_dma_get_frequency(motor_FR);
-        motor_frequency[3] = bdshot600_dma_get_frequency(motor_FL);
-
-        motor_rpm[0] = bdshot600_dma_get_rpm(motor_BL); 
-        motor_rpm[1] = bdshot600_dma_get_rpm(motor_BR);
-        motor_rpm[2] = bdshot600_dma_get_rpm(motor_FR);
-        motor_rpm[3] = bdshot600_dma_get_rpm(motor_FL);
+        motor_frequency[0] = low_pass_filter_pt1_read(&filter_motor_0, bdshot600_dma_get_frequency(motor_BL));
+        motor_frequency[1] = low_pass_filter_pt1_read(&filter_motor_1, bdshot600_dma_get_frequency(motor_BR));
+        motor_frequency[2] = low_pass_filter_pt1_read(&filter_motor_2, bdshot600_dma_get_frequency(motor_FR));
+        motor_frequency[3] = low_pass_filter_pt1_read(&filter_motor_3, bdshot600_dma_get_frequency(motor_FL));
     }
 
     sensors2 = DWT->CYCCNT;
 
     // Disable interrupts as they heavily impact the i2c communication
     __disable_irq();
-    temperature = bmp280_get_temperature_celsius(); // Temperature will probably not change
+    // temperature = bmp280_get_temperature_celsius(); // Temperature will probably not change
     altitude = bmp280_get_height_centimeters_from_reference(0);
+    mmc5603_magnetometer_readings_micro_teslas(magnetometer_data); // Call other sensor to let mpu6050 to rest
     sensors3 = DWT->CYCCNT;
-    mmc5603_magnetometer_readings_micro_teslas(magnetometer_data);
-    sensors4 = DWT->CYCCNT;
     mpu6050_get_accelerometer_readings_gravity(acceleration_data);
+    sensors4 = DWT->CYCCNT;
     mpu6050_get_gyro_readings_dps(gyro_angular);
     __enable_irq();
-
     sensors5 = DWT->CYCCNT;
+
 
     bn357_parse_data(); // Try to parse gps
     gps_latitude = bn357_get_latitude_decimal_format();
@@ -741,59 +832,112 @@ void handle_get_and_calculate_sensor_values(){
     // Filtering rpm: https://www.youtube.com/watch?v=NCDyA9bnf4I&t=192s
 
 
-    
-    // Gyro RPM filtering
-    // Filter the gyro using each of the rpm's from the motors
-    // 4 notch filters with 3 harmonics
-    
-    // Dynamic filtering
+    // Max 1.79. Without 1.46
+    // RPM filtering
+    if(motor_frequency[0] >= rpm_notch_filter_min_frequency){
 
-    // if(motor_frequency[0] >= rpm_notch_filter_min_frequency){
-    if(motor_frequency[0] > 0){
+        // 1st harmonic
+        if(motor_frequency[0] < nyquist_with_margin &&
+            motor_frequency[1] < nyquist_with_margin &&
+            motor_frequency[2] < nyquist_with_margin &&
+            motor_frequency[3] < nyquist_with_margin
+        ){
+            notch_filter_q_set_center_frequency(&gyro_x_notch_filter_harmonic_1_motor_0, motor_frequency[0]);
+            notch_filter_q_set_center_frequency(&gyro_x_notch_filter_harmonic_1_motor_1, motor_frequency[1]);
+            notch_filter_q_set_center_frequency(&gyro_x_notch_filter_harmonic_1_motor_2, motor_frequency[2]);
+            notch_filter_q_set_center_frequency(&gyro_x_notch_filter_harmonic_1_motor_3, motor_frequency[3]);
+            notch_filter_q_set_center_frequency_using_reference_filter(&gyro_y_notch_filter_harmonic_1_motor_0, &gyro_x_notch_filter_harmonic_1_motor_0);
+            notch_filter_q_set_center_frequency_using_reference_filter(&gyro_y_notch_filter_harmonic_1_motor_1, &gyro_x_notch_filter_harmonic_1_motor_1);
+            notch_filter_q_set_center_frequency_using_reference_filter(&gyro_y_notch_filter_harmonic_1_motor_2, &gyro_x_notch_filter_harmonic_1_motor_2);
+            notch_filter_q_set_center_frequency_using_reference_filter(&gyro_y_notch_filter_harmonic_1_motor_3, &gyro_x_notch_filter_harmonic_1_motor_3);
 
-        // Apply new notch filter focus
-        notch_filter_set_center_frequency_Q_constant(&gyro_x_filter_motor_BL, motor_frequency[0]);
-        notch_filter_set_center_frequency_Q_constant(&gyro_x_filter_motor_BR, motor_frequency[1]);
-        notch_filter_set_center_frequency_Q_constant(&gyro_x_filter_motor_FR, motor_frequency[2]);
-        notch_filter_set_center_frequency_Q_constant(&gyro_x_filter_motor_FL, motor_frequency[3]);
+            gyro_angular[0] = notch_filter_q_read(&gyro_x_notch_filter_harmonic_1_motor_0, gyro_angular[0]);
+            gyro_angular[0] = notch_filter_q_read(&gyro_x_notch_filter_harmonic_1_motor_1, gyro_angular[0]);
+            gyro_angular[0] = notch_filter_q_read(&gyro_x_notch_filter_harmonic_1_motor_2, gyro_angular[0]);
+            gyro_angular[0] = notch_filter_q_read(&gyro_x_notch_filter_harmonic_1_motor_3, gyro_angular[0]);
 
-        notch_filter_set_center_frequency_Q_constant(&gyro_y_filter_motor_BL, motor_frequency[0]);
-        notch_filter_set_center_frequency_Q_constant(&gyro_y_filter_motor_BR, motor_frequency[1]);
-        notch_filter_set_center_frequency_Q_constant(&gyro_y_filter_motor_FR, motor_frequency[2]);
-        notch_filter_set_center_frequency_Q_constant(&gyro_y_filter_motor_FL, motor_frequency[3]);
+            gyro_angular[1] = notch_filter_q_read(&gyro_y_notch_filter_harmonic_1_motor_0, gyro_angular[1]);
+            gyro_angular[1] = notch_filter_q_read(&gyro_y_notch_filter_harmonic_1_motor_1, gyro_angular[1]);
+            gyro_angular[1] = notch_filter_q_read(&gyro_y_notch_filter_harmonic_1_motor_2, gyro_angular[1]);
+            gyro_angular[1] = notch_filter_q_read(&gyro_y_notch_filter_harmonic_1_motor_3, gyro_angular[1]);
+        }
 
-        notch_filter_set_center_frequency_Q_constant(&gyro_z_filter_motor_BL, motor_frequency[0]);
-        notch_filter_set_center_frequency_Q_constant(&gyro_z_filter_motor_BR, motor_frequency[1]);
-        notch_filter_set_center_frequency_Q_constant(&gyro_z_filter_motor_FR, motor_frequency[2]);
-        notch_filter_set_center_frequency_Q_constant(&gyro_z_filter_motor_FL, motor_frequency[3]);
+        // 2nd harmonic (Not used as its not visible)
+        // if(motor_frequency[0] * 2 < nyquist_with_margin &&
+        //     motor_frequency[1] * 2 < nyquist_with_margin &&
+        //     motor_frequency[2] * 2 < nyquist_with_margin &&
+        //     motor_frequency[3] * 2 < nyquist_with_margin
+        // ){
+        //     notch_filter_q_set_center_frequency(&gyro_x_notch_filter_harmonic_2_motor_0, motor_frequency[0] * 2);
+        //     notch_filter_q_set_center_frequency(&gyro_x_notch_filter_harmonic_2_motor_1, motor_frequency[1] * 2);
+        //     notch_filter_q_set_center_frequency(&gyro_x_notch_filter_harmonic_2_motor_2, motor_frequency[2] * 2);
+        //     notch_filter_q_set_center_frequency(&gyro_x_notch_filter_harmonic_2_motor_3, motor_frequency[3] * 2);
+        //     notch_filter_q_set_center_frequency_using_reference_filter(&gyro_y_notch_filter_harmonic_2_motor_0, &gyro_x_notch_filter_harmonic_2_motor_0);
+        //     notch_filter_q_set_center_frequency_using_reference_filter(&gyro_y_notch_filter_harmonic_2_motor_1, &gyro_x_notch_filter_harmonic_2_motor_1);
+        //     notch_filter_q_set_center_frequency_using_reference_filter(&gyro_y_notch_filter_harmonic_2_motor_2, &gyro_x_notch_filter_harmonic_2_motor_2);
+        //     notch_filter_q_set_center_frequency_using_reference_filter(&gyro_y_notch_filter_harmonic_2_motor_3, &gyro_x_notch_filter_harmonic_2_motor_3);
 
-        // Apply the filter to each axis
-        gyro_angular[0] = notch_filter_read(&gyro_x_filter_motor_BL, gyro_angular[0]);
-        gyro_angular[0] = notch_filter_read(&gyro_x_filter_motor_BR, gyro_angular[0]);
-        gyro_angular[0] = notch_filter_read(&gyro_x_filter_motor_FR, gyro_angular[0]);
-        gyro_angular[0] = notch_filter_read(&gyro_x_filter_motor_FL, gyro_angular[0]);
+        //     gyro_angular[0] = notch_filter_q_read(&gyro_x_notch_filter_harmonic_2_motor_0, gyro_angular[0]);
+        //     gyro_angular[0] = notch_filter_q_read(&gyro_x_notch_filter_harmonic_2_motor_1, gyro_angular[0]);
+        //     gyro_angular[0] = notch_filter_q_read(&gyro_x_notch_filter_harmonic_2_motor_2, gyro_angular[0]);
+        //     gyro_angular[0] = notch_filter_q_read(&gyro_x_notch_filter_harmonic_2_motor_3, gyro_angular[0]);
 
-        gyro_angular[1] = notch_filter_read(&gyro_y_filter_motor_BL, gyro_angular[1]);
-        gyro_angular[1] = notch_filter_read(&gyro_y_filter_motor_BR, gyro_angular[1]);
-        gyro_angular[1] = notch_filter_read(&gyro_y_filter_motor_FR, gyro_angular[1]);
-        gyro_angular[1] = notch_filter_read(&gyro_y_filter_motor_FL, gyro_angular[1]);
+        //     gyro_angular[1] = notch_filter_q_read(&gyro_y_notch_filter_harmonic_2_motor_0, gyro_angular[1]);
+        //     gyro_angular[1] = notch_filter_q_read(&gyro_y_notch_filter_harmonic_2_motor_1, gyro_angular[1]);
+        //     gyro_angular[1] = notch_filter_q_read(&gyro_y_notch_filter_harmonic_2_motor_2, gyro_angular[1]);
+        //     gyro_angular[1] = notch_filter_q_read(&gyro_y_notch_filter_harmonic_2_motor_3, gyro_angular[1]);
+        // }
 
-        gyro_angular[2] = notch_filter_read(&gyro_z_filter_motor_BL, gyro_angular[2]);
-        gyro_angular[2] = notch_filter_read(&gyro_z_filter_motor_BR, gyro_angular[2]);
-        gyro_angular[2] = notch_filter_read(&gyro_z_filter_motor_FR, gyro_angular[2]);
-        gyro_angular[2] = notch_filter_read(&gyro_z_filter_motor_FL, gyro_angular[2]);
+        // 3nd harmonic
+        if(motor_frequency[0] * 3 < nyquist_with_margin &&
+            motor_frequency[1] * 3 < nyquist_with_margin &&
+            motor_frequency[2] * 3 < nyquist_with_margin &&
+            motor_frequency[3] * 3 < nyquist_with_margin
+        ){
+            notch_filter_q_set_center_frequency(&gyro_x_notch_filter_harmonic_3_motor_0, motor_frequency[0] * 3);
+            notch_filter_q_set_center_frequency(&gyro_x_notch_filter_harmonic_3_motor_1, motor_frequency[1] * 3);
+            notch_filter_q_set_center_frequency(&gyro_x_notch_filter_harmonic_3_motor_2, motor_frequency[2] * 3);
+            notch_filter_q_set_center_frequency(&gyro_x_notch_filter_harmonic_3_motor_3, motor_frequency[3] * 3);
+            notch_filter_q_set_center_frequency_using_reference_filter(&gyro_y_notch_filter_harmonic_3_motor_0, &gyro_x_notch_filter_harmonic_3_motor_0);
+            notch_filter_q_set_center_frequency_using_reference_filter(&gyro_y_notch_filter_harmonic_3_motor_1, &gyro_x_notch_filter_harmonic_3_motor_1);
+            notch_filter_q_set_center_frequency_using_reference_filter(&gyro_y_notch_filter_harmonic_3_motor_2, &gyro_x_notch_filter_harmonic_3_motor_2);
+            notch_filter_q_set_center_frequency_using_reference_filter(&gyro_y_notch_filter_harmonic_3_motor_3, &gyro_x_notch_filter_harmonic_3_motor_3);
+
+            gyro_angular[0] = notch_filter_q_read(&gyro_x_notch_filter_harmonic_3_motor_0, gyro_angular[0]);
+            gyro_angular[0] = notch_filter_q_read(&gyro_x_notch_filter_harmonic_3_motor_1, gyro_angular[0]);
+            gyro_angular[0] = notch_filter_q_read(&gyro_x_notch_filter_harmonic_3_motor_2, gyro_angular[0]);
+            gyro_angular[0] = notch_filter_q_read(&gyro_x_notch_filter_harmonic_3_motor_3, gyro_angular[0]);
+
+            gyro_angular[1] = notch_filter_q_read(&gyro_y_notch_filter_harmonic_3_motor_0, gyro_angular[1]);
+            gyro_angular[1] = notch_filter_q_read(&gyro_y_notch_filter_harmonic_3_motor_1, gyro_angular[1]);
+            gyro_angular[1] = notch_filter_q_read(&gyro_y_notch_filter_harmonic_3_motor_2, gyro_angular[1]);
+            gyro_angular[1] = notch_filter_q_read(&gyro_y_notch_filter_harmonic_3_motor_3, gyro_angular[1]);
+        }
+
+        // If the frequencies are above nyquist with margin then filtering is not done
+        // If it would be done, the filters would start oscillating the data and work against it at worst
+        // or just introduce stronger noise 
+
     }
-
     sensors7 = DWT->CYCCNT;
 
-    // Gyro filtering is not needed as loop rate and gyro sample rate are the same
-    magnetometer_data[0] = low_pass_filter_read(&filter_magnetometer_x, magnetometer_data[0]);
-    magnetometer_data[1] = low_pass_filter_read(&filter_magnetometer_y, magnetometer_data[1]);
-    magnetometer_data[2] = low_pass_filter_read(&filter_magnetometer_z, magnetometer_data[2]);
+    // Dynamic notch filtering
+    // Not currently used
 
-    // acceleration_data[0] = low_pass_filter_read(&filter_accelerometer_x, acceleration_data[0]);
-    // acceleration_data[1] = low_pass_filter_read(&filter_accelerometer_y, acceleration_data[1]);
-    // acceleration_data[2] = low_pass_filter_read(&filter_accelerometer_z, acceleration_data[2]);
+
+    // Filter magnetometer data
+    magnetometer_data[0] = low_pass_filter_pt1_read(&filter_magnetometer_x, magnetometer_data[0]);
+    magnetometer_data[1] = low_pass_filter_pt1_read(&filter_magnetometer_y, magnetometer_data[1]);
+    magnetometer_data[2] = low_pass_filter_pt1_read(&filter_magnetometer_z, magnetometer_data[2]);
+
+    // Yaw Angular rotation filtering
+    // gyro_angular[2] = low_pass_filter_pt1_read(&filter_gyro_z, gyro_angular[2]);
+
+    acceleration_data[0] = low_pass_filter_pt1_read(&filter_accelerometer_x, acceleration_data[0]);
+    acceleration_data[1] = low_pass_filter_pt1_read(&filter_accelerometer_y, acceleration_data[1]);
+    acceleration_data[2] = low_pass_filter_pt1_read(&filter_accelerometer_z, acceleration_data[2]);
+
+    sensors8 = DWT->CYCCNT;
 
     // ------------------------------------------------------------------------------------------------------ Sensor fusion
     calculate_roll_pitch_from_accelerometer_data(acceleration_data, &accelerometer_roll, &accelerometer_pitch, accelerometer_roll_offset, accelerometer_pitch_offset); // Get roll and pitch from the data. I call it x and y. Ranges -90 to 90. 
@@ -805,7 +949,7 @@ void handle_get_and_calculate_sensor_values(){
     // No need for sensor fusion, it introduces delay
     imu_orientation[2] = magnetometer_yaw;
     
-
+    sensors9 = DWT->CYCCNT;
     // GPS STUFF
     float latitude_sign = 1 * (bn357_get_latitude_direction() == 'N') + (-1) * (bn357_get_latitude_direction() == 'S'); // Possible results: 0, 1 or -1
     float longitude_sign = 1 * (bn357_get_longitude_direction() == 'E') + (-1) * (bn357_get_longitude_direction() == 'W');
@@ -852,8 +996,7 @@ void handle_get_and_calculate_sensor_values(){
     //     gps_longitude = in_between_gps_longitude;
     // }
 
-    sensors8 = DWT->CYCCNT;
-
+    sensors10 = DWT->CYCCNT;
     // ------------------------------------------------------------------------------------------------------ Use sensor fused data for more data
     float vertical_acceleration[1] = {mpu6050_calculate_vertical_acceleration_cm_per_second(acceleration_data, imu_orientation)};
     float vertical_altitude[1] = {altitude};
@@ -863,6 +1006,7 @@ void handle_get_and_calculate_sensor_values(){
 
     altitude = kalman_filter_get_state(&altitude_and_velocity_kalman)[0][0];
     vertical_velocity = kalman_filter_get_state(&altitude_and_velocity_kalman)[1][0];
+    sensors11 = DWT->CYCCNT;
 
     // printf("Alt %f vel %f ", altitude, vertical_velocity);
     // printf("IMU %f %f %f\n", imu_orientation[0], imu_orientation[1], imu_orientation[2]);
@@ -1013,20 +1157,37 @@ void handle_pid_and_motor_control(){
             PID_set_points[1] = acro_target_pitch; // Logging
             PID_set_points[2] = acro_target_yaw; // Logging
         }
+        
 
+        // Just calculate and not get the error sum. Needed for d term filter
+        pid_calculate_error(&acro_roll_pid, gyro_angular[0], get_absolute_time());
+        pid_calculate_error(&acro_pitch_pid, gyro_angular[1], get_absolute_time());
+        pid_calculate_error(&acro_yaw_pid, gyro_angular[2], get_absolute_time());
 
-        error_acro_roll = pid_get_error(&acro_roll_pid, gyro_angular[0], get_absolute_time());
-        error_acro_pitch = pid_get_error(&acro_pitch_pid, gyro_angular[1], get_absolute_time());
-        error_acro_yaw = pid_get_error(&acro_yaw_pid, gyro_angular[2], get_absolute_time());
+        PID_proportional[0] = pid_get_last_proportional_error(&acro_roll_pid);
+        PID_integral[0] = pid_get_last_integral_error(&acro_roll_pid);
+        PID_derivative[0] = pid_get_last_derivative_error(&acro_roll_pid);
+        PID_proportional[1] = pid_get_last_proportional_error(&acro_pitch_pid);
+        PID_integral[1] = pid_get_last_integral_error(&acro_pitch_pid);
+        PID_derivative[1] = pid_get_last_derivative_error(&acro_pitch_pid);
+        PID_proportional[2] = pid_get_last_proportional_error(&acro_yaw_pid);
+        PID_integral[2] = pid_get_last_integral_error(&acro_yaw_pid);
 
-        PID_proportional[1] = pid_get_last_proportional_error(&acro_roll_pid); // Logging
-        PID_integral[1] = pid_get_last_integral_error(&acro_roll_pid); // Logging
-        PID_derivative[1] = pid_get_last_derivative_error(&acro_roll_pid); // Logging
-        PID_proportional[0] = pid_get_last_proportional_error(&acro_pitch_pid); // Logging
-        PID_integral[0] = pid_get_last_integral_error(&acro_pitch_pid); // Logging
-        PID_derivative[0] = pid_get_last_derivative_error(&acro_pitch_pid); // Logging
-        PID_proportional[2] = pid_get_last_proportional_error(&acro_yaw_pid); // Logging
-        PID_integral[2] = pid_get_last_integral_error(&acro_yaw_pid); // Logging
+        low_pass_filter_biquad_set_cutoff_frequency(
+            &roll_d_term_filtering, 
+            map_value_to_expo_range_inverted(
+                throttle, 
+                d_term_filtering_min_cutoff,
+                d_term_filtering_max_cutoff,
+                d_term_filtering_expo
+            )
+        ); // Use throttle, not the final output of the motor
+        low_pass_filter_biquad_set_cutoff_frequency_using_reference_filter(&pitch_d_term_filtering, &roll_d_term_filtering);
+
+        // Use throttle to make the biquad filter dynamic
+        error_acro_roll = PID_proportional[0] + PID_integral[0] + low_pass_filter_biquad_read(&roll_d_term_filtering, PID_derivative[0]);
+        error_acro_pitch = PID_proportional[1] + PID_integral[1] + low_pass_filter_biquad_read(&pitch_d_term_filtering, PID_derivative[1]);
+        error_acro_yaw = PID_proportional[2] + PID_integral[2];
 
         motor5 = DWT->CYCCNT;
 
@@ -1045,21 +1206,23 @@ void handle_pid_and_motor_control(){
         motor_power[3] = 0;
 
         // For throttle control logic
-        motor_power[0] += error_throttle * (~use_vertical_velocity_control & 1) + error_vertical_velocity * use_vertical_velocity_control;
-        motor_power[1] += error_throttle * (~use_vertical_velocity_control & 1) + error_vertical_velocity * use_vertical_velocity_control;
-        motor_power[2] += error_throttle * (~use_vertical_velocity_control & 1) + error_vertical_velocity * use_vertical_velocity_control;
-        motor_power[3] += error_throttle * (~use_vertical_velocity_control & 1) + error_vertical_velocity * use_vertical_velocity_control;
 
-        // 2212
-        // Motor B (0) 14460 rpm BL but should be BL
-        // Motor C (1) 14160 rpm FL but should be BR
-        // Motor D (2) 14460 rpm BR but should be FR
-        // Motor A (3) 13740 rpm FR but should be FL
+        float throttle_value = error_throttle * (~use_vertical_velocity_control & 1) + error_vertical_velocity * use_vertical_velocity_control;
+        motor_power[0] += throttle_value;
+        motor_power[1] += throttle_value;
+        motor_power[2] += throttle_value;
+        motor_power[3] += throttle_value;
+
+        // For logging throttle value
+        PID_set_points[3] = setServoActivationPercent(throttle_value, actual_min_dshot600_throttle_value, actual_max_dshot600_throttle_value);
+
         throttle_value_FR = setServoActivationPercent(motor_power[2], actual_min_dshot600_throttle_value, actual_max_dshot600_throttle_value);
         throttle_value_FL = setServoActivationPercent(motor_power[3], actual_min_dshot600_throttle_value, actual_max_dshot600_throttle_value);
         throttle_value_BL = setServoActivationPercent(motor_power[0], actual_min_dshot600_throttle_value, actual_max_dshot600_throttle_value);
         throttle_value_BR = setServoActivationPercent(motor_power[1], actual_min_dshot600_throttle_value, actual_max_dshot600_throttle_value);
 
+
+        
         // FPV cam side FRONT
         bdshot600_dma_set_throttle(throttle_value_FR, motor_FR); // Front-right
         bdshot600_dma_set_throttle(throttle_value_FL, motor_FL); // Front-left
@@ -1091,10 +1254,10 @@ void handle_pid_and_motor_control(){
         bdshot600_dma_set_throttle(throttle_value_BR, motor_BR); // Back-right
 
         // For logging
-        motor_power[0] = throttle_value_BL; // Logging BL <- BL
-        motor_power[1] = throttle_value_FL; // Logging FL <- FL
-        motor_power[2] = throttle_value_BR; // Logging BR <- BR
-        motor_power[3] = throttle_value_FR; // Logging FR <- FR
+        motor_power[0] = throttle_value_BL; // Logging
+        motor_power[1] = throttle_value_FL; // Logging
+        motor_power[2] = throttle_value_BR; // Logging
+        motor_power[3] = throttle_value_FR; // Logging
 
         // Reset the remote control set points also
         remote_control[0] = 0;
@@ -1116,6 +1279,8 @@ void handle_pid_and_motor_control(){
         PID_set_points[0] = 0; // Logging
         PID_set_points[1] = 0; // Logging
         PID_set_points[2] = 0; // Logging
+        PID_set_points[3] = 0; // Logging
+
 
         pid_reset_integral_sum(&acro_roll_pid);
         pid_reset_integral_sum(&acro_pitch_pid);
@@ -1130,27 +1295,28 @@ void handle_pid_and_motor_control(){
 
     // Immediately after getting the motor values send them to motors. If manual mode is on
     if(manual_bdshot) bdshot600_dma_send_all_motor_data();
+    motor7 = DWT->CYCCNT;
 }
 
 void handle_radio_communication(){
     if(nrf24_data_available(1)){
         nrf24_receive(rx_data);
+        uint8_t rx_data_size = strlen(rx_data);
         // Get the type of request
-        extract_request_type(rx_data, strlen(rx_data), rx_type);
+        extract_request_type(rx_data, rx_data_size, rx_type);
 
         radio2 = DWT->CYCCNT;
         if(strcmp(rx_type, "js") == 0){
             // printf("JOYSTICK\n");
             last_signal_timestamp_microseconds = get_absolute_time();
 
-            // extract_joystick_request_values_uint(rx_data, strlen(rx_data), &throttle, &yaw, &roll, &pitch);
-            extract_joystick_request_values_float(rx_data, strlen(rx_data), &throttle, &yaw, &roll, &pitch);
+            extract_joystick_request_values_float(rx_data, rx_data_size, &throttle, &yaw, &roll, &pitch);
 
             // Reversed
             roll = (-(roll-50.0))+50.0;
 
             // For the blackbox log
-            remote_control[0] = roll;
+            remote_control[0] = roll-50.0;
             remote_control[1] = pitch-50.0;
             remote_control[2] = yaw-50.0;
             remote_control[3] = throttle+100.0;
@@ -1202,12 +1368,8 @@ void handle_radio_communication(){
 
             // Throttle ##################################################################################################################
             target_vertical_velocity = map_value(throttle, 0, 100, -max_throttle_vertical_velocity, max_throttle_vertical_velocity);
-
-
-
-
         }else if(strcmp(rx_type, "pid") == 0){
-            printf("\nGot pid");
+            printf("\nGot pid change");
             
             float added_proportional = 0;
             float added_integral = 0;
@@ -1222,7 +1384,6 @@ void handle_radio_communication(){
                 acro_roll_pitch_gain_i = BASE_ACRO_roll_pitch_GAIN_I + added_integral;
                 acro_roll_pitch_gain_d = BASE_ACRO_roll_pitch_GAIN_D + added_derivative;
                 acro_roll_pitch_master_gain = BASE_ACRO_roll_pitch_MASTER_GAIN + added_master_gain;
-
 
                 // Configure the roll pid 
                 pid_set_proportional_gain(&acro_roll_pid, acro_roll_pitch_gain_p * acro_roll_pitch_master_gain);
@@ -1270,7 +1431,7 @@ void handle_radio_communication(){
                 uint16_t string_length = 0;
                 char *betaflight_end_file_string = betaflight_blackbox_get_end_of_log(&string_length);
 
-                char* sd_card_buffer = sd_card_get_buffer_pointer(1);
+                char* sd_card_buffer = (uint8_t*)sd_card_get_buffer_pointer(1);
                 uint16_t sd_card_buffer_index = 0;
                 uint16_t betaflight_data_string_index = 0;
                 while(sd_card_buffer_index < string_length){
@@ -1296,34 +1457,35 @@ void handle_radio_communication(){
                     }
                 }
 
-                printf("PID: Sent file ending\n");
+                printf("SD logging: Sent file ending\n");
                 
                 // Wait for the logger finish writing everything
                 HAL_Delay(300);
-                printf("PID: Delayed for 2s\n");
+                printf("SD logging: Delayed for 2s\n");
 
                 // Exit async mode
                 uint64_t i = 0;
                 while(1){
-                    printf("%lu\n", i);
+                    // printf("%lu\n", i);
+                    HAL_Delay(20);
                     if(sd_special_leave_async_mode()){
-                        printf("Exit async mode\n");
+                        printf("SD logging: Exit async mode request\n");
                         break;
                     }
                     i++;
                 }
-                printf("PID: Left async mode\n");
+                printf("SD logging: Left async mode\n");
 
                 // Close the current file
                 sd_special_reset();
-                printf("PID: Reset the logger\n");
+                printf("SD logging: Reset the logger\n");
 
                 HAL_Delay(1000);
-                printf("PID: Waited for 1s\n");
+                printf("SD logging: Waited for 1s\n");
 
                 // Initialize new_file
                 setup_logging_to_sd(1);
-                printf("PID: Initialized logging again\n");
+                printf("SD logging: Initialized logging again\n");
 
             }
             
@@ -1395,41 +1557,70 @@ void initialize_control_abstractions(){
     gps_longitude_pid = pid_init(gps_hold_gain_p, gps_hold_gain_i, gps_hold_gain_d, 0.0, get_absolute_time(), gps_pid_angle_of_attack_max, -gps_pid_angle_of_attack_max, 1);
     gps_latitude_pid = pid_init(gps_hold_gain_p, gps_hold_gain_i, gps_hold_gain_d, 0.0, get_absolute_time(), gps_pid_angle_of_attack_max, -gps_pid_angle_of_attack_max, 1);
 
-    filter_magnetometer_x = filtering_init_low_pass_filter(filtering_magnetometer_cutoff_frequency,REFRESH_RATE_HZ);
-    filter_magnetometer_y = filtering_init_low_pass_filter(filtering_magnetometer_cutoff_frequency,REFRESH_RATE_HZ);
-    filter_magnetometer_z = filtering_init_low_pass_filter(filtering_magnetometer_cutoff_frequency,REFRESH_RATE_HZ);
+    filter_magnetometer_x = filtering_init_low_pass_filter_pt1(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
+    filter_magnetometer_y = filtering_init_low_pass_filter_pt1(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
+    filter_magnetometer_z = filtering_init_low_pass_filter_pt1(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
 
-    filter_accelerometer_x = filtering_init_low_pass_filter(filtering_accelerometer_cutoff_frequency,REFRESH_RATE_HZ);
-    filter_accelerometer_y = filtering_init_low_pass_filter(filtering_accelerometer_cutoff_frequency,REFRESH_RATE_HZ);
-    filter_accelerometer_z = filtering_init_low_pass_filter(filtering_accelerometer_cutoff_frequency,REFRESH_RATE_HZ);
+    filter_accelerometer_x = filtering_init_low_pass_filter_pt1(filtering_accelerometer_cutoff_frequency, REFRESH_RATE_HZ);
+    filter_accelerometer_y = filtering_init_low_pass_filter_pt1(filtering_accelerometer_cutoff_frequency, REFRESH_RATE_HZ);
+    filter_accelerometer_z = filtering_init_low_pass_filter_pt1(filtering_accelerometer_cutoff_frequency, REFRESH_RATE_HZ);
 
+    // Yaw filtering 
+    filter_gyro_z = filtering_init_low_pass_filter_pt1(filter_gyro_z_yaw_cutoff_frequency, REFRESH_RATE_HZ);
+
+
+    filter_motor_0 = filtering_init_low_pass_filter_pt1(motor_low_pass_filter_cutoff, REFRESH_RATE_HZ);
+    filter_motor_1 = filtering_init_low_pass_filter_pt1(motor_low_pass_filter_cutoff, REFRESH_RATE_HZ);
+    filter_motor_2 = filtering_init_low_pass_filter_pt1(motor_low_pass_filter_cutoff, REFRESH_RATE_HZ);
+    filter_motor_3 = filtering_init_low_pass_filter_pt1(motor_low_pass_filter_cutoff, REFRESH_RATE_HZ);
+
+    // RPM filter
     // Width does not matter and frequency will be set later using data from motors
-    gyro_x_filter_motor_FR = notch_filter_init(0, 0, REFRESH_RATE_HZ);
-    notch_filter_set_Q(&gyro_x_filter_motor_FR, rpm_notch_filter_q_value);
-    gyro_x_filter_motor_FL = notch_filter_init(0, 0, REFRESH_RATE_HZ);
-    notch_filter_set_Q(&gyro_x_filter_motor_FL, rpm_notch_filter_q_value);
-    gyro_x_filter_motor_BR = notch_filter_init(0, 0, REFRESH_RATE_HZ);
-    notch_filter_set_Q(&gyro_x_filter_motor_BR, rpm_notch_filter_q_value);
-    gyro_x_filter_motor_BL = notch_filter_init(0, 0, REFRESH_RATE_HZ);
-    notch_filter_set_Q(&gyro_x_filter_motor_BL, rpm_notch_filter_q_value);
+    gyro_x_notch_filter_harmonic_1_motor_0 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_1, REFRESH_RATE_HZ);
+    gyro_x_notch_filter_harmonic_1_motor_1 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_1, REFRESH_RATE_HZ);
+    gyro_x_notch_filter_harmonic_1_motor_2 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_1, REFRESH_RATE_HZ);
+    gyro_x_notch_filter_harmonic_1_motor_3 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_1, REFRESH_RATE_HZ);
 
-    gyro_y_filter_motor_FR = notch_filter_init(0, 0, REFRESH_RATE_HZ);
-    notch_filter_set_Q(&gyro_y_filter_motor_FR, rpm_notch_filter_q_value);
-    gyro_y_filter_motor_FL = notch_filter_init(0, 0, REFRESH_RATE_HZ);
-    notch_filter_set_Q(&gyro_y_filter_motor_FL, rpm_notch_filter_q_value);
-    gyro_y_filter_motor_BR = notch_filter_init(0, 0, REFRESH_RATE_HZ);
-    notch_filter_set_Q(&gyro_y_filter_motor_BR, rpm_notch_filter_q_value);
-    gyro_y_filter_motor_BL = notch_filter_init(0, 0, REFRESH_RATE_HZ);
-    notch_filter_set_Q(&gyro_y_filter_motor_BL, rpm_notch_filter_q_value);
+    gyro_y_notch_filter_harmonic_1_motor_0 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_1, REFRESH_RATE_HZ);
+    gyro_y_notch_filter_harmonic_1_motor_1 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_1, REFRESH_RATE_HZ);
+    gyro_y_notch_filter_harmonic_1_motor_2 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_1, REFRESH_RATE_HZ);
+    gyro_y_notch_filter_harmonic_1_motor_3 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_1, REFRESH_RATE_HZ);
 
-    gyro_z_filter_motor_FR = notch_filter_init(0, 0, REFRESH_RATE_HZ);
-    notch_filter_set_Q(&gyro_z_filter_motor_FR, rpm_notch_filter_q_value);
-    gyro_z_filter_motor_FL = notch_filter_init(0, 0, REFRESH_RATE_HZ);
-    notch_filter_set_Q(&gyro_z_filter_motor_FL, rpm_notch_filter_q_value);
-    gyro_z_filter_motor_BR = notch_filter_init(0, 0, REFRESH_RATE_HZ);
-    notch_filter_set_Q(&gyro_z_filter_motor_BR, rpm_notch_filter_q_value);
-    gyro_z_filter_motor_BL = notch_filter_init(0, 0, REFRESH_RATE_HZ);
-    notch_filter_set_Q(&gyro_z_filter_motor_BL, rpm_notch_filter_q_value);
+    
+    gyro_x_notch_filter_harmonic_2_motor_0 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_2, REFRESH_RATE_HZ);
+    gyro_x_notch_filter_harmonic_2_motor_1 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_2, REFRESH_RATE_HZ);
+    gyro_x_notch_filter_harmonic_2_motor_2 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_2, REFRESH_RATE_HZ);
+    gyro_x_notch_filter_harmonic_2_motor_3 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_2, REFRESH_RATE_HZ);
+
+    gyro_y_notch_filter_harmonic_2_motor_0 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_2, REFRESH_RATE_HZ);
+    gyro_y_notch_filter_harmonic_2_motor_1 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_2, REFRESH_RATE_HZ);
+    gyro_y_notch_filter_harmonic_2_motor_2 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_2, REFRESH_RATE_HZ);
+    gyro_y_notch_filter_harmonic_2_motor_3 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_2, REFRESH_RATE_HZ);
+
+
+    gyro_x_notch_filter_harmonic_3_motor_0 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_3, REFRESH_RATE_HZ);
+    gyro_x_notch_filter_harmonic_3_motor_1 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_3, REFRESH_RATE_HZ);
+    gyro_x_notch_filter_harmonic_3_motor_2 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_3, REFRESH_RATE_HZ);
+    gyro_x_notch_filter_harmonic_3_motor_3 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_3, REFRESH_RATE_HZ);
+
+    gyro_y_notch_filter_harmonic_3_motor_0 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_3, REFRESH_RATE_HZ);
+    gyro_y_notch_filter_harmonic_3_motor_1 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_3, REFRESH_RATE_HZ);
+    gyro_y_notch_filter_harmonic_3_motor_2 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_3, REFRESH_RATE_HZ);
+    gyro_y_notch_filter_harmonic_3_motor_3 = notch_filter_q_init(0, rpm_notch_filter_q_harmonic_3, REFRESH_RATE_HZ);
+
+    // gyro_x_notch_filter_harmonic_1 = notch_filter_q_init(0, rpm_notch_filter_q_value, REFRESH_RATE_HZ);
+    // gyro_x_notch_filter_harmonic_2 = notch_filter_q_init(0, rpm_notch_filter_q_value, REFRESH_RATE_HZ);
+    // gyro_x_notch_filter_harmonic_3 = notch_filter_q_init(0, rpm_notch_filter_q_value, REFRESH_RATE_HZ);
+
+    // gyro_y_notch_filter_harmonic_1 = notch_filter_q_init(0, rpm_notch_filter_q_value, REFRESH_RATE_HZ);
+    // gyro_y_notch_filter_harmonic_2 = notch_filter_q_init(0, rpm_notch_filter_q_value, REFRESH_RATE_HZ);
+    // gyro_y_notch_filter_harmonic_3 = notch_filter_q_init(0, rpm_notch_filter_q_value, REFRESH_RATE_HZ);
+
+    // D-term biquad low-pass filter
+    // This is an AOS D term tune
+    // Initialize with the minimum frequency
+    roll_d_term_filtering = filtering_init_low_pass_filter_biquad(d_term_filtering_min_cutoff, REFRESH_RATE_HZ);
+    pitch_d_term_filtering = filtering_init_low_pass_filter_biquad(d_term_filtering_min_cutoff, REFRESH_RATE_HZ);
 
     float S_state[2][1] = {
         {0},
@@ -1504,126 +1695,175 @@ void set_flight_mode(uint8_t mode){
     }
 }
 
+void indicate_mistake_on_logger(){
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    HAL_Delay(1000);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    HAL_Delay(1000);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    HAL_Delay(1000);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    HAL_Delay(1000);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    HAL_Delay(1000);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    HAL_Delay(1000);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    HAL_Delay(1000);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    HAL_Delay(1000);
+}
+
+void indicate_mistake_on_sd_card(){
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    HAL_Delay(1000);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    HAL_Delay(200);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    HAL_Delay(1000);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    HAL_Delay(200);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    HAL_Delay(1000);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    HAL_Delay(200);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    HAL_Delay(1000);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    HAL_Delay(200);
+}
+
+void indicate_sd_logging_ok(){
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    HAL_Delay(250);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    HAL_Delay(250);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    HAL_Delay(250);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    HAL_Delay(250);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    HAL_Delay(250);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    HAL_Delay(250);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    HAL_Delay(250);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    HAL_Delay(250);
+}
 
 void setup_logging_to_sd(uint8_t use_updated_file_name){
     // Initialize sd card logging
     sd_card_initialized = 0;
     if(!use_updated_file_name) sd_card_initialize_spi(&hspi3, GPIOA, GPIO_PIN_15, GPIOA, GPIO_PIN_12);
     
-    if(sd_test_interface()){
-        printf("SD logging: Logger module is working\n");
 
-        if(use_blackbox_logging){
-            if(use_updated_file_name) sd_card_initialized = sd_special_initialize(new_log_file_blackbox_base_name);
-            else sd_card_initialized = sd_special_initialize(log_file_blackbox_base_name);
-            
-            if(sd_card_initialized) printf("SD logging: Initialized blackbox logging. Code %d\n", sd_get_response());
-            else printf("SD logging: FAILED to initialize blackbox logging. Code %d\n", sd_get_response());
-
-
-            // Only has to be done initially not when new files are opened after that
-            if(!use_updated_file_name){
-                // Get the index of the file
-                file_index = sd_special_get_file_index();
-
-                printf("File index: %d\n", file_index);
-
-                // Create the new file name string. Will be used for repeated log starts
-                uint16_t length = snprintf(
-                    NULL, 
-                    0,
-                    "-%d%s", 
-                    file_index,
-                    log_file_blackbox_base_name
-                );
-                
-                // allocate memory for the string
-                new_log_file_blackbox_base_name = (char*)malloc((length + 1) + sizeof(char)); // +1 for the null terminator
-
-                // format the string
-                snprintf(
-                    (char*)new_log_file_blackbox_base_name, 
-                    length + 1, 
-                    "-%d%s", 
-                    file_index,
-                    log_file_blackbox_base_name
-                );
-            }
-
-
-
-        }else{
-            sd_card_initialized = sd_special_initialize(log_file_base_name);
-            if(sd_card_initialized) printf("SD logging: Initialized txt logging. Code %d\n", sd_get_response());
-            else printf("SD logging: FAILED to initialize txt logging. Code %d\n", sd_get_response());
-        }
-
-        if(sd_card_initialized){
-            if(use_blackbox_logging){
-                sd_card_async = sd_special_enter_async_byte_mode();
-                printf("SD logging: entered async byte mode\n");
-            }else{
-                sd_card_async = sd_special_enter_async_string_mode();
-                printf("SD logging: entered async string mode\n");
-            }
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-            HAL_Delay(250);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-            HAL_Delay(250);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-            HAL_Delay(250);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-            HAL_Delay(250);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-            HAL_Delay(250);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-            HAL_Delay(250);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-            HAL_Delay(250);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-            HAL_Delay(250);
-        }else{
-            printf("Failed to initialize the sd card interface: SD card connection issue\n");
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-            HAL_Delay(1000);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-            HAL_Delay(200);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-            HAL_Delay(1000);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-            HAL_Delay(200);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-            HAL_Delay(1000);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-            HAL_Delay(200);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-            HAL_Delay(1000);
-            HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-            HAL_Delay(200);
-        }
-    }else{
+    // OK
+    if(!sd_test_interface()){
         printf("Failed to initialize the sd card interface: Logging slave issue\n");
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-        HAL_Delay(1000);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-        HAL_Delay(1000);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-        HAL_Delay(1000);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-        HAL_Delay(1000);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-        HAL_Delay(1000);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-        HAL_Delay(1000);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-        HAL_Delay(1000);
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-        HAL_Delay(1000);
+        indicate_mistake_on_logger();
+        return;
     }
 
-    if(use_blackbox_logging && sd_card_initialized){
+    printf("SD logging: Logger module is working\n");
+
+    // BLACKBOX
+    if(use_blackbox_logging){
+        if(use_updated_file_name){
+            sd_card_initialized = sd_special_initialize(new_log_file_blackbox_base_name);
+        }else{
+            // OK
+            sd_card_initialized = sd_special_initialize(log_file_blackbox_base_name);
+        }
+
+
+        if(!sd_card_initialized){
+            printf("Failed to initialize the sd card interface: SD card connection issue\n");
+            printf("SD logging: FAILED to initialize blackbox logging. Code %d\n", sd_get_response());
+            indicate_mistake_on_sd_card();
+            return;
+        }
+
+        printf("SD logging: Initialized blackbox logging. Code %d\n", sd_get_response());
+
+
+        // Only has to be done initially not when new files are opened after that
+        if(sd_card_initialized && !use_updated_file_name){
+            // Get the index of the file
+
+            // OK
+            file_index = sd_special_get_file_index();
+            printf("SD logging: File index is %d\n", file_index);
+
+            // Create the new file name string. Will be used for repeated log starts
+            uint16_t length = snprintf(
+                NULL, 
+                0,
+                "-%d%s", 
+                file_index,
+                log_file_blackbox_base_name
+            );
+            
+            // allocate memory for the string
+            new_log_file_blackbox_base_name = (char*)malloc((length + 1) + sizeof(char)); // +1 for the null terminator
+
+            // format the string
+            snprintf(
+                (char*)new_log_file_blackbox_base_name, 
+                length + 1, 
+                "-%d%s", 
+                file_index,
+                log_file_blackbox_base_name
+            );
+        }
+    }
+
+    // TXT    
+    if(!use_blackbox_logging){
+        sd_card_initialized = sd_special_initialize(log_file_base_name);
+
+        if(!sd_card_initialized){
+            printf("SD logging: FAILED to initialize txt logging. Code %d\n", sd_get_response());
+            printf("Failed to initialize the sd card interface: SD card connection issue\n");
+            indicate_mistake_on_sd_card();
+            return;
+        }
+
+        printf("SD logging: Initialized txt logging. Code %d\n", sd_get_response());
+    }
+
+    // BLACKBOX
+    if(use_blackbox_logging){
+        sd_card_async = sd_special_enter_async_byte_mode();
+
+        if(!sd_card_async){
+            printf("SD logging: failed to enter async byte mode\n");
+            indicate_mistake_on_logger();
+            sd_card_initialized = 0;
+            return;
+        }
+        printf("SD logging: entered async BLACKBOX mode\n");
+    }
+    
+    // TXT
+    if(!use_blackbox_logging){
+        sd_card_async = sd_special_enter_async_string_mode();
+
+        if(!sd_card_async){
+            printf("SD logging: failed to enter async TXT mode\n");
+            indicate_mistake_on_logger();
+            sd_card_initialized = 0;
+            return;
+        }
+        printf("SD logging: entered async TXT mode\n");
+    }
+
+    indicate_sd_logging_ok();
+
+    if(use_blackbox_logging){
+        uint8_t* sd_card_buffer = sd_card_get_buffer_pointer(1);
         uint16_t betaflight_header_length = 0;
-        char* betaflight_header = betaflight_blackbox_wrapper_get_header(
+        betaflight_blackbox_wrapper_get_header(
             REFRESH_RATE_HZ,
             acro_roll_pitch_gain_p,
             acro_roll_pitch_gain_i,
@@ -1637,19 +1877,34 @@ void setup_logging_to_sd(uint8_t use_updated_file_name){
             angle_roll_pitch_gain_p,
             angle_roll_pitch_gain_i,
             angle_roll_pitch_gain_d,
-            180, // Yaw lowpass cutoff
+            filter_gyro_z_yaw_cutoff_frequency,
             25, // Integral windup
             21, // Gyro lowpass cutoff
             20, // Accelerometer lowpass cutoff
             dshot_refresh_rate,
             min_dshot600_throttle_value,
+            max_dshot600_throttle_value,
+            actual_min_dshot600_throttle_value,
             actual_max_dshot600_throttle_value,
-            &betaflight_header_length
+            d_term_filtering_expo,
+            rpm_notch_filter_q_harmonic_1,
+            rpm_notch_filter_min_frequency,
+            d_term_filtering_min_cutoff,
+            d_term_filtering_max_cutoff,
+            d_term_filtering_expo,
+            &betaflight_header_length,
+            sd_card_buffer,
+            10000
         );
-        HAL_Delay(100); // wait a bit for it to sort its shit out
-        sd_special_write_chunk_of_byte_data_no_slave_response(betaflight_header, betaflight_header_length);
-        free(betaflight_header);
-        HAL_Delay(500); // wait a bit for it to sort its shit out
+        
+        sd_card_buffer_increment_index_by_amount(betaflight_header_length);
+
+        sd_special_write_chunk_of_byte_data_no_slave_response(sd_card_get_buffer_pointer(1), betaflight_header_length);
+
+        sd_buffer_swap();
+        sd_buffer_clear_index(1); // Reset the index
+
+        HAL_Delay(1000); // wait a bit for the logger to write the data into SD
         printf("SD logging: sent blackbox header\n");
     }
 }
@@ -1664,6 +1919,9 @@ void handle_pre_loop_start(){
         }
     }
 
+    // Reset the timer
+    __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
+    __HAL_TIM_SET_COUNTER(&htim4, 0);
     startup_time_microseconds = get_absolute_time();
     entered_loop = 1;
 
@@ -1671,10 +1929,6 @@ void handle_pre_loop_start(){
     // TODO: Needs more testing for long term stability
     temperature = bmp280_get_temperature_celsius();
 
-
-    // Reset the timer
-    __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
-    __HAL_TIM_SET_COUNTER(&htim4, 0);
 }
 
 void handle_loop_start(){
@@ -1687,19 +1941,33 @@ uint64_t get_absolute_time(){
     return absolute_microseconds_since_start + __HAL_TIM_GET_COUNTER(&htim4);
 }
 
+#define MICROSECONDS_TO_HOURS (1.0f / 3600000000.0f) // The division is more efficient with multiplication
+#define HOURS_TO_MICROSECONDS (3600000000.0f)
+
+#define MICROSECONDS_TO_MINUTES (1.0f / 60000000.0f)
+#define MINUTES_TO_MICROSECONDS (60000000.0f)
+
+#define MICROSECONDS_TO_SECONDS (1.0f / 1000000.0f)
+#define SECONDS_TO_MICROSECONDS (1000000.0f)
+
+#define MICROSECONDS_TO_MILISECONDS (1.0f / 1000.0f)
+#define MILISECONDS_TO_MICROSECONDS (1000.0f)
+
 void handle_logging(){
-    delta_time = (get_absolute_time() - startup_time_microseconds)/1000; // Miliseconds
-    time_since_startup_hours = delta_time / 3600000;
-    time_since_startup_minutes = (delta_time - time_since_startup_hours * 3600000) / 60000;
-    time_since_startup_seconds = (delta_time - time_since_startup_hours * 3600000 - time_since_startup_minutes * 60000) / 1000;
-    time_since_startup_ms = delta_time - time_since_startup_hours * 3600000 - time_since_startup_minutes * 60000 - time_since_startup_seconds * 1000;
-    uint32_t time_blackbox = ((time_since_startup_hours * 60 + time_since_startup_minutes * 60) + time_since_startup_seconds) * 1000000 + time_since_startup_ms * 1000; 
+    delta_time = get_absolute_time() - startup_time_microseconds; // Microseconds
+    time_since_startup_hours =                  delta_time * MICROSECONDS_TO_HOURS;
+    time_since_startup_minutes =               (delta_time - time_since_startup_hours * HOURS_TO_MICROSECONDS) * MICROSECONDS_TO_MINUTES;
+    time_since_startup_seconds =               (delta_time - time_since_startup_hours * HOURS_TO_MICROSECONDS - time_since_startup_minutes * MINUTES_TO_MICROSECONDS) * MICROSECONDS_TO_SECONDS;
+    time_since_startup_ms =                    (delta_time - time_since_startup_hours * HOURS_TO_MICROSECONDS - time_since_startup_minutes * MINUTES_TO_MICROSECONDS - time_since_startup_seconds * SECONDS_TO_MICROSECONDS) * MICROSECONDS_TO_MILISECONDS;
+    time_since_startup_microseconds =           delta_time - time_since_startup_hours * HOURS_TO_MICROSECONDS - time_since_startup_minutes * MINUTES_TO_MICROSECONDS - time_since_startup_seconds * SECONDS_TO_MICROSECONDS - time_since_startup_ms * MILISECONDS_TO_MICROSECONDS;
+    uint32_t time_blackbox = ((time_since_startup_hours * 60 + time_since_startup_minutes * 60) + time_since_startup_seconds) * 1000000 + time_since_startup_ms * 1000 + time_since_startup_microseconds;
 
     if(sd_card_initialized){
         uint16_t data_size = 0;
 
         if(use_blackbox_logging){
-            char* sd_card_buffer = sd_card_get_buffer_pointer(1);
+            uint16_t data_size_data = 0;
+            uint8_t* sd_card_buffer = (uint8_t*)sd_card_get_buffer_pointer(1);
             betaflight_blackbox_get_encoded_data_string(
                 loop_iteration,
                 time_blackbox,
@@ -1713,31 +1981,30 @@ void handle_logging(){
                 acceleration_data,
                 motor_power,
                 magnetometer_data,
-                imu_orientation,
+                motor_frequency,
                 altitude,
-                &data_size,
+                &data_size_data,
                 sd_card_buffer
             );
             
             sd_card_buffer_increment_index_by_amount(data_size);
-
+            
+            uint16_t data_size_gps = 0;
             if(got_gps){
-                data_size = 0;
+                uint16_t data_size_gps = 0;
                 betaflight_blackbox_get_encoded_gps_string(
                     bn357_get_utc_time_raw(),
-                    bn357_get_satellites_quantity(),
+                    bn357_get_fix_quality(),
                     bn357_get_latitude_decimal_format(),
                     bn357_get_longitude_decimal_format(),
-                    bn357_get_altitude_meters(),
-                    0,
-                    0,
-                    &data_size, // it will append but not overwrite
-                    sd_card_buffer
+                    &data_size_gps, // it will append but not overwrite
+                    sd_card_buffer + sd_buffer_size(1) // Offset the buffer, to not overwrite the data
                 );
                 sd_card_buffer_increment_index_by_amount(data_size);
             }
-            data_size = sd_buffer_size(1);
+            data_size = data_size_data + data_size_gps;
         }else{
+            // TXT based logging
             // Log a bit of data
             // sd_card_append_to_buffer(1, "%02d:%02d:%02d:%03d;", time_since_startup_hours, time_since_startup_minutes, time_since_startup_seconds, time_since_startup_ms);
             // sd_card_append_to_buffer(1, "ACCEL,%.2f,%.2f,%.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
@@ -1761,10 +2028,22 @@ void handle_logging(){
             }else{
                 if(use_blackbox_logging){
                     logging2 = DWT->CYCCNT;
+                    
                     sd_special_write_chunk_of_byte_data_async(sd_card_get_buffer_pointer(1), data_size);
+                    // uint8_t * buffer_new = (uint8_t *)sd_card_get_buffer_pointer(1);
+                    // printf("%d write  ", data_size);
+                    // for (uint16_t i = 0; i < data_size; i++){
+                    //     printf("%02X ", buffer_new[i]);
+                    // }
+                    // printf("\n");
                     sd_buffer_swap();
                     sd_buffer_clear_index(1); // Reset the index
                     // sd_buffer_clear(1); 
+
+
+                    
+                    // printf("d%d\n", data_size);
+
                     logging3 = DWT->CYCCNT;
                 }else{
                     sd_special_write_chunk_of_string_data_async(sd_card_get_buffer_pointer(1));
@@ -1813,6 +2092,7 @@ void handle_loop_end(){
 
     // printf("b%.1f\n", (float)(__HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds)/1000.0);
     // printf("%.1f\n", (float)(__HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds)/1000.0);
+    // printf("%.2f\n", (float)(__HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds)/1000.0);
 
     // If the delta is less than the target keep looping
     while (precalculated_timing_miliseconds > (__HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds));
@@ -1821,7 +2101,6 @@ void handle_loop_end(){
     // If the timer overflew use the ticks instead
     if(__HAL_TIM_GET_FLAG(&htim4, TIM_FLAG_UPDATE)){
         absolute_microseconds_since_start = absolute_microseconds_since_start + ((HAL_GetTick() - loop_start_miliseconds) * 1000);
-
         // printf("a%lu\n", HAL_GetTick() - loop_start_miliseconds);
     }else{
         absolute_microseconds_since_start = absolute_microseconds_since_start + (__HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds);
@@ -1840,7 +2119,8 @@ void initialize_motor_communication(){
     motor_FR = bdshot600_dma_add_motor(GPIOB, GPIO_PIN_10, TIM2, TIM_CHANNEL_3, DMA1_Stream1, DMA_CHANNEL_3);
     motor_BL = bdshot600_dma_add_motor(GPIOA, GPIO_PIN_8,  TIM1, TIM_CHANNEL_1, DMA2_Stream1, DMA_CHANNEL_6);
     motor_BR = bdshot600_dma_add_motor(GPIOA, GPIO_PIN_11, TIM1, TIM_CHANNEL_4, DMA2_Stream4, DMA_CHANNEL_6);
-
+    bdshot600_dma_set_rotor_poles_amount(motor_rotor_poles);
+    bdshot600_dma_set_motor_timeout(50); // After 50 ms of no setting of throttle, the motor will stop, for safety
     bdshot600_dma_optimize_motor_calls();
 
 
@@ -1862,6 +2142,7 @@ void init_STM32_peripherals(){
 
     HAL_Delay(1);
     MX_DMA_Init(); // This has to be before the uart inits, otherwise dma interrupts dont work
+    I2C_Bus_Reset(GPIOB, GPIO_PIN_6, GPIOB, GPIO_PIN_7); // Check and reset the i2c slaves if they are fucked up after reflash or restart
     MX_I2C1_Init();
     MX_SPI1_Init();
     MX_SPI3_Init();
@@ -1908,9 +2189,9 @@ void get_initial_position(){
     invert_axies(acceleration_data);
     mpu6050_get_gyro_readings_dps(gyro_angular);
     invert_axies(gyro_angular);
-    magnetometer_data[0] = low_pass_filter_read(&filter_magnetometer_x, magnetometer_data[0]);
-    magnetometer_data[1] = low_pass_filter_read(&filter_magnetometer_y, magnetometer_data[1]);
-    magnetometer_data[2] = low_pass_filter_read(&filter_magnetometer_z, magnetometer_data[2]);
+    magnetometer_data[0] = low_pass_filter_pt1_read(&filter_magnetometer_x, magnetometer_data[0]);
+    magnetometer_data[1] = low_pass_filter_pt1_read(&filter_magnetometer_y, magnetometer_data[1]);
+    magnetometer_data[2] = low_pass_filter_pt1_read(&filter_magnetometer_z, magnetometer_data[2]);
 
     calculate_roll_pitch_from_accelerometer_data(acceleration_data, &accelerometer_roll, &accelerometer_pitch, accelerometer_roll_offset, accelerometer_pitch_offset);
     calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw, accelerometer_roll, accelerometer_pitch, yaw_offset);
@@ -1930,11 +2211,11 @@ void get_initial_position(){
 uint16_t setServoActivationPercent(float percent, uint16_t minValue, uint16_t maxValue){
     // Kind of annoying having these if statements
     if(percent > 100.0){
-        percent = 100.0;
+        percent = 100.0f;
     }else if(percent < 0.0){
         percent = 0.0;
     }
-    return (percent / 100.0) * (maxValue - minValue) + minValue;
+    return (percent / 100.0f) * (maxValue - minValue) + minValue;
 }
 
 float mapValue(float value, float input_min, float input_max, float output_min, float output_max) {
@@ -2159,19 +2440,10 @@ void extract_flight_mode(char *request, uint8_t request_size, uint8_t *new_fligh
 // Map value from a specified range to a new range
 float map_value(float value, float input_min, float input_max, float output_min, float output_max) {
     // Calculate the input and output ranges' lengths
-    float input_range = input_max - input_min;
-    float output_range = output_max - output_min;
-
     // Normalize the input value relative to the input range
-    float normalized_value = (value - input_min) / input_range;
-
     // Scale the normalized value according to the output range
-    float scaled_value = normalized_value * output_range;
-
     // Add the output range's minimum value to the scaled value
-    float output_value = output_min + scaled_value;
-
-    return output_value;
+    return output_min + (((value - input_min) / (input_max - input_min)) * (output_max - output_min));
 }
 
 // Apply a dead zone to a value 
@@ -2305,11 +2577,11 @@ void invert_axies(float *data){
 }
 
 float sawtooth_sin(float x_radian){
-    return 2.0f * (x_radian/M_PI - floorf(x_radian/M_PI + 0.5f));
+    return 2.0f * (x_radian*M_DIVIDE_BY_PI - floorf(x_radian*M_DIVIDE_BY_PI + 0.5f));
 }
 
 float sawtooth_cos(float x_radian){
-    return 2.0f * ((x_radian + M_HALF_PI)/ M_PI - floorf(x_radian/M_PI + 0.5f));
+    return 2.0f * ((x_radian + M_HALF_PI)*M_DIVIDE_BY_PI - floorf(x_radian*M_DIVIDE_BY_PI + 0.5f));
 }
 
 float triangle_wave(float x) {
@@ -2317,16 +2589,12 @@ float triangle_wave(float x) {
     x = fmodf(x, M_PI_2);
     
     // Scale the normalized x to the range [0, 4]
-    float scaled_x = x / (M_HALF_PI);
+    float scaled_x = x  * M_DIVIDE_BY_HALF_PI;
     
     // Triangle wave calculation
-    if (scaled_x < 1.0f) {
-        return scaled_x;
-    } else if (scaled_x < 3.0f) {
-        return 2.0f - scaled_x;
-    } else {
-        return scaled_x - 4.0f;
-    }
+    if (scaled_x < 1.0f) return scaled_x;
+    else if (scaled_x < 3.0f) return 2.0f - scaled_x;
+    else return scaled_x - 4.0f;
 }
 
 float triangle_sin(float x){
@@ -2337,7 +2605,18 @@ float triangle_cos(float x){
     return triangle_wave(x + M_HALF_PI);
 }
 
+float map_value_to_expo_range(float value, float min_expo, float max_expo, uint8_t expo_curve){
+    // Assuming value is from 0 to 100
+    // Will divide value by 100 to get a value from 0 to 1
+    return min_expo + powf(value* 0.01, expo_curve) * (max_expo - min_expo);
+}
 
+float map_value_to_expo_range_inverted(float value, float min_expo, float max_expo, uint8_t expo_curve){
+    // Assuming value is from 0 to 100
+    // Will divide value by 100 to get a value from 0 to 1
+    // Some extra logic in needed to invert it.
+    return min_expo + (1.0f - powf(1.0f - (value* 0.01), expo_curve)) * (max_expo - min_expo);
+}
 
 
 
@@ -2418,7 +2697,7 @@ static void MX_I2C1_Init(void)
 
   /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
-  hi2c1.Init.ClockSpeed = 800000; // Max i tested was 1600000 and everything worked. But i am afraid to run it that high
+  hi2c1.Init.ClockSpeed = 1000000; // Max i tested was 1600000 and everything worked. But i am afraid to run it that high
   hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
   hi2c1.Init.OwnAddress1 = 0;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
@@ -2497,7 +2776,7 @@ static void MX_SPI3_Init(void)
   hspi3.Init.CLKPolarity = SPI_POLARITY_HIGH;
   hspi3.Init.CLKPhase = SPI_PHASE_2EDGE;
   hspi3.Init.NSS = SPI_NSS_SOFT;
-  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_128;
+  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_64; // Max possible with DMA slave
   hspi3.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi3.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi3.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;

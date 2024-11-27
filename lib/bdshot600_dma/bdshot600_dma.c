@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include "../utils/math_constants.h"
 
 // Inspired sources:
 // A good guide on dshot600 protocol: https://brushlesswhoop.com/dshot-and-bidirectional-dshot/
@@ -10,6 +11,8 @@
 // A not so good implementation of bdshot600 but still gives clues: https://github.com/bird-sanctuary/arduino-bi-directional-dshot
 // A decent explanation of return signal on bdshot600: https://github.com/cinderblock/AVR/blob/master/AVR%2B%2B/BDShot.cpp
 
+#define one_bit_cycles 125 // 125 is a good number between 117 and 134
+#define one_bit_cycles_half 63 // for rounding
 #define BDSHOT600_DMA_AMOUNT_OF_MOTORS 4                                                                                                        // How many motors can this library handle. Can be any number really, but it cost memory to allocate all those arrays
 #define BDSHOT600_DMA_CAPTURE_COMPARE_CYCLES_SIZE 20                                                                                            // How many rounds of capture to do for the response
 #define BDSHOT600_DMA_CAPTURE_COMPARE_CYCLES_SIZE_DMA 20                                                                                        // It is good to have a second buffer to double buffer the data 
@@ -35,6 +38,14 @@ volatile uint8_t bdshot600_dma_busy_flag = 0;                                   
 volatile uint8_t bdshot600_dma_conversion_finished = 0;                                                                                         // To know if the data conversion has been already completed and no new data arrived
 uint8_t bdshot600_dma_remapped_motor_indexes[BDSHOT600_DMA_AMOUNT_OF_MOTORS];                                                                   // Recalculated motor indexes to use same timers in a row
 uint8_t bdshot600_dma_motor_indexes_were_remapped = 0;                                                                                          // Lets the driver know if the optimization of motor calls was performed and if optimized motor indexes are available
+
+uint8_t bdshot600_dma_number_of_rotor_pole_pairs = 0;
+float bdshot600_dma_number_of_rotor_pole_pairs_division_precalculated = 0;
+
+uint32_t last_time_throttle_was_set_ms = 0;
+uint32_t throttle_set_timeout_ms = 0;
+
+
 
 // Reverse GCR mapping table
 const uint8_t bdshot600_dma_reverse_gcr_map[32] = {
@@ -72,8 +83,16 @@ const uint8_t bdshot600_dma_reverse_gcr_map[32] = {
     0, // 1F
 };
 
+uint32_t timings[20];
+
 // Initialize all the peripherals the motor needs to function
 int8_t bdshot600_dma_add_motor(GPIO_TypeDef* motor_port, uint16_t motor_pin, TIM_TypeDef* timer_id, uint32_t timer_channel_id, DMA_Stream_TypeDef *dma_instance_stream, uint32_t dma_channel){
+
+    memset(
+        timings, 
+        0, 
+        20 * sizeof(uint8_t)
+    );
 
     // Check if the motor limit is reached
     if (bdshot600_dma_motor_list_size >= BDSHOT600_DMA_AMOUNT_OF_MOTORS) {
@@ -229,6 +248,24 @@ int8_t bdshot600_dma_add_motor(GPIO_TypeDef* motor_port, uint16_t motor_pin, TIM
     return bdshot600_dma_motor_list_size-1;
 }
 
+uint8_t  bdshot600_dma_set_rotor_poles_amount(uint8_t rotor_poles){
+    // check if number is odd and if it is quit
+    if(rotor_poles % 2){
+        printf("bdshot600_set_rotor_poles_amount - rotor poles amount is odd, it should be even");
+        return 0;
+    }
+    bdshot600_dma_number_of_rotor_pole_pairs = rotor_poles / 2; // Pairs so we half them
+
+    bdshot600_dma_number_of_rotor_pole_pairs_division_precalculated = 1.0f / bdshot600_dma_number_of_rotor_pole_pairs;
+
+    return 1;
+}
+
+// Safety feature. If a throttle value is not updated for this amount of miliseconds the motors will stop getting data. Useful in case the main loop lags really hard and there is an interrupt that wants to keep the motors spinning.
+void bdshot600_dma_set_motor_timeout(uint16_t miliseconds){
+    throttle_set_timeout_ms = miliseconds;
+}
+
 // Call this after all motors are added. Optimizes the usage of the motor pins to use the same timer multiple times in a row
 void bdshot600_dma_optimize_motor_calls(){
     uint8_t new_list_index = 0;
@@ -283,29 +320,37 @@ void bdshot600_dma_optimize_motor_calls(){
 }
 
 // Computes the packet for sending it to motor. Can be used for commands also
-void bdshot600_dma_set_throttle(uint16_t throttle, uint8_t motor_index_temp){
+void bdshot600_dma_set_throttle(uint16_t throttle, uint8_t motor_index){
+    uint16_t * motor_packet_pointer = &bdshot600_dma_motor_data_packet[motor_index];
+
     // Reset the value
-    bdshot600_dma_motor_data_packet[motor_index_temp] = 0;
+    *motor_packet_pointer = 0;
 
     // Put the throttle info into the packet. Shift it for the telemetry bit
-    bdshot600_dma_motor_data_packet[motor_index_temp] = throttle << 1; 
-    if(throttle < 48 && throttle > 0) bdshot600_dma_motor_data_packet[motor_index_temp] |= 1;
+    *motor_packet_pointer = throttle << 1; 
+    if(throttle < 48 && throttle > 0) *motor_packet_pointer |= 1;
 
     // Calculate the 4 bit crc and then invert it, then add it to the packet
-    uint8_t crc = (~(bdshot600_dma_motor_data_packet[motor_index_temp] ^ (bdshot600_dma_motor_data_packet[motor_index_temp] >> 4) ^ (bdshot600_dma_motor_data_packet[motor_index_temp] >> 8))) & 0x0F;
-    bdshot600_dma_motor_data_packet[motor_index_temp] = (bdshot600_dma_motor_data_packet[motor_index_temp] << 4) | crc;
+    uint8_t crc = (~(*motor_packet_pointer ^ (*motor_packet_pointer >> 4) ^ (*motor_packet_pointer >> 8))) & 0x0F;
+    *motor_packet_pointer = (*motor_packet_pointer << 4) | crc;
+
+    last_time_throttle_was_set_ms = HAL_GetTick();
 }
 
 // Send throttle that was set to all motors
 // Has to be called at 500Hz or more otherwise the motor wont do anything
 void bdshot600_dma_send_all_motor_data(){
+
+    // Safety check for stale throttle data
+    if(throttle_set_timeout_ms != 0 && HAL_GetTick() - last_time_throttle_was_set_ms > throttle_set_timeout_ms){
+        return;
+    }
+
     // Set as busy so reading from the data arrays does not happen by the main loop
     bdshot600_dma_busy_flag = 1;
     bdshot600_dma_conversion_finished = 0;
     for (uint8_t i = 0; i < bdshot600_dma_motor_list_size; i++){
-        uint8_t motor_index;
-        if(bdshot600_dma_motor_indexes_were_remapped) motor_index = bdshot600_dma_remapped_motor_indexes[i];
-        else motor_index = i;
+        uint8_t motor_index = bdshot600_dma_motor_indexes_were_remapped * bdshot600_dma_remapped_motor_indexes[i] + i - (bdshot600_dma_motor_indexes_were_remapped * i);
 
         bdshot600_dma_send_command(motor_index);
     }
@@ -375,26 +420,32 @@ void bdshot600_dma_send_command(uint8_t motor_index){
     GPIO_TypeDef* port = bdshot600_dma_motor_ports[motor_index];
     uint32_t gpio_bsrr_addr = (uint32_t)&(port->BSRR); // Use the register of the port 
     GPIO_InitTypeDef GPIO_InitStruct = {0};
+    TIM_HandleTypeDef* timer = &bdshot600_dma_timer[motor_index];
+    uint32_t timer_channel = bdshot600_dma_timer_channel_id[motor_index];
+    DMA_HandleTypeDef* dma = &bdshot600_dma_handle[motor_index];
+    uint16_t * motor_response_clock_cycles_dma = bdshot600_dma_motor_response_clock_cycles_dma[motor_index];
+    uint8_t pin_alternate = bdshot600_dma_motor_input_pin_alternate_mode[motor_index];
+    uint8_t timer_reset = bdshot600_dma_timer_reset[motor_index];
 
     // Stop the dma if it did not complete 
-    if(bdshot600_dma_motor_dma_status[motor_index] == 1 && __HAL_DMA_GET_TC_FLAG_INDEX(&bdshot600_dma_handle[motor_index]) != SET){
-        new_HAL_TIM_IC_Stop_DMA(&bdshot600_dma_timer[motor_index], bdshot600_dma_timer_channel_id[motor_index]);
+    if(bdshot600_dma_motor_dma_status[motor_index] == 1 && __HAL_DMA_GET_TC_FLAG_INDEX(dma) != SET){
+        new_HAL_TIM_IC_Stop_DMA(timer, timer_channel);
     }
     // Has to be stopped at this point
     bdshot600_dma_motor_dma_status[motor_index] = 0;
 
     // Set as output
-    GPIO_InitStruct.Pin = bdshot600_dma_motor_pins[motor_index];
+    GPIO_InitStruct.Pin = pin_mask;
     GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-    HAL_GPIO_Init(bdshot600_dma_motor_ports[motor_index], &GPIO_InitStruct);
-    HAL_GPIO_WritePin(bdshot600_dma_motor_ports[motor_index], bdshot600_dma_motor_pins[motor_index], 1);
+    HAL_GPIO_Init(port, &GPIO_InitStruct);
+    HAL_GPIO_WritePin(port, pin_mask, 1);
 
     // Set all array indexes to 0
     memset(
-        bdshot600_dma_motor_response_clock_cycles_dma[motor_index], 
-        0, 
+        motor_response_clock_cycles_dma,
+        0,
         BDSHOT600_DMA_CAPTURE_COMPARE_CYCLES_SIZE_DMA * sizeof(uint16_t)
     );
 
@@ -454,36 +505,36 @@ void bdshot600_dma_send_command(uint8_t motor_index){
     );
 
     // Make the pin a input capture compare pin
-    GPIO_InitStruct.Pin = bdshot600_dma_motor_pins[motor_index];
+    GPIO_InitStruct.Pin = pin_mask;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_PULLUP;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-    GPIO_InitStruct.Alternate = bdshot600_dma_motor_input_pin_alternate_mode[motor_index];
-    HAL_GPIO_Init(bdshot600_dma_motor_ports[motor_index], &GPIO_InitStruct);
+    GPIO_InitStruct.Alternate = pin_alternate;
+    HAL_GPIO_Init(port, &GPIO_InitStruct);
 
     // Reset the counter and everything about the timer. Only if needed for this motor
-    if(bdshot600_dma_timer_reset[motor_index]){
-        __HAL_TIM_DISABLE(&bdshot600_dma_timer[motor_index]); // Disable timer just in case
-        __HAL_TIM_SET_COUNTER(&bdshot600_dma_timer[motor_index], 0); // Reset the timer counter to zero
-        __HAL_TIM_CLEAR_FLAG(&bdshot600_dma_timer[motor_index], TIM_FLAG_UPDATE); // Clear counter overflow flag
+    if(timer_reset){
+        __HAL_TIM_DISABLE(timer); // Disable timer just in case
+        __HAL_TIM_SET_COUNTER(timer, 0); // Reset the timer counter to zero
+        __HAL_TIM_CLEAR_FLAG(timer, TIM_FLAG_UPDATE); // Clear counter overflow flag
 
         // Clear capture compare interrupt flag
-        if(bdshot600_dma_timer_channel_id[motor_index] == TIM_CHANNEL_1) __HAL_TIM_CLEAR_FLAG(&bdshot600_dma_timer[motor_index], TIM_FLAG_CC1);
-        else if(bdshot600_dma_timer_channel_id[motor_index] == TIM_CHANNEL_2) __HAL_TIM_CLEAR_FLAG(&bdshot600_dma_timer[motor_index], TIM_FLAG_CC2);
-        else if(bdshot600_dma_timer_channel_id[motor_index] == TIM_CHANNEL_3) __HAL_TIM_CLEAR_FLAG(&bdshot600_dma_timer[motor_index], TIM_FLAG_CC3);
-        else if(bdshot600_dma_timer_channel_id[motor_index] == TIM_CHANNEL_4) __HAL_TIM_CLEAR_FLAG(&bdshot600_dma_timer[motor_index], TIM_FLAG_CC4);
+        if(timer_channel == TIM_CHANNEL_1) __HAL_TIM_CLEAR_FLAG(timer, TIM_FLAG_CC1);
+        else if(timer_channel == TIM_CHANNEL_2) __HAL_TIM_CLEAR_FLAG(timer, TIM_FLAG_CC2);
+        else if(timer_channel == TIM_CHANNEL_3) __HAL_TIM_CLEAR_FLAG(timer, TIM_FLAG_CC3);
+        else if(timer_channel == TIM_CHANNEL_4) __HAL_TIM_CLEAR_FLAG(timer, TIM_FLAG_CC4);
     }
 
     // Start the dma timer
     HAL_StatusTypeDef start_response = HAL_TIM_IC_Start_DMA(
-        &bdshot600_dma_timer[motor_index], 
-        bdshot600_dma_timer_channel_id[motor_index],
-        bdshot600_dma_motor_response_clock_cycles_dma[motor_index], 
+        timer,
+        timer_channel,
+        motor_response_clock_cycles_dma,
         BDSHOT600_DMA_CAPTURE_COMPARE_CYCLES_SIZE_DMA
     );
     
     if (start_response != HAL_OK) {
-        printf("bdshot600_dma dma failed to start, motor-%d, code-%d\n", motor_index, start_response);
+        // printf("bdshot600_dma dma failed to start, motor-%d, code-%d\n", motor_index, start_response);
         bdshot600_dma_motor_dma_status[motor_index] = 0;
     }else{
         bdshot600_dma_motor_dma_status[motor_index] = 1;
@@ -516,41 +567,38 @@ void bdshot600_dma_send_command(uint8_t motor_index){
 
 // Convert all responses from motors to period, frequency and rpm
 uint8_t bdshot600_dma_convert_all_responses(uint8_t wait_for_data){
+    timings[0] = DWT->CYCCNT;
     uint8_t error = 0;
     // Check if this data has already been converted
-    if(!bdshot600_dma_conversion_finished){
+    if(bdshot600_dma_conversion_finished) return 1;
 
-        // Split into multiple loops for speed
+    // Get the data to then other array
+    timings[2] = DWT->CYCCNT;
+    for (uint8_t i = 0; i < bdshot600_dma_motor_list_size; i++){ 
+        // branchless
+        uint8_t motor_index = bdshot600_dma_motor_indexes_were_remapped * bdshot600_dma_remapped_motor_indexes[i] + i - (bdshot600_dma_motor_indexes_were_remapped * i);
 
-        // Get the data to then other array
-        for (uint8_t i = 0; i < bdshot600_dma_motor_list_size; i++){ 
-            uint8_t motor_index;
+        // Wait for the timer overflow flag as that tell us that the timers job is finished
+        while(wait_for_data && !(bdshot600_dma_timer[motor_index].Instance->SR & TIM_FLAG_UPDATE));
 
-            if(bdshot600_dma_motor_indexes_were_remapped) motor_index = bdshot600_dma_remapped_motor_indexes[i];
-            else motor_index = i;
-
-            // Wait for the timer overflow flag as that tell us that the timers job is finished
-            while(wait_for_data && !(bdshot600_dma_timer[motor_index].Instance->SR & TIM_FLAG_UPDATE));
-
-            // Copy the data as fast as possible to the other array
-            memcpy(
-                bdshot600_dma_motor_response_clock_cycles[motor_index], 
-                bdshot600_dma_motor_response_clock_cycles_dma[motor_index], 
-                BDSHOT600_DMA_CAPTURE_COMPARE_CYCLES_SIZE_DMA * sizeof(uint16_t)
-            );
-        }
-
-        // Convert the data
-        for (uint8_t i = 0; i < bdshot600_dma_motor_list_size; i++){ 
-            uint8_t motor_index;
-
-            if(bdshot600_dma_motor_indexes_were_remapped) motor_index = bdshot600_dma_remapped_motor_indexes[i];
-            else motor_index = i;
-
-            // Convert the data into actual input capture compare and then try to to convert the data
-            if (!bdshot600_dma_prepare_response(motor_index) || !bdshot600_dma_convert_response_to_data(motor_index)) error = 1;
-        }
+        // Copy the data as fast as possible to the other array
+        memcpy(
+            bdshot600_dma_motor_response_clock_cycles[motor_index], 
+            bdshot600_dma_motor_response_clock_cycles_dma[motor_index], 
+            BDSHOT600_DMA_CAPTURE_COMPARE_CYCLES_SIZE_DMA * sizeof(uint16_t)
+        );
     }
+    timings[3] = DWT->CYCCNT;
+
+
+    // Convert the data
+    for (uint8_t i = 0; i < bdshot600_dma_motor_list_size; i++){ 
+        uint8_t motor_index = bdshot600_dma_motor_indexes_were_remapped * bdshot600_dma_remapped_motor_indexes[i] + i - (bdshot600_dma_motor_indexes_were_remapped * i);
+
+        // Convert the data into actual input capture compare and then try to to convert the data
+        if (!bdshot600_dma_prepare_response(motor_index) || !bdshot600_dma_convert_response_to_data(motor_index)) error = 1;
+    }
+    timings[4] = DWT->CYCCNT;
 
     // Debug
     // for (uint8_t i = 0; i < bdshot600_dma_motor_list_size; i++){
@@ -571,43 +619,54 @@ uint8_t bdshot600_dma_convert_all_responses(uint8_t wait_for_data){
 
 // Run before convert to data. This will convert the dma responses to normal responses as delta clock cycles
 uint8_t  bdshot600_dma_prepare_response(uint8_t motor_index){
+    timings[5] = DWT->CYCCNT;
+    uint16_t * motor_response_clock_cycles = bdshot600_dma_motor_response_clock_cycles[motor_index];
+
     uint8_t values_modified = 0;
     // Iterate over all array indexes except last one
     for(uint8_t i = 0; i < BDSHOT600_DMA_CAPTURE_COMPARE_CYCLES_SIZE-1; i++) {
         
         // if no data is set on the next index then quit
-        if(bdshot600_dma_motor_response_clock_cycles[motor_index][i+1] == 0) break;
+        if(motor_response_clock_cycles[i+1] == 0) break;
 
         // Check if the next value is lower than this one. Indicates that the timer counter overflew.
-        if(bdshot600_dma_motor_response_clock_cycles[motor_index][i+1] - bdshot600_dma_motor_response_clock_cycles[motor_index][i] < 0 ){
+        if(motor_response_clock_cycles[i+1] - motor_response_clock_cycles[i] < 0 ){
             printf("bdshot600_dma - Timer period needs to be adjusted\n");
             return 0;
         }
 
         // Delta between these values
-        bdshot600_dma_motor_response_clock_cycles[motor_index][i] = bdshot600_dma_motor_response_clock_cycles[motor_index][i+1] - bdshot600_dma_motor_response_clock_cycles[motor_index][i];
+        motor_response_clock_cycles[i] = motor_response_clock_cycles[i+1] - motor_response_clock_cycles[i];
         values_modified++;
     }
 
     // Set remaining to zero
     memset(
-        bdshot600_dma_motor_response_clock_cycles[motor_index] + values_modified,
+        motor_response_clock_cycles + values_modified,
         0,
         BDSHOT600_DMA_CAPTURE_COMPARE_CYCLES_SIZE-values_modified
     );
+
+    timings[6] = DWT->CYCCNT;
 
     return 1;
 }
 
 // This is a separate function form the interrupt to keep the interrupt as short as possible
 uint8_t bdshot600_dma_convert_response_to_data(uint8_t motor_index){
+    uint16_t* motor_period_us = &bdshot600_dma_motor_period_us[motor_index];
+    float* motor_frequency = &bdshot600_dma_motor_frequency[motor_index];
+    float* motor_rpm = &bdshot600_dma_motor_rpm[motor_index];
+    uint16_t* motor_response_clock_cycles = bdshot600_dma_motor_response_clock_cycles[motor_index];
+
+    timings[7] = DWT->CYCCNT;
+
     // Check if any clock cycles captured
-    if(bdshot600_dma_motor_response_clock_cycles[motor_index][0] == 0){
+    if(motor_response_clock_cycles[0] == 0){
         // printf("First index is 0\n");
-        bdshot600_dma_motor_period_us[motor_index] = 0;
-        bdshot600_dma_motor_period_us[motor_index] = 0.0f;
-        bdshot600_dma_motor_frequency[motor_index] = 0.0f;
-        bdshot600_dma_motor_rpm[motor_index] = 0.0f;
+        *motor_period_us = 0;
+        *motor_frequency = 0.0f;
+        *motor_rpm = 0.0f;
         return 0;
     }
 
@@ -615,28 +674,36 @@ uint8_t bdshot600_dma_convert_response_to_data(uint8_t motor_index){
     uint8_t bit_amount = 0;
     // The first bit will always be a zero and that one is not even shown so first bit is actually 1
     uint8_t bit_value = 0; // Keep track of what bit value we are counting right now
-    volatile uint32_t response_in_bits = 0;
+    uint32_t response_in_bits = 0;
+    timings[8] = DWT->CYCCNT;
+
 
     // Loop over the clock cycles amounts and see how many bits in length each block of these cycles is
     for (uint8_t i = 0; i < BDSHOT600_DMA_CAPTURE_COMPARE_CYCLES_SIZE; i++){
         // If the clock cycle value is 0 at any point, break the loop
-        if(bdshot600_dma_motor_response_clock_cycles[motor_index][i] == 0) break;
-
+        if(motor_response_clock_cycles[i] == 0) break;
 
         // Rounding to nearest integer is important here. Default integer rounding down is not good.
-        uint8_t number_of_bits_in_this_clock_cycle_capture = (uint8_t)round((float)bdshot600_dma_motor_response_clock_cycles[motor_index][i]/125.0); // 125 is a good number between 117 and 134
+        timings[15] = DWT->CYCCNT;
+
+        uint16_t number_of_bits_in_this_clock_cycle_capture = (motor_response_clock_cycles[i]+one_bit_cycles_half)/one_bit_cycles;
+
+        timings[16] = DWT->CYCCNT;
 
         // Place the number of bits in the response
-        for (size_t j = 0; j < number_of_bits_in_this_clock_cycle_capture; j++){
+        for (uint16_t j = 0; j < number_of_bits_in_this_clock_cycle_capture; j++){
             // Shift it to the left by one bit
             response_in_bits <<= 1;
             response_in_bits |= bit_value;
             bit_amount++;
         }
+        timings[17] = DWT->CYCCNT;
 
         // If this one was 0 then next one will be 1
         bit_value ^= 1; // Flip the LSB from 0 to 1 and vice versa
     }
+
+    timings[9] = DWT->CYCCNT;
 
     // The edge detection using input capture compare does not capture the very last bits
     // Make a good assumption on them instead
@@ -647,7 +714,7 @@ uint8_t bdshot600_dma_convert_response_to_data(uint8_t motor_index){
             response_in_bits |= bit_value;
         }
     }
-
+    timings[10] = DWT->CYCCNT;
     // -------------------------------------------------------------------Result of getting the bits from the signal
     // 235 133 126 118 239 126 117 122 231 125 118 122 121 126 353 for 100Mhz
     // 179 97 92 91 179 91 92 100 170 91 100 94 89 91 265 0 0 0 0 0  for 75Mhz
@@ -657,7 +724,6 @@ uint8_t bdshot600_dma_convert_response_to_data(uint8_t motor_index){
 
 
     response_in_bits = (response_in_bits ^ (response_in_bits >> 1));
-
     // -------------------------------------------------------------------Result of mapping the value from 21bits to 20bits
     // 00101 00101001 01010001
     // becomes
@@ -685,7 +751,8 @@ uint8_t bdshot600_dma_convert_response_to_data(uint8_t motor_index){
         (a_16bit_nibble_2 << 8) | 
         (a_16bit_nibble_3 << 4) | 
         a_16bit_nibble_4;
-    
+    timings[11] = DWT->CYCCNT;
+
     // -------------------------------------------------------------------Result of converting the GCR to 16 bit data
     // 0111 10111101 11111001
     // becomes
@@ -706,33 +773,40 @@ uint8_t bdshot600_dma_convert_response_to_data(uint8_t motor_index){
     // Calculate the new crc
     // The calculated crc is inverted. All the guides said not, but I found that it is indeed inverted.
     uint8_t calculated_crc = (~(payload_16bit_only_exponent_and_payload ^ (payload_16bit_only_exponent_and_payload >> 4) ^ (payload_16bit_only_exponent_and_payload >> 8))) & 0x0F;
+    timings[12] = DWT->CYCCNT;
 
     // Compare if the crc's are equal
     // If they are not equal, do not continue
     if(calculated_crc != payload_16bit_only_crc){
 
         // For debugging 
-        // printf("Failed CRC \n");
-        // for (int i = 3; i >= 0; i--) printf("%u", (calculated_crc >> i) & 1); 
-        // printf(" != ");
-        // for (int i = 3; i >= 0; i--) printf("%u", (payload_16bit_only_crc >> i) & 1); 
-        // printf("\n");
+        printf("Failed CRC \n");
+        for (int i = 3; i >= 0; i--) printf("%u", (calculated_crc >> i) & 1); 
+        printf(" != ");
+        for (int i = 3; i >= 0; i--) printf("%u", (payload_16bit_only_crc >> i) & 1); 
+        printf("\n");
 
         // Return 0 to indicate that something wrong happened
-        bdshot600_dma_motor_period_us[motor_index] = 0;
-        bdshot600_dma_motor_period_us[motor_index] = 0.0f;
-        bdshot600_dma_motor_frequency[motor_index] = 0.0f;
-        bdshot600_dma_motor_rpm[motor_index] = 0.0f;
+        *motor_period_us = 0;
+        *motor_frequency = 0.0f;
+        *motor_rpm = 0.0f;
         return 0;
     }
+    timings[13] = DWT->CYCCNT;
 
     // Get the period in us, frequency and rpm
-    bdshot600_dma_motor_period_us[motor_index] = payload_16bit_only_payload << payload_16bit_only_exponent; // payload is 9 bits and the exponent can move it 7 bits to the left making it a 16 bit value at max
+    *motor_period_us = payload_16bit_only_payload << payload_16bit_only_exponent; // payload is 9 bits and the exponent can move it 7 bits to the left making it a 16 bit value at max
+    
     // This value occurs when throttle is 0
-    if(bdshot600_dma_motor_period_us[motor_index] == 65408) bdshot600_dma_motor_frequency[motor_index] = 0;
-    else bdshot600_dma_motor_frequency[motor_index] = 1.0/((float)bdshot600_dma_motor_period_us[motor_index]/1000000.0);
-    bdshot600_dma_motor_rpm[motor_index] = 60 * bdshot600_dma_motor_frequency[motor_index];
+    if(*motor_period_us == 65408){
+        *motor_frequency  = 0;
+    }else{
+        // frequency has to be divided by motor pole pairs to get the actual mechanical frequency
+        *motor_frequency  = (1.0/((float)*motor_period_us * MICROSECONDS_TO_SECONDS)) * bdshot600_dma_number_of_rotor_pole_pairs_division_precalculated; // Multiply by fraction as it is more efficient
+    }
 
+    *motor_rpm = 60 * *motor_frequency ;
+    timings[14] = DWT->CYCCNT;
     return 1;
 }
 
@@ -755,6 +829,11 @@ float bdshot600_dma_get_rpm(uint8_t motor_index){
 DMA_HandleTypeDef* bdshot600_dma_get_dma_handle(uint8_t motor_index){
     return &bdshot600_dma_handle[motor_index];
 }
+
+uint32_t * bdshot600_dma_get_timings(){
+    return timings;
+}
+
 
 // ----------------------------------------------------------------------------------------- Example use of driver
 // float motor_frequency[] = {0.0, 0.0, 0.0, 0.0};

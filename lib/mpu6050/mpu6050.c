@@ -1,6 +1,6 @@
 #include "./mpu6050.h"
 
-#include "../second_order_coplementary_filter/second_order_coplementary_filter.h"
+#include "../complementary_filter/complementary_filter.h"
 #include "../utils/math_constants.h"
 
 #define MPU6050 (0b1101000 << 1)
@@ -16,6 +16,10 @@
 #define REG_ACCEL_CONFIG 0x1C
 #define REG_GYRO_CONFIG 0x1B
 #define REG_CONFIG 0x1A
+
+
+#define GYRO_VALUE_ACCURACY (1.0f / 131.0f)
+#define ACCELEROMETER_VALUE_ACCURACY (1.0f / 16384.0f)
 
 enum t_mpu6050_power_management {
     PWR_RESET    = 0b10000000,
@@ -47,9 +51,6 @@ volatile float m_complementary_ratio = 0.0;
 
 I2C_HandleTypeDef *i2c_handle;
 
-struct second_order_complementary_filter pitch_2_complementary;
-struct second_order_complementary_filter roll_2_complementary;
-struct second_order_complementary_filter yaw_2_complementary;
 // enum t_mpu6050_accel_config accelerometer_range, enum t_mpu6050_gyro_config gyro_range, enum t_mpu6050_low_pass_filter low_pass_setting
 uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, enum t_mpu6050_accel_config accelerometer_range, enum t_mpu6050_gyro_config gyro_range, enum t_mpu6050_low_pass_filter low_pass_setting, uint8_t apply_calibration, float accelerometer_scale_factor_correction[3][3], float accelerometer_correction[3], float gyro_correction[3], float refresh_rate_hz, float complementary_ratio, float complementary_beta){
     i2c_handle = i2c_handle_temp;
@@ -163,9 +164,10 @@ uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, enum t_mpu6050_accel_co
         5
     );
 
-    pitch_2_complementary = init_second_order_coplementary_filter(complementary_ratio, complementary_beta);
-    roll_2_complementary = init_second_order_coplementary_filter(complementary_ratio, complementary_beta);
-    yaw_2_complementary = init_second_order_coplementary_filter(0.05, complementary_beta);
+    m_complementary_ratio = complementary_ratio;
+    // pitch_2_complementary = init_second_order_coplementary_filter(complementary_ratio, complementary_beta);
+    // roll_2_complementary = init_second_order_coplementary_filter(complementary_ratio, complementary_beta);
+    // yaw_2_complementary = init_second_order_coplementary_filter(0.05, complementary_beta);
 
     printf("MPU6050 initialized\n");
     return 1;
@@ -188,9 +190,9 @@ void mpu6050_get_accelerometer_readings_gravity(float *data){
     int16_t Y = ((int16_t)retrieved_data[2] << 8) | (int16_t)retrieved_data[3];
     int16_t Z = ((int16_t)retrieved_data[4] << 8) | (int16_t)retrieved_data[5];
 
-    float X_out = ((float)X) / 16384.0;
-    float Y_out = ((float)Y) / 16384.0;
-    float Z_out = ((float)Z) / 16384.0;
+    float X_out = (float)X * ACCELEROMETER_VALUE_ACCURACY;
+    float Y_out = (float)Y * ACCELEROMETER_VALUE_ACCURACY;
+    float Z_out = (float)Z * ACCELEROMETER_VALUE_ACCURACY;
 
     data[0] = X_out - (m_accelerometer_correction[0]);
     data[1] = Y_out - (m_accelerometer_correction[1]);
@@ -220,9 +222,9 @@ void mpu6050_get_gyro_readings_dps(float *data){
     int16_t Y = ((int16_t)retrieved_data[2] << 8) | (int16_t)retrieved_data[3];
     int16_t Z = ((int16_t)retrieved_data[4] << 8) | (int16_t)retrieved_data[5];
 
-    float X_out = ((float)X) / 131.0;
-    float Y_out = ((float)Y) / 131.0;
-    float Z_out = ((float)Z) / 131.0;
+    float X_out = (float)X * GYRO_VALUE_ACCURACY;
+    float Y_out = (float)Y * GYRO_VALUE_ACCURACY;
+    float Z_out = (float)Z * GYRO_VALUE_ACCURACY;
 
     data[0] = X_out - (m_gyro_correction[0]);
     data[1] = Y_out - (m_gyro_correction[1]);
@@ -412,6 +414,7 @@ void mpu6050_apply_calibration_accelerometers(float accelerometer_correction[3])
     }
 }
 
+
 // Do complementary filter for x(pitch) and y(roll). Combine accelerometer and gyro to get a more usable gyro value. Please make sure the coefficient is scaled by refresh rate. It helps a lot.
 void sensor_fusion_roll_pitch(float* gyro_angular, float accelerometer_roll, float accelerometer_pitch, int64_t time, uint8_t set_timestamp, float* imu_orientation){
 
@@ -420,29 +423,20 @@ void sensor_fusion_roll_pitch(float* gyro_angular, float accelerometer_roll, flo
         return;
     }
 
-    float elapsed_time_sec= (((float)time/1000.0)-((float)m_previous_time_roll_pitch/1000.0));
+    float elapsed_time_sec= (((float)time*CONVERT_MICROSECONDS_TO_SECONDS)-((float)m_previous_time_roll_pitch*CONVERT_MICROSECONDS_TO_SECONDS));
     if(set_timestamp == 1) m_previous_time_roll_pitch = time;
 
     // Convert degrees per second and add the complementary filter with accelerometer degrees
-
-    // float old_value_pitch = imu_orientation[0];
-    // float old_value_roll = imu_orientation[1];
-
-    imu_orientation[0] = second_order_complementary_filter_calculate(
-        &pitch_2_complementary, 
-        imu_orientation[0] + gyro_angular[0] * elapsed_time_sec, 
-        accelerometer_roll, 
-        elapsed_time_sec
+    imu_orientation[0] = complementary_filter_calculate(
+        m_complementary_ratio,
+        imu_orientation[0] + gyro_angular[0] * elapsed_time_sec,
+        accelerometer_roll
     );
-    imu_orientation[1] = second_order_complementary_filter_calculate(
-        &roll_2_complementary, 
-        imu_orientation[1] + gyro_angular[1] * elapsed_time_sec, 
-        accelerometer_pitch, 
-        elapsed_time_sec
+    imu_orientation[1] = complementary_filter_calculate(
+        m_complementary_ratio, 
+        imu_orientation[1] + gyro_angular[1] * elapsed_time_sec,
+        accelerometer_roll
     );
-
-    // printf("%6.2f = (%6.2f + %6.2f * %6.3f) + %6.2f    ", imu_orientation[0], old_value_pitch, gyro_angular[0], elapsed_time_sec, accelerometer_roll);
-    // printf("%6.2f = (%6.2f + %6.2f * %6.3f) + %6.2f\n", imu_orientation[1], old_value_roll, gyro_angular[1], elapsed_time_sec, accelerometer_pitch);
 
     // I dont want to track how many times the degrees went over the 360 degree mark, no point.
     while (imu_orientation[0] > 180.0) imu_orientation[0] -= 360.0;
@@ -458,14 +452,13 @@ void sensor_fusion_yaw(float* gyro_angular, float magnetometer_yaw, int64_t time
         return;
     }
 
-    float elapsed_time_sec= (((float)time/1000.0)-((float)m_previous_time_yaw/1000.0));
+    float elapsed_time_sec= (((float)time*CONVERT_MICROSECONDS_TO_SECONDS)-((float)m_previous_time_yaw*CONVERT_MICROSECONDS_TO_SECONDS));
     if(set_timestamp == 1) m_previous_time_yaw = time;
 
-    imu_orientation[2] = second_order_complementary_filter_calculate(
-        &yaw_2_complementary, 
+    imu_orientation[2] = complementary_filter_calculate(
+        m_complementary_ratio, 
         imu_orientation[2] + gyro_angular[2] * elapsed_time_sec, 
-        magnetometer_yaw, 
-        elapsed_time_sec
+        magnetometer_yaw
     );
 
     while (imu_orientation[2] >= 360.0) imu_orientation[2] -= 360.0;

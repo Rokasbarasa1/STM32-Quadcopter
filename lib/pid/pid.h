@@ -29,6 +29,7 @@ struct pid pid_init(
 );
 float pid_get_error(struct pid* pid_instance, float value, uint64_t time);
 float pid_get_error_own_error(struct pid* pid_instance, float error, uint64_t time);
+void pid_calculate_error(struct pid* pid_instance, float value, uint64_t time);
 void pid_set_desired_value(struct pid* pid_instance, float value);
 void pid_set_proportional_gain(struct pid* pid_instance, float proportional_gain);
 void pid_set_integral_gain(struct pid* pid_instance, float integral_gain);

@@ -95,3 +95,4 @@ uint8_t sd_special_write_chunk_of_byte_data_async(const char *data, uint16_t len
 void sd_special_wait_until_async_write_done();
 void sd_buffer_swap();
 uint8_t sd_get_response();
+void sd_card_set_dma_transfer_call_status(uint8_t status);
