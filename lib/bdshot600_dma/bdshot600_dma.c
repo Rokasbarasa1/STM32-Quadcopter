@@ -343,7 +343,9 @@ void bdshot600_dma_send_all_motor_data(){
 
     // Safety check for stale throttle data
     if(throttle_set_timeout_ms != 0 && HAL_GetTick() - last_time_throttle_was_set_ms > throttle_set_timeout_ms){
-        return;
+        for (uint8_t i = 0; i < bdshot600_dma_motor_list_size; i++){
+            bdshot600_dma_set_throttle(48, i);
+        }
     }
 
     // Set as busy so reading from the data arrays does not happen by the main loop

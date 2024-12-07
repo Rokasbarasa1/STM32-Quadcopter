@@ -39,3 +39,6 @@ void pid_set_previous_time(struct pid* pid_instance, uint64_t time);
 float pid_get_last_proportional_error(struct pid* pid_instance);
 float pid_get_last_integral_error(struct pid* pid_instance);
 float pid_get_last_derivative_error(struct pid* pid_instance);
+
+void pid_calculate_error_pi(struct pid* pid_instance, float value, uint64_t time);
+void pid_calculate_error_d(struct pid* pid_instance, float value, uint64_t time);

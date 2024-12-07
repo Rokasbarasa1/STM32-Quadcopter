@@ -83,7 +83,7 @@ uint8_t sd_special_reset();
 uint8_t sd_special_write_chunk_of_string_data(const char *data);
 uint8_t sd_special_write_chunk_of_byte_data(const char *data, uint16_t length);
 uint8_t sd_special_enter_async_string_mode();
-uint8_t sd_special_enter_async_byte_mode();
+uint8_t sd_special_enter_async_byte_mode(uint8_t reset_sd_initialization_when_async_stops);
 
 uint8_t sd_special_leave_async_mode();
 uint8_t sd_special_write_chunk_of_string_data_no_slave_response(const char *data);
@@ -96,3 +96,5 @@ void sd_special_wait_until_async_write_done();
 void sd_buffer_swap();
 uint8_t sd_get_response();
 void sd_card_set_dma_transfer_call_status(uint8_t status);
+void sd_card_wait_for_dma_transfer_complete();
+void sd_card_wait_for_slave_ready();

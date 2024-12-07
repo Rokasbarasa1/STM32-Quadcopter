@@ -134,10 +134,12 @@ void betaflight_blackbox_wrapper_get_header(
     // 131                  0x43030000     With 0x43030000 the raw value of 2 is interpreted as 15011494232 deg/s
     // So i just calculated it: 0.00763359 * (0.01526717557/874745) = 0.00000000013323124 (0x2f127d43 in float)
     // Now it shows up correctly despite the analyzer trying to fuck it up
-    buffer_append(buffer, buffer_size, &string_length, "H gyro_scale:0x3bfa232d\n"); 
+    
+    // buffer_append(buffer, buffer_size, &string_length, "H gyro_scale:0x3bfa232d\n"); 
+    buffer_append(buffer, buffer_size, &string_length, "H gyro_scale:0x3f800000\n"); 
     buffer_append(buffer, buffer_size, &string_length, "H motorOutput:%d,%d\n", min_throttle, max_throttle);
     buffer_append(buffer, buffer_size, &string_length, "H acc_1G:%d\n", steps_for_1_G_acceleration);
-    buffer_append(buffer, buffer_size, &string_length, "H looptime:%d\n", (1000/refresh_rate) * 1000);  // microseconds to complete the control loop
+    buffer_append(buffer, buffer_size, &string_length, "H looptime:%d\n", (1000000/refresh_rate)-1);  // microseconds to complete the control loop
     buffer_append(buffer, buffer_size, &string_length, "H gyro_sync_denom:1\n"); // How frequently is the gyro data processed. 1 = once per loop
     buffer_append(buffer, buffer_size, &string_length, "H pid_process_denom:1\n"); // How often is the pid processed? 1 = every time. 2 = every second time.
     buffer_append(buffer, buffer_size, &string_length, "H thr_mid:50\n"); // WHat throttle value is at the mid point? 50 = 0.5 or 50%
@@ -352,7 +354,7 @@ void betaflight_blackbox_get_encoded_data_string(
 
     
     uint16_t scaling_factor = 10;
-    uint16_t gyro_scaling_factor = 131; // This is to convert it to raw degrees
+    uint16_t gyro_scaling_factor = 1; // This is to convert it to raw degrees
     uint16_t accelerometer_scaling_factor = 16384;
 
     int32_t PID_proportion_int[3] = {(int32_t)(PID_proportion[0]*scaling_factor), (int32_t)(PID_proportion[1]*scaling_factor), (int32_t)(PID_proportion[2]*scaling_factor)};
@@ -361,7 +363,7 @@ void betaflight_blackbox_get_encoded_data_string(
     int32_t PID_feed_forward_int[3] = {(int32_t)(PID_feed_forward[0]*scaling_factor), (int32_t)(PID_feed_forward[1]*scaling_factor), (int32_t)(PID_feed_forward[2]*scaling_factor)};
 
     int16_t remote_control_int[4] = {(int16_t)(remote_control[0]*scaling_factor), (int16_t)(remote_control[1]*scaling_factor), (int16_t)(remote_control[2]*scaling_factor), (int16_t)(remote_control[3]*scaling_factor)};
-    int16_t set_points_int[4] = {(int16_t)(set_points[0]*gyro_scaling_factor), (int16_t)(set_points[1]*gyro_scaling_factor), (int16_t)(set_points[2]*gyro_scaling_factor), (int16_t)(set_points[3])};
+    int16_t set_points_int[4] = {(int16_t)(set_points[0]), (int16_t)(set_points[1]), (int16_t)(set_points[2]), (int16_t)(set_points[3])}; // For some reason the setpoints dont have to be scaled for degrees, they just straight up convert to degrees and the setpoint3 does as well
     int16_t gyro_sums_int[3] = {(int16_t)(gyro_sums[0]*gyro_scaling_factor), (int16_t)(gyro_sums[1]*gyro_scaling_factor), (int16_t)(gyro_sums[2]*gyro_scaling_factor)};
     int16_t accelerometer_values_int[3] = {(int16_t)(accelerometer_values[0]*accelerometer_scaling_factor), (int16_t)(accelerometer_values[1]*accelerometer_scaling_factor), (int16_t)(accelerometer_values[2]*accelerometer_scaling_factor)};
     uint16_t motor_power_int[4] = {
@@ -455,7 +457,7 @@ void betaflight_blackbox_get_encoded_data_string(
 }
 
 char* betaflight_blackbox_get_end_of_log(uint16_t* string_length_return){
-    uint16_t string_length_total = 10;
+    uint16_t string_length_total = 11;
     char* new_string = malloc(string_length_total+1);
     buffer_append(new_string, string_length_total, 0, "End of log\n");
     *string_length_return = string_length_total;

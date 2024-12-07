@@ -905,7 +905,7 @@ uint8_t sd_special_enter_async_string_mode(){
         return 0;
 }
 
-uint8_t sd_special_enter_async_byte_mode(){
+uint8_t sd_special_enter_async_byte_mode(uint8_t reset_sd_initialization_when_async_stops){
     if(m_device_handle){
         uint8_t response[1];
         uint8_t command = LOGGER_ENTER_ASYNC_BYTE_MODE;
@@ -913,6 +913,9 @@ uint8_t sd_special_enter_async_byte_mode(){
         slave_select();
         start_waiting_for_slave_ready();
         HAL_SPI_Transmit(m_device_handle, &command, 1, 60000); // send command
+        if(!wait_for_slave_ready(60000)) goto error;
+        start_waiting_for_slave_ready();
+        HAL_SPI_Transmit(m_device_handle, &reset_sd_initialization_when_async_stops, 1, 60000); // tell slave what to do when async is stopped by master
         if(!wait_for_slave_ready(60000)) goto error;
         HAL_SPI_Receive(m_device_handle, response, 1, 60000);
         slave_deselect();
@@ -1107,6 +1110,14 @@ void sd_card_set_dma_transfer_call_status(uint8_t status){
     }
 }
 
+void sd_card_wait_for_dma_transfer_complete(){
+    while(dma_transfer_call_status);
+    return;
+}
+
+void sd_card_wait_for_slave_ready(){
+    wait_for_slave_ready(5000);
+}
 
 // Example code ************************************************
     // uint8_t sd_status = 0;

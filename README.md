@@ -169,6 +169,7 @@ Test checklist:
 * Controller
 * Controller antenna
 * Propellers
+
 * Sd card adapter
 * Micro sd card
 * Pliers 
