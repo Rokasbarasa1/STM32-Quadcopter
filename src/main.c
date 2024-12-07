@@ -1010,10 +1010,10 @@ void handle_pid_and_motor_control(){
         imu_orientation[1] < -max_angle_before_motors_off || 
         ((float)get_absolute_time() - (float)last_signal_timestamp_microseconds) / 1000000.0 > minimum_signal_timing_seconds
     ){  
-        uint64_t timm_absolute = get_absolute_time();
+        // uint64_t timm_absolute = get_absolute_time();
 
         // float timessss = ((float)timm_absolute - (float)last_signal_timestamp_microseconds) / 1000000.0;
-        // printf("STOP %.1f %.1f - %f %.1f %.1f %.1f\n", imu_orientation[0], imu_orientation[1], timessss, (float)timm_absolute, (float)absolute_microseconds_since_start, (float)last_signal_timestamp_microseconds);
+        // printf("STOP %.1f %.1f - %f %f %f %f %f\n", imu_orientation[0], imu_orientation[1], timessss, (float)timm_absolute, (float)absolute_microseconds_since_start,  (float)absolute_microseconds_since_start, (float)last_signal_timestamp_microseconds);
 
         // printf("b\n");
         throttle_value_FR = min_dshot600_throttle_value;
@@ -1508,11 +1508,11 @@ void handle_radio_communication(){
 
 
 
-                __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
-                __HAL_TIM_SET_COUNTER(&htim4, 0);
-                startup_time_microseconds = get_absolute_time();
-                loop_start_miliseconds = 0;
-                startup_time_microseconds = 0;
+                // __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
+                // __HAL_TIM_SET_COUNTER(&htim4, 0);
+                // startup_time_microseconds = get_absolute_time();
+                // loop_start_miliseconds = 0;
+                // startup_time_microseconds = 0;
             }else{
 
                 
@@ -1538,15 +1538,15 @@ void handle_radio_communication(){
                 printf("SD logging: Initialized logging again\n");
 
                 // Reset the loop state
-                loop_iteration = 1;
-                absolute_microseconds_since_start = 0;
-                last_signal_timestamp_microseconds = 1000000;
-                __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
-                __HAL_TIM_SET_COUNTER(&htim4, 0);
-                startup_time_microseconds = get_absolute_time();
-                loop_start_microseconds = 0;
-                loop_start_miliseconds = 0;
-                startup_time_microseconds = 0;
+                // loop_iteration = 1;
+                // absolute_microseconds_since_start = 0;
+                // last_signal_timestamp_microseconds = 1000000;
+                // __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
+                // __HAL_TIM_SET_COUNTER(&htim4, 0);
+                // startup_time_microseconds = get_absolute_time();
+                // loop_start_microseconds = 0;
+                // loop_start_miliseconds = 0;
+                // startup_time_microseconds = 0;
             }
 
             // Capture any radio messages that were sent durring the boot proccess and discard them
@@ -1604,9 +1604,10 @@ void handle_radio_communication(){
         pid_reset_integral_sum(&angle_pitch_pid);
 
         calibrate_gyro(); // Recalibrate the gyro as the temperature affects the calibration
-
+        printf("Calibrated gyro\n");
         // Get the initial position again
         get_initial_position();
+        printf("Got initial position again\n");
 
         // Capture any radio messages that were sent durring the calibration proccess and discard them
         for (uint8_t i = 0; i < 50; i++){
@@ -1614,7 +1615,8 @@ void handle_radio_communication(){
                 nrf24_receive(rx_data);
             }
         }
-
+        printf("Got rid of old radio values\n");
+        
         // Reset the sesor fusion and the pid accumulation
     }else if(strcmp(rx_type, "fm") == 0){
         printf("\nGot flight mode");
@@ -2161,15 +2163,31 @@ void handle_loop_end(){
 
     // Get the final count and add it to the total microsecond
     // If the timer overflew use the ticks instead
+
+    // Right now this HAL_GetTick method is broken as the HAL_GetTick returns a totaly innacurate value
+    // TICK 1961427072.000000 = 1762787968.000000 + ((228252.000000 - 29613.000000) * 1000)
+
     if(__HAL_TIM_GET_FLAG(&htim4, TIM_FLAG_UPDATE)){
-        absolute_microseconds_since_start = absolute_microseconds_since_start + ((HAL_GetTick() - loop_start_miliseconds) * 1000);
+        // float temp_absl = (float)absolute_microseconds_since_start;
+        absolute_microseconds_since_start = absolute_microseconds_since_start + 65536;
+        // printf("TICK %f = %f + 65536\n", (float)absolute_microseconds_since_start, temp_absl);
+        
+        // The bellow is currently not working.
+
+        // absolute_microseconds_since_start = absolute_microseconds_since_start + ((HAL_GetTick() - loop_start_miliseconds) * 1000);
+        // printf("TICK %f = %f + ((%f - %f) * 1000)\n", (float)absolute_microseconds_since_start, temp_absl, (float)HAL_GetTick(), (float)loop_start_miliseconds);
         // printf("a%lu\n", HAL_GetTick() - loop_start_miliseconds);
+
     }else{
+        //
+        // float temp_absl = (float)absolute_microseconds_since_start;
         absolute_microseconds_since_start = absolute_microseconds_since_start + (__HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds);
+        // printf("NORM %f = %f + (%f - %f)\n", (float)absolute_microseconds_since_start, temp_absl, (float)__HAL_TIM_GET_COUNTER(&htim4), (float)loop_start_microseconds);
         // printf("a%.1f\n", (float)(__HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds)/1000.0);
     }
 
     // Reset the counter
+    __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
     __HAL_TIM_SET_COUNTER(&htim4, 0);
     // printf("end %lu\n", absolute_microseconds_since_start);
 }
@@ -2245,12 +2263,16 @@ void calibrate_gyro(){
 void get_initial_position(){
     // Find the initial position in degrees and apply it to the gyro measurement integral
     // This will tell the robot which way to go to get the actual upward
+    __disable_irq();
     mmc5603_magnetometer_readings_micro_teslas(magnetometer_data);
-    rotate_magnetometer_output_90_degrees_anti_clockwise(magnetometer_data);
     mpu6050_get_accelerometer_readings_gravity(acceleration_data);
-    invert_axies(acceleration_data);
     mpu6050_get_gyro_readings_dps(gyro_angular);
+    __enable_irq();
+
+    invert_axies(acceleration_data);
     invert_axies(gyro_angular);
+    rotate_magnetometer_output_90_degrees_anti_clockwise(magnetometer_data);
+
     magnetometer_data[0] = low_pass_filter_pt1_read(&filter_magnetometer_x, magnetometer_data[0]);
     magnetometer_data[1] = low_pass_filter_pt1_read(&filter_magnetometer_y, magnetometer_data[1]);
     magnetometer_data[2] = low_pass_filter_pt1_read(&filter_magnetometer_z, magnetometer_data[2]);

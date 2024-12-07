@@ -209,7 +209,7 @@ void mpu6050_get_accelerometer_readings_gravity(float *data){
 void mpu6050_get_gyro_readings_dps(float *data){
     uint8_t retrieved_data[] = {0, 0, 0, 0, 0, 0};
 
-    HAL_I2C_Mem_Read(
+    volatile HAL_StatusTypeDef status = HAL_I2C_Mem_Read(
         i2c_handle,
         MPU6050 + 1,
         GYRO_XOUT_H_REG,
@@ -259,9 +259,11 @@ void find_accelerometer_error(uint64_t sample_size){
     m_accelerometer_correction[2] = 1;
 
 
-    for (uint64_t i = 0; i < sample_size; i++)
-    {
+    for (uint64_t i = 0; i < sample_size; i++){
+        __disable_irq();
         mpu6050_get_accelerometer_readings_gravity(data);
+        __enable_irq();
+
         x_sum += data[0];
         y_sum += data[1];
         z_sum += data[2];
@@ -287,9 +289,11 @@ void find_accelerometer_error_with_corrections(uint64_t sample_size){
     float x_sum = 0, y_sum = 0, z_sum = 0;
     float data[] = {0, 0, 0};
 
-    for (uint64_t i = 0; i < sample_size; i++)
-    {
+    for (uint64_t i = 0; i < sample_size; i++){
+        __disable_irq();
         mpu6050_get_accelerometer_readings_gravity(data);
+        __enable_irq();
+
         x_sum += data[0];
         y_sum += data[1];
         z_sum += data[2];
@@ -323,9 +327,10 @@ void find_gyro_error(uint64_t sample_size){
         m_accelerometer_correction[i] = 0;
     }
 
-    for (uint64_t i = 0; i < sample_size; i++)
-    {
+    for (uint64_t i = 0; i < sample_size; i++){
+        __disable_irq();
         mpu6050_get_gyro_readings_dps(data);
+        __enable_irq();
 
         x_sum += data[0];
         y_sum += data[1];
@@ -362,7 +367,9 @@ void find_and_return_gyro_error(uint64_t sample_size, float *return_array){
     }
 
     for (uint64_t i = 0; i < sample_size; i++)    {
+        __disable_irq();
         mpu6050_get_gyro_readings_dps(data);
+        __enable_irq();
 
         x_sum += data[0];
         y_sum += data[1];
