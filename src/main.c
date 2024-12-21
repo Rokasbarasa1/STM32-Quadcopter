@@ -216,6 +216,7 @@ const uint32_t dshot_refresh_rate = 500; // Hz
 
 #define dshot600_neutral_value 0
 #define actual_min_dshot600_throttle_value 91 // Lowest value that lets the motors spin freely and at low rpm
+
 // Take 75 percent of max because my battery can't handle all that current.
 const uint16_t actual_max_dshot600_throttle_value = min_dshot600_throttle_value + ((max_dshot600_throttle_value - min_dshot600_throttle_value) * 75) / 100; // (max lipo amp rating / max draw of a bldc motor being used x 4) 0.917 * (max_pwm - min_pwm) + min_pwm = 371.4
 
@@ -370,10 +371,10 @@ float last_error_pitch = 0;
 #define BASE_ANGLE_roll_pitch_GAIN_I 0.0
 #define BASE_ANGLE_roll_pitch_GAIN_D 0.0
 
-#define BASE_ACRO_roll_pitch_MASTER_GAIN 0.4
-#define BASE_ACRO_roll_pitch_GAIN_P 1.2 // 0.7
+#define BASE_ACRO_roll_pitch_MASTER_GAIN 1.2
+#define BASE_ACRO_roll_pitch_GAIN_P 0.58//-0.32 // 0.7
 #define BASE_ACRO_roll_pitch_GAIN_I 0.0 // 0.0
-#define BASE_ACRO_roll_pitch_GAIN_D 0.02 // 0.01
+#define BASE_ACRO_roll_pitch_GAIN_D 0.01 // 0.01
 
 // Used for smooth changes to PID while using remote control. Do not touch this
 float angle_roll_pitch_master_gain = BASE_ANGLE_roll_pitch_MASTER_GAIN;
@@ -996,6 +997,8 @@ void handle_get_and_calculate_sensor_values(){
 
     // printf("Alt %f vel %f ", altitude, vertical_velocity);
     // printf("IMU %f %f %f\n", imu_orientation[0], imu_orientation[1], imu_orientation[2]);
+
+    // printf("Lat %f, Lon %f\n", gps_latitude, gps_longitude);
 }
 
 
@@ -1222,15 +1225,18 @@ void handle_pid_and_motor_control(){
 
     pid_calculate_error(&acro_yaw_pid, gyro_angular[2], pid_time);
     pid_set_previous_time(&acro_yaw_pid, pid_time);
-
     PID_proportional[0] = pid_get_last_proportional_error(&acro_roll_pid);
     PID_integral[0] = pid_get_last_integral_error(&acro_roll_pid);
     PID_derivative[0] = pid_get_last_derivative_error(&acro_roll_pid);
+    // printf("ROl g: %.3f gf: %.3f dt: %.3f \n", gyro_angular[0], gyro_angular_for_d_term[0], PID_derivative[0]);
+
     PID_proportional[1] = pid_get_last_proportional_error(&acro_pitch_pid);
     PID_integral[1] = pid_get_last_integral_error(&acro_pitch_pid);
     PID_derivative[1] = pid_get_last_derivative_error(&acro_pitch_pid);
     PID_proportional[2] = pid_get_last_proportional_error(&acro_yaw_pid);
     PID_integral[2] = pid_get_last_integral_error(&acro_yaw_pid);
+
+
 
     // Use throttle to make the biquad filter dynamic
     error_acro_roll = PID_proportional[0] + PID_integral[0] + PID_derivative[0];
@@ -1463,12 +1469,12 @@ void handle_radio_communication(){
                 uint16_t betaflight_header_length = 0;
                 betaflight_blackbox_wrapper_get_header(
                     REFRESH_RATE_HZ,
-                    acro_roll_pitch_gain_p,
-                    acro_roll_pitch_gain_i,
-                    acro_roll_pitch_gain_d,
-                    acro_roll_pitch_gain_p,
-                    acro_roll_pitch_gain_i,
-                    acro_roll_pitch_gain_d,
+                    acro_roll_pitch_gain_p * acro_roll_pitch_master_gain,
+                    acro_roll_pitch_gain_i * acro_roll_pitch_master_gain,
+                    acro_roll_pitch_gain_d * acro_roll_pitch_master_gain,
+                    acro_roll_pitch_gain_p * acro_roll_pitch_master_gain,
+                    acro_roll_pitch_gain_i * acro_roll_pitch_master_gain,
+                    acro_roll_pitch_gain_d * acro_roll_pitch_master_gain,
                     acro_yaw_gain_p,
                     acro_yaw_gain_i,
                     0,
@@ -1904,12 +1910,12 @@ void setup_logging_to_sd(uint8_t use_updated_file_name){
         uint16_t betaflight_header_length = 0;
         betaflight_blackbox_wrapper_get_header(
             REFRESH_RATE_HZ,
-            acro_roll_pitch_gain_p,
-            acro_roll_pitch_gain_i,
-            acro_roll_pitch_gain_d,
-            acro_roll_pitch_gain_p,
-            acro_roll_pitch_gain_i,
-            acro_roll_pitch_gain_d,
+            acro_roll_pitch_gain_p * acro_roll_pitch_master_gain,
+            acro_roll_pitch_gain_i * acro_roll_pitch_master_gain,
+            acro_roll_pitch_gain_d * acro_roll_pitch_master_gain,
+            acro_roll_pitch_gain_p * acro_roll_pitch_master_gain,
+            acro_roll_pitch_gain_i * acro_roll_pitch_master_gain,
+            acro_roll_pitch_gain_d * acro_roll_pitch_master_gain,
             acro_yaw_gain_p,
             acro_yaw_gain_i,
             0,

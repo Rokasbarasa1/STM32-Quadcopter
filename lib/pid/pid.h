@@ -6,7 +6,7 @@ struct pid{
     float m_gain_integral;
     float m_gain_derivative;
     float m_integral_sum;
-    float m_last_error;
+    float m_last_error_for_d_term;
     float m_desired_value;
     uint64_t m_previous_time;
     float m_max_value;

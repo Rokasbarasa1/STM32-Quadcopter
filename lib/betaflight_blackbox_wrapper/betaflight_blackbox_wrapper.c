@@ -70,19 +70,19 @@ void betaflight_blackbox_wrapper_get_header(
 
     uint32_t acro_roll_p_uint = floor(acro_roll_p * 100);
     uint32_t acro_roll_i_uint = floor(acro_roll_i * 100);
-    uint32_t acro_roll_d_uint = floor(acro_roll_d * 100);
+    uint32_t acro_roll_d_uint = floor(acro_roll_d * 10000); // Needs more precision
 
     uint32_t acro_pitch_p_uint = floor(acro_pitch_p * 100);
     uint32_t acro_pitch_i_uint = floor(acro_pitch_i * 100);
-    uint32_t acro_pitch_d_uint = floor(acro_pitch_d * 100);
+    uint32_t acro_pitch_d_uint = floor(acro_pitch_d * 10000);
 
     uint32_t acro_yaw_p_uint = floor(acro_yaw_p * 100);
     uint32_t acro_yaw_i_uint = floor(acro_yaw_i * 100);
-    uint32_t acro_yaw_d_uint = floor(acro_yaw_d * 100);
+    uint32_t acro_yaw_d_uint = floor(acro_yaw_d * 10000);
 
     uint32_t angle_mode_p_uint = floor(angle_mode_p * 100);
     uint32_t angle_mode_i_uint = floor(angle_mode_i * 100);
-    uint32_t angle_mode_d_uint = floor(angle_mode_d * 100);
+    uint32_t angle_mode_d_uint = floor(angle_mode_d * 10000);
 
     // float acro_mode_roll_pitch_integral_windup = 0;
     uint32_t acro_mode_roll_pitch_integral_windup_uint = floor(acro_mode_roll_pitch_integral_windup);
@@ -93,18 +93,30 @@ void betaflight_blackbox_wrapper_get_header(
     buffer_append(buffer, buffer_size, &string_length, "H Data version:2\n");
     buffer_append(buffer, buffer_size, &string_length, "H I interval: 1\n");
     buffer_append(buffer, buffer_size, &string_length, "H P interval:1/1\n");
+
+    // With mag and accelerometer
     // buffer_append(buffer, buffer_size, &string_length, "H Field I name:loopIteration,time,axisP[0],axisP[1],axisP[2],axisI[0],axisI[1],axisI[2],axisD[0],axisD[1],axisF[0],axisF[1],axisF[2],rcCommand[0],rcCommand[1],rcCommand[2],rcCommand[3],setpoint[0],setpoint[1],setpoint[2],setpoint[3],gyroADC[0],gyroADC[1],gyroADC[2],accSmooth[0],accSmooth[1],accSmooth[2],motor[0],motor[1],motor[2],motor[3],magADC[0],magADC[1],magADC[2],BaroAlt,debug[0],debug[1],debug[2],debug[3]\n");
     // buffer_append(buffer, buffer_size, &string_length, "H Field I signed:0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,1,1,1,1,1,1,1,1\n");
     // buffer_append(buffer, buffer_size, &string_length, "H Field I predictor:0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n");
     // buffer_append(buffer, buffer_size, &string_length, "H Field I encoding:1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0\n");
     // buffer_append(buffer, buffer_size, &string_length, "H Field P predictor:6,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3,3,3,3,3,3,3,3,3,3,1,1,1,1,1,1,1,1\n");
     // buffer_append(buffer, buffer_size, &string_length, "H Field P encoding:9,0,0,0,0,7,7,7,0,0,0,0,0,8,8,8,8,8,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n");
-    buffer_append(buffer, buffer_size, &string_length, "H Field I name:loopIteration,time,axisP[0],axisP[1],axisP[2],axisI[0],axisI[1],axisI[2],axisD[0],axisD[1],axisF[0],axisF[1],axisF[2],rcCommand[0],rcCommand[1],rcCommand[2],rcCommand[3],setpoint[0],setpoint[1],setpoint[2],setpoint[3],gyroADC[0],gyroADC[1],gyroADC[2],motor[0],motor[1],motor[2],motor[3],BaroAlt,debug[0],debug[1],debug[2],debug[3]\n");
-    buffer_append(buffer, buffer_size, &string_length, "H Field I signed:0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,0,0,0,0,1,1,1,1,1\n");
-    buffer_append(buffer, buffer_size, &string_length, "H Field I predictor:0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n");
-    buffer_append(buffer, buffer_size, &string_length, "H Field I encoding:1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0\n");
-    buffer_append(buffer, buffer_size, &string_length, "H Field P predictor:6,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3,3,3,3,3,3,3,1,1,1,1,1\n");
-    buffer_append(buffer, buffer_size, &string_length, "H Field P encoding:9,0,0,0,0,7,7,7,0,0,0,0,0,8,8,8,8,8,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0\n");
+
+    // With accelerometer
+    buffer_append(buffer, buffer_size, &string_length, "H Field I name:loopIteration,time,axisP[0],axisP[1],axisP[2],axisI[0],axisI[1],axisI[2],axisD[0],axisD[1],axisF[0],axisF[1],axisF[2],rcCommand[0],rcCommand[1],rcCommand[2],rcCommand[3],setpoint[0],setpoint[1],setpoint[2],setpoint[3],gyroADC[0],gyroADC[1],gyroADC[2],accSmooth[0],accSmooth[1],accSmooth[2],motor[0],motor[1],motor[2],motor[3],BaroAlt,debug[0],debug[1],debug[2],debug[3]\n");
+    buffer_append(buffer, buffer_size, &string_length, "H Field I signed:0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,1,1,1,1,1\n");
+    buffer_append(buffer, buffer_size, &string_length, "H Field I predictor:0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n");
+    buffer_append(buffer, buffer_size, &string_length, "H Field I encoding:1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0\n");
+    buffer_append(buffer, buffer_size, &string_length, "H Field P predictor:6,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3,3,3,3,3,3,3,3,3,3,1,1,1,1,1\n");
+    buffer_append(buffer, buffer_size, &string_length, "H Field P encoding:9,0,0,0,0,7,7,7,0,0,0,0,0,8,8,8,8,8,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n");
+
+    // Without mag and accelerometer
+    // buffer_append(buffer, buffer_size, &string_length, "H Field I name:loopIteration,time,axisP[0],axisP[1],axisP[2],axisI[0],axisI[1],axisI[2],axisD[0],axisD[1],axisF[0],axisF[1],axisF[2],rcCommand[0],rcCommand[1],rcCommand[2],rcCommand[3],setpoint[0],setpoint[1],setpoint[2],setpoint[3],gyroADC[0],gyroADC[1],gyroADC[2],motor[0],motor[1],motor[2],motor[3],BaroAlt,debug[0],debug[1],debug[2],debug[3]\n");
+    // buffer_append(buffer, buffer_size, &string_length, "H Field I signed:0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,0,0,0,0,1,1,1,1,1\n");
+    // buffer_append(buffer, buffer_size, &string_length, "H Field I predictor:0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n");
+    // buffer_append(buffer, buffer_size, &string_length, "H Field I encoding:1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0\n");
+    // buffer_append(buffer, buffer_size, &string_length, "H Field P predictor:6,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,3,3,3,3,3,3,3,1,1,1,1,1\n");
+    // buffer_append(buffer, buffer_size, &string_length, "H Field P encoding:9,0,0,0,0,7,7,7,0,0,0,0,0,8,8,8,8,8,8,8,8,0,0,0,0,0,0,0,0,0,0,0,0\n");
 
     // buffer_append(buffer, buffer_size, &string_length, "H Field G name:time,GPS_numSat,GPS_coord[0],GPS_coord[1],GPS_altitude,GPS_speed,GPS_ground_course\n");
     // buffer_append(buffer, buffer_size, &string_length, "H Field G signed:0,0,1,1,0,0,0\n");
@@ -420,7 +432,7 @@ void betaflight_blackbox_get_encoded_data_string(
     blackbox_write_unsigned_VB(remote_control_int[3] ,buffer, &string_index); // rcCommand[3] 0 1 GOOD
     blackbox_write_signed_16VB_array(set_points_int, 4, buffer, &string_index); // setpoint[0],setpoint[1],setpoint[2],setpoint[3] 1,1,1,1 0,0,0,0 NOT
     blackbox_write_signed_16VB_array(gyro_sums_int, 3, buffer, &string_index); // gyroADC[0],gyroADC[1],gyroADC[2] 1,1,1 0,0,0 GOOD
-    // blackbox_write_signed_16VB_array(accelerometer_values_int, 3, buffer, &string_index); // accG[0],accG[1],accG[2] 1,1,1 0,0,0 GOOD
+    blackbox_write_signed_16VB_array(accelerometer_values_int, 3, buffer, &string_index); // accG[0],accG[1],accG[2] 1,1,1 0,0,0 GOOD
     blackbox_write_unsigned_VB(motor_power_int[0], buffer, &string_index); // motor[0] 0 1 GOOD
     blackbox_write_unsigned_VB(motor_power_int[1], buffer, &string_index); // motor[1] 0 1 GOOD
     blackbox_write_unsigned_VB(motor_power_int[2], buffer, &string_index); // motor[2] 0 1 GOOD
