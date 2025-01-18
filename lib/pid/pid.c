@@ -19,7 +19,8 @@ struct pid pid_init(
     uint64_t time,
     float max_value,
     float min_value,
-    uint8_t stop_windup
+    uint8_t stop_windup_integral,
+    uint8_t stop_windup_derivative
 ){
     struct pid new_pid;
 
@@ -32,7 +33,8 @@ struct pid pid_init(
     new_pid.m_previous_time = time;
     new_pid.m_max_value = max_value;
     new_pid.m_min_value = min_value;
-    new_pid.m_stop_windup = stop_windup;
+    new_pid.m_stop_windup_integral = stop_windup_integral;
+    new_pid.m_stop_windup_derivative = stop_windup_derivative;
     new_pid.m_last_proportional_error = 0;
     new_pid.m_last_integral_error = 0;
     new_pid.m_last_derivative_error = 0;
@@ -66,7 +68,7 @@ float pid_get_error(struct pid* pid_instance, float value, uint64_t time){
     {
         pid_instance->m_integral_sum += (error * elapsed_time_sec);
 
-        if(pid_instance->m_stop_windup == 1){
+        if(pid_instance->m_stop_windup_integral == 1){
             // clamp the integral if it is getting out of bounds
             if(pid_instance->m_integral_sum * pid_instance->m_gain_integral > pid_instance->m_max_value){
                 pid_instance->m_integral_sum = pid_instance->m_max_value / pid_instance->m_gain_integral;
@@ -82,11 +84,13 @@ float pid_get_error(struct pid* pid_instance, float value, uint64_t time){
         // divide by the time passed, the smaller the time gap the larger the rate of change is, remember?
         error_d = (error_p - pid_instance->m_last_error_for_d_term) / elapsed_time_sec;
 
-        // Dont let it get out of bounds 
-        if(error_d * pid_instance->m_gain_derivative > pid_instance->m_max_value){
-            error_d = pid_instance->m_max_value;
-        }else if(error_d * pid_instance->m_gain_derivative < pid_instance->m_min_value){
-            error_d = pid_instance->m_min_value;
+        if(pid_instance->m_stop_windup_derivative == 1){
+            // Dont let it get out of bounds 
+            if(error_d * pid_instance->m_gain_derivative > pid_instance->m_max_value){
+                error_d = pid_instance->m_max_value;
+            }else if(error_d * pid_instance->m_gain_derivative < pid_instance->m_min_value){
+                error_d = pid_instance->m_min_value;
+            }
         }
         
         // set the previous error for the next iteration
@@ -132,7 +136,7 @@ float pid_get_error_own_error(struct pid* pid_instance, float error, uint64_t ti
     {
         pid_instance->m_integral_sum += (error * elapsed_time_sec);
 
-        if(pid_instance->m_stop_windup == 1){
+        if(pid_instance->m_stop_windup_integral == 1){
             // clamp the integral if it is getting out of bounds
             if((pid_instance->m_integral_sum * pid_instance->m_gain_integral) > pid_instance->m_max_value){
                 pid_instance->m_integral_sum = pid_instance->m_max_value / pid_instance->m_gain_integral;
@@ -197,7 +201,7 @@ void pid_calculate_error(struct pid* pid_instance, float value, uint64_t time){
     {
         pid_instance->m_integral_sum += (error * elapsed_time_sec);
 
-        if(pid_instance->m_stop_windup == 1){
+        if(pid_instance->m_stop_windup_integral == 1){
             // clamp the integral if it is getting out of bounds
             if((pid_instance->m_integral_sum * pid_instance->m_gain_integral) > pid_instance->m_max_value){
                 pid_instance->m_integral_sum = pid_instance->m_max_value / pid_instance->m_gain_integral;
@@ -213,13 +217,14 @@ void pid_calculate_error(struct pid* pid_instance, float value, uint64_t time){
         // divide by the time passed, the smaller the time gap the larger the rate of change is, remember?
         error_d = (error_p - pid_instance->m_last_error_for_d_term) / elapsed_time_sec;
 
-        // Dont let it get out of bounds 
-        if(error_d * pid_instance->m_gain_derivative > pid_instance->m_max_value){
-            error_d = pid_instance->m_max_value;
-        }else if(error_d * pid_instance->m_gain_derivative < pid_instance->m_min_value){
-            error_d = pid_instance->m_min_value;
-        }
-        
+        if(pid_instance->m_stop_windup_derivative == 1){
+            // Dont let it get out of bounds 
+            if(error_d * pid_instance->m_gain_derivative > pid_instance->m_max_value){
+                error_d = pid_instance->m_max_value;
+            }else if(error_d * pid_instance->m_gain_derivative < pid_instance->m_min_value){
+                error_d = pid_instance->m_min_value;
+            }
+        }        
         // set the previous error for the next iteration
         pid_instance->m_last_error_for_d_term = error;
     }
@@ -254,7 +259,7 @@ void pid_calculate_error_pi(struct pid* pid_instance, float value, uint64_t time
     {
         pid_instance->m_integral_sum += (error * elapsed_time_sec);
 
-        if(pid_instance->m_stop_windup == 1){
+        if(pid_instance->m_stop_windup_integral == 1){
             // clamp the integral if it is getting out of bounds
             if((pid_instance->m_integral_sum * pid_instance->m_gain_integral) > pid_instance->m_max_value){
                 pid_instance->m_integral_sum = pid_instance->m_max_value / pid_instance->m_gain_integral;
@@ -289,11 +294,13 @@ void pid_calculate_error_d(struct pid* pid_instance, float value, uint64_t time)
         // divide by the time passed, the smaller the time gap the larger the rate of change is, remember?
         error_d = (error - pid_instance->m_last_error_for_d_term) / elapsed_time_sec;
 
-        // Dont let it get out of bounds 
-        if(error_d * pid_instance->m_gain_derivative > pid_instance->m_max_value){
-            error_d = pid_instance->m_max_value;
-        }else if(error_d * pid_instance->m_gain_derivative < pid_instance->m_min_value){
-            error_d = pid_instance->m_min_value;
+        if(pid_instance->m_stop_windup_derivative == 1){
+            // Dont let it get out of bounds 
+            if(error_d * pid_instance->m_gain_derivative > pid_instance->m_max_value){
+                error_d = pid_instance->m_max_value;
+            }else if(error_d * pid_instance->m_gain_derivative < pid_instance->m_min_value){
+                error_d = pid_instance->m_min_value;
+            }
         }
         
         // set the previous error for the next iteration

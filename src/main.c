@@ -311,8 +311,8 @@ float gyro_correction[3] = {
     -2.532809, 2.282250, 0.640916
 };
 
-float base_accelerometer_roll_offset = -1.74464;
-float base_accelerometer_pitch_offset = 3.11469;
+float base_accelerometer_roll_offset = -1.84;
+float base_accelerometer_pitch_offset = 2.39;
 
 float accelerometer_roll_offset = 0;
 float accelerometer_pitch_offset = 0;
@@ -367,9 +367,9 @@ float last_error_pitch = 0;
 
 // Actual PID adjustment for pitch
 #define BASE_ANGLE_roll_pitch_MASTER_GAIN 1.0
-#define BASE_ANGLE_roll_pitch_GAIN_P 2.0
-#define BASE_ANGLE_roll_pitch_GAIN_I 0.0
-#define BASE_ANGLE_roll_pitch_GAIN_D 0.0
+#define BASE_ANGLE_roll_pitch_GAIN_P 14.0
+#define BASE_ANGLE_roll_pitch_GAIN_I 150.0
+#define BASE_ANGLE_roll_pitch_GAIN_D 0.0 // Very bad results when used
 
 #define BASE_ACRO_roll_pitch_MASTER_GAIN 1.2
 #define BASE_ACRO_roll_pitch_GAIN_P 0.58//-0.32 // 0.7
@@ -428,6 +428,7 @@ float target_latitude = 0.0;
 const float gps_pid_angle_of_attack_max = 5.0;
 
 float acro_mode_rate_degrees_per_second = 100;
+float angle_mode_rate_degrees_per_second_max_integral_derivative = 3; // At max the integral can accumulate 3 degrees per second of rotation. This is to prevent overshooting
 
 // ------------------------------------------------------------------------------------------------------ Sensor other data
 float acceleration_data[] = {0,0,0};
@@ -436,6 +437,7 @@ float imu_orientation[] = {0,0,0};
 float magnetometer_data[] = {0,0,0};
 float gps_longitude = 0.0;
 float old_gps_longitude = 0.0;
+float gps_real_longitude = 0.0;
 float gps_latitude = 0.0;
 float old_gps_latitude = 0.0;
 float delta_gps_latitude = 0.0;
@@ -446,6 +448,7 @@ uint8_t in_between_gps_loop_divider = 50;
 uint8_t in_between_gps_loop_divider_counter = 0;
 uint8_t gps_fix_type = 0.0;
 uint8_t got_gps = 0;
+uint8_t gps_can_be_used = 0;
 
 float pressure = 0.0;
 float temperature = 0.0;
@@ -462,15 +465,33 @@ uint8_t use_gps_reset_count_to_deactivate = 10; // This is done because sometime
 float gps_hold_roll_adjustment_integral = 0.0;
 float gps_hold_pitch_adjustment_integral = 0.0;
 
+float gps_hold_roll_adjustment = 0.0f;
+float gps_hold_pitch_adjustment = 0.0f;
+
 float roll_effect_on_lat = 0;
 float pitch_effect_on_lat = 0;
 
 float roll_effect_on_lon = 0;
 float pitch_effect_on_lon = 0;
 
+uint32_t last_got_gps_timestamp = 0;
+uint32_t max_allowed_time_miliseconds_between_got_gps = 1000;
+
 // ------------------------------------------------------------------------------------------------------ Sensor fusion and filtering stuff
+// 0.05 Drifts a lot
+// 0.5 drift a bit
+// 1.0 drift a bit
+// 0.3 drift a bit
+// 0.1 drift a bit more 
+// Goal is to minimize drift while keeping as low as possible.
+
+#define COMPLEMENTARY_RATIO_MULTIPLYER_FLIGHT 0.3f
+#define COMPLEMENTARY_RATIO_MULTIPLYER_OFF 7.0f
+
+// #define COMPLEMENTARY_RATIO_MULTIPLYER 1.0f
+
 float complementary_beta = 0.0;
-float complementary_ratio = 1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ)); // Depends on how often the loop runs. 1 second / (1 second + one loop time)
+float complementary_ratio = COMPLEMENTARY_RATIO_MULTIPLYER_OFF * (1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ)));
 
 // This is used for filtering limits
 float nyquist_with_margin = REFRESH_RATE_HZ / 2.0f - 6.0f; // The -6 is the margin that greatly improves the quality of filtering for notch filters
@@ -536,8 +557,8 @@ const uint8_t d_term_filtering_expo = 7;
 struct kalman_filter altitude_and_velocity_kalman;
 // ------------------------------------------------------------------------------------------------------ Remote control settings
 float max_yaw_attack = 40.0;
-float max_roll_attack = 25;
-float max_pitch_attack = 25;
+float max_roll_attack = 10;
+float max_pitch_attack = 10;
 float roll_attack_step = 0.2;
 float pitch_attack_step = 0.2;
 float max_throttle_vertical_velocity = 30; // cm/second
@@ -553,19 +574,37 @@ float roll = 50.0;
 float minimum_signal_timing_seconds = 0.2; // Seconds
 uint64_t last_signal_timestamp_microseconds = 0;
 
+
+// Changing pid chcanges which pid
+// 0 - Acro mode
+// 1 - angle mode
+// 2 - both depending on flight mode set
+uint8_t pid_change_mode = 1;
+
 // ------------------------------------------------------------------------------------------------------ Logging to SD card
 char log_file_base_name[] = "Quadcopter.txt";
 char log_file_blackbox_base_name[] = "Quadcopter.BBL";
 char *new_log_file_blackbox_base_name;
-uint16_t file_index = 0;
-
-const uint8_t write_repeat_logs_in_same_file = 1;
+uint16_t blackbox_file_index = 0;
+// Debug modes
+// 0 - motor frequency
+// 1 - imu data from drone
+const uint8_t blackbox_debug_mode = 1;
+// 0 - acro mode
+// 1 - angle mode
+const uint8_t blackbox_log_angle_mode_pid = 1;
+const uint8_t blackbox_write_repeat_logs_in_same_file = 1;
 
 uint8_t sd_card_initialized = 0;
 uint8_t log_loop_count = 0;
 uint8_t sd_card_async = 0;
-const uint8_t use_simple_async = 0; // 0 is the complex async and is faster
-const uint8_t use_blackbox_logging = 1; 
+// 0 - complex async (faster)
+// 1 - simple async
+const uint8_t use_simple_async = 0;
+const uint8_t use_blackbox_logging = 0;
+// 0 - general logging
+// 1 - gps logging
+uint8_t txt_logging_mode = 1;
 
 
 void DMA1_Stream7_IRQHandler(void){
@@ -807,10 +846,21 @@ void handle_get_and_calculate_sensor_values(){
 
 
     bn357_parse_data(); // Try to parse gps
+    old_gps_longitude = gps_longitude;
+    old_gps_latitude = gps_latitude;
     gps_latitude = bn357_get_latitude_decimal_format();
     gps_longitude = bn357_get_linear_longitude_decimal_format(); // Linear for pid
+    gps_real_longitude = bn357_get_longitude_decimal_format(); // Linear for pid
     gps_fix_type = bn357_get_fix_type();
     got_gps = bn357_get_status_up_to_date(1);
+    if(got_gps){ // Keep this light on for at least 1 second
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+        last_got_gps_timestamp = get_absolute_time()/1000;
+        gps_can_be_used = 1;
+    }else if(get_absolute_time()/1000 - last_got_gps_timestamp > max_allowed_time_miliseconds_between_got_gps){
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+        gps_can_be_used = 0;
+    }
 
     // Pitch (+)forwards - front of device nose goes down
     // Roll (+)right - the device banks to the right side while pointing forward
@@ -940,9 +990,9 @@ void handle_get_and_calculate_sensor_values(){
     // GPS STUFF
     float latitude_sign = 1 * (bn357_get_latitude_direction() == 'N') + (-1) * (bn357_get_latitude_direction() == 'S'); // Possible results: 0, 1 or -1
     float longitude_sign = 1 * (bn357_get_longitude_direction() == 'E') + (-1) * (bn357_get_longitude_direction() == 'W');
-    roll_effect_on_lat = -triangle_cos(imu_orientation[0] * M_PI_DIV_BY_180) * latitude_sign; // + GOOD, - GOOD  // If moving north roll right positive, roll left south negative
-    pitch_effect_on_lat = triangle_cos(imu_orientation[1] * M_PI_DIV_BY_180) * latitude_sign; // + GOOD, - GOOD  // If moving north forward positive, backwards negative
-    roll_effect_on_lon = triangle_cos(imu_orientation[0] * M_PI_DIV_BY_180) * longitude_sign; // GOOD, - GOOD
+    roll_effect_on_lat = -triangle_cos(imu_orientation[0] * M_PI_DIV_BY_180) * latitude_sign;  // + GOOD, - GOOD  // If moving north roll right positive, roll left south negative
+    pitch_effect_on_lat = triangle_cos(imu_orientation[1] * M_PI_DIV_BY_180) * latitude_sign;  // + GOOD, - GOOD  // If moving north forward positive, backwards negative
+    roll_effect_on_lon = triangle_cos(imu_orientation[0] * M_PI_DIV_BY_180) * longitude_sign;  // + GOOD, - GOOD
     pitch_effect_on_lon = triangle_cos(imu_orientation[1] * M_PI_DIV_BY_180) * longitude_sign; // + GOOD, - GOOD 
 
     // printf("PLAT: %.2f RLAT: %.2f PLON: %.2f RLON: %.2f\n", 
@@ -1013,6 +1063,8 @@ void handle_pid_and_motor_control(){
         imu_orientation[1] < -max_angle_before_motors_off || 
         ((float)get_absolute_time() - (float)last_signal_timestamp_microseconds) / 1000000.0 > minimum_signal_timing_seconds
     ){  
+        // When not receiving signals, increase the complementary filter ratio to quickly smooth out any movements done by carrying the drone
+        mpu6050_set_complementary_ratio(COMPLEMENTARY_RATIO_MULTIPLYER_OFF * (1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ))));
         // uint64_t timm_absolute = get_absolute_time();
 
         // float timessss = ((float)timm_absolute - (float)last_signal_timestamp_microseconds) / 1000000.0;
@@ -1059,6 +1111,8 @@ void handle_pid_and_motor_control(){
         PID_set_points[2] = 0; // Logging
         PID_set_points[3] = 0; // Logging
 
+        gps_hold_roll_adjustment = 0.0f;
+        gps_hold_pitch_adjustment = 0.0f;
 
         pid_reset_integral_sum(&acro_roll_pid);
         pid_reset_integral_sum(&acro_pitch_pid);
@@ -1075,13 +1129,13 @@ void handle_pid_and_motor_control(){
         motor7 = DWT->CYCCNT;
         return;
     }
-    // printf("GO   %.1f %.1f - %f\n", imu_orientation[0], imu_orientation[1], ((float)get_absolute_time() - (float)last_signal_timestamp_microseconds) / 1000000.0);
+    // When receiving signals, decrease the complementary filter ratio to make the drone more responsive to gyro
+    mpu6050_set_complementary_ratio(COMPLEMENTARY_RATIO_MULTIPLYER_FLIGHT * (1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ))));
 
     // ---------------------------------------------------------------------------------------------- GPS position hold
-    float gps_hold_roll_adjustment = 0.0f;
-    float gps_hold_pitch_adjustment = 0.0f;
     if(use_gps_hold){
-        if(gps_position_hold_enabled && got_gps){
+        // If the gps is not up to date then do not use it
+        if(gps_position_hold_enabled && gps_can_be_used && old_gps_longitude != gps_longitude && old_gps_latitude != gps_latitude){
             pid_set_desired_value(&gps_latitude_pid, target_latitude);
             pid_set_desired_value(&gps_longitude_pid, target_longitude);
 
@@ -1134,18 +1188,11 @@ void handle_pid_and_motor_control(){
             // }
 
 
-
-            if(gps_hold_roll_adjustment_calculation > gps_pid_angle_of_attack_max){
-                gps_hold_roll_adjustment_calculation = gps_pid_angle_of_attack_max;
-            }else if(gps_hold_roll_adjustment_calculation < -gps_pid_angle_of_attack_max){
-                gps_hold_roll_adjustment_calculation = -gps_pid_angle_of_attack_max;
-            } 
-        
-            if(gps_hold_pitch_adjustment_calculation > gps_pid_angle_of_attack_max){
-                gps_hold_pitch_adjustment_calculation = gps_pid_angle_of_attack_max;
-            }else if(gps_hold_pitch_adjustment_calculation < -gps_pid_angle_of_attack_max){
-                gps_hold_pitch_adjustment_calculation = -gps_pid_angle_of_attack_max;
-            }
+            // Limit the values
+            if(gps_hold_roll_adjustment_calculation > gps_pid_angle_of_attack_max) gps_hold_roll_adjustment_calculation = gps_pid_angle_of_attack_max;
+            else if(gps_hold_roll_adjustment_calculation < -gps_pid_angle_of_attack_max) gps_hold_roll_adjustment_calculation = -gps_pid_angle_of_attack_max;
+            if(gps_hold_pitch_adjustment_calculation > gps_pid_angle_of_attack_max) gps_hold_pitch_adjustment_calculation = gps_pid_angle_of_attack_max;
+            else if(gps_hold_pitch_adjustment_calculation < -gps_pid_angle_of_attack_max) gps_hold_pitch_adjustment_calculation = -gps_pid_angle_of_attack_max;
 
             gps_hold_roll_adjustment = gps_hold_roll_adjustment_calculation;
             gps_hold_pitch_adjustment = gps_hold_pitch_adjustment_calculation;
@@ -1154,14 +1201,11 @@ void handle_pid_and_motor_control(){
             // printf("%.2f;%.2f;%.2f;%.2f;", roll_effect_on_lat, roll_effect_on_lon, pitch_effect_on_lat, pitch_effect_on_lon);
             // printf("\n");
 
-            last_error_roll = gps_hold_roll_adjustment;
-            last_error_pitch = gps_hold_pitch_adjustment;
-
             // printf("off: %3.1f %3.1f\n", gps_hold_roll_adjustment, gps_hold_pitch_adjustment);
-        }else if(gps_position_hold_enabled && got_gps == 0){
+        }else if(gps_position_hold_enabled && !gps_can_be_used){
             // Put in the same values'
-            gps_hold_roll_adjustment = last_error_roll;
-            gps_hold_pitch_adjustment = last_error_pitch;
+            gps_hold_roll_adjustment = 0.0f;
+            gps_hold_pitch_adjustment = 0.0f;
         }
     }
     motor2 = DWT->CYCCNT;
@@ -1225,23 +1269,43 @@ void handle_pid_and_motor_control(){
 
     pid_calculate_error(&acro_yaw_pid, gyro_angular[2], pid_time);
     pid_set_previous_time(&acro_yaw_pid, pid_time);
+
+    // printf("ROl g: %.3f gf: %.3f dt: %.3f \n", gyro_angular[0], gyro_angular_for_d_term[0], PID_derivative[0]);
+
+    // Inner pid roll logging
     PID_proportional[0] = pid_get_last_proportional_error(&acro_roll_pid);
     PID_integral[0] = pid_get_last_integral_error(&acro_roll_pid);
     PID_derivative[0] = pid_get_last_derivative_error(&acro_roll_pid);
-    // printf("ROl g: %.3f gf: %.3f dt: %.3f \n", gyro_angular[0], gyro_angular_for_d_term[0], PID_derivative[0]);
 
+    // Inner pid pitch logging
     PID_proportional[1] = pid_get_last_proportional_error(&acro_pitch_pid);
     PID_integral[1] = pid_get_last_integral_error(&acro_pitch_pid);
     PID_derivative[1] = pid_get_last_derivative_error(&acro_pitch_pid);
+
+    // Inner pid yaw logging
     PID_proportional[2] = pid_get_last_proportional_error(&acro_yaw_pid);
     PID_integral[2] = pid_get_last_integral_error(&acro_yaw_pid);
 
 
 
+
     // Use throttle to make the biquad filter dynamic
-    error_acro_roll = PID_proportional[0] + PID_integral[0] + PID_derivative[0];
     error_acro_pitch = PID_proportional[1] + PID_integral[1] + PID_derivative[1];
+    error_acro_roll = PID_proportional[0] + PID_integral[0] + PID_derivative[0];
     error_acro_yaw = PID_proportional[2] + PID_integral[2];
+
+    if(blackbox_log_angle_mode_pid){
+        // Outer pid roll logging
+        PID_proportional[0] = pid_get_last_proportional_error(&angle_roll_pid);
+        PID_integral[0] = pid_get_last_integral_error(&angle_roll_pid);
+        PID_derivative[0] = pid_get_last_derivative_error(&angle_roll_pid);
+
+        // Outer pid pitch logging
+        PID_proportional[1] = pid_get_last_proportional_error(&angle_pitch_pid);
+        PID_integral[1] = pid_get_last_integral_error(&angle_pitch_pid);
+        PID_derivative[1] = pid_get_last_derivative_error(&angle_pitch_pid);
+    }
+
 
     motor5 = DWT->CYCCNT;
 
@@ -1378,7 +1442,7 @@ void handle_radio_communication(){
 
         extract_pid_request_values(rx_data, strlen(rx_data), &added_proportional, &added_integral, &added_derivative, &added_master_gain);
 
-        // if(!use_angle_mode){ // ACRO MODE
+        if(pid_change_mode == 0){ // Acro mode change
             acro_roll_pitch_gain_p = BASE_ACRO_roll_pitch_GAIN_P + added_proportional;
             acro_roll_pitch_gain_i = BASE_ACRO_roll_pitch_GAIN_I + added_integral;
             acro_roll_pitch_gain_d = BASE_ACRO_roll_pitch_GAIN_D + added_derivative;
@@ -1395,31 +1459,74 @@ void handle_radio_communication(){
             pid_set_integral_gain(&acro_pitch_pid, acro_roll_pitch_gain_i * acro_roll_pitch_master_gain);
             pid_set_derivative_gain(&acro_pitch_pid, acro_roll_pitch_gain_d * acro_roll_pitch_master_gain);
             pid_reset_integral_sum(&acro_pitch_pid);
-        // }
+        }else if(pid_change_mode == 1){ // Angle mode change
+            angle_roll_pitch_gain_p = BASE_ANGLE_roll_pitch_GAIN_P + added_proportional;
+            angle_roll_pitch_gain_i = BASE_ANGLE_roll_pitch_GAIN_I + added_integral;
+            angle_roll_pitch_gain_d = BASE_ANGLE_roll_pitch_GAIN_D + added_derivative;
+            angle_roll_pitch_master_gain = BASE_ANGLE_roll_pitch_MASTER_GAIN + added_master_gain;
 
-        // if(use_angle_mode){ // ANGLE MODE
-        //     angle_roll_pitch_gain_p = BASE_ANGLE_roll_pitch_GAIN_P + added_proportional;
-        //     angle_roll_pitch_gain_i = BASE_ANGLE_roll_pitch_GAIN_I + added_integral;
-        //     angle_roll_pitch_gain_d = BASE_ANGLE_roll_pitch_GAIN_D + added_derivative;
-        //     angle_roll_pitch_master_gain = BASE_ANGLE_roll_pitch_MASTER_GAIN + added_master_gain;
+            added_angle_roll_pitch_gain_p = added_proportional;
+            added_angle_roll_pitch_gain_i = added_integral;
+            added_angle_roll_pitch_gain_d = added_derivative;
+            added_angle_roll_pitch_master_gain = added_master_gain;
 
-        //     added_angle_roll_pitch_gain_p = added_proportional;
-        //     added_angle_roll_pitch_gain_i = added_integral;
-        //     added_angle_roll_pitch_gain_d = added_derivative;
-        //     added_angle_roll_pitch_master_gain = added_master_gain;
+            // Configure the pitch pid 
+            pid_set_proportional_gain(&angle_pitch_pid, angle_roll_pitch_gain_p * angle_roll_pitch_master_gain);
+            pid_set_integral_gain(&angle_pitch_pid, angle_roll_pitch_gain_i * angle_roll_pitch_master_gain);
+            pid_set_derivative_gain(&angle_pitch_pid, angle_roll_pitch_gain_d * angle_roll_pitch_master_gain);
+            pid_reset_integral_sum(&angle_pitch_pid);
 
-        //     // Configure the pitch pid 
-        //     pid_set_proportional_gain(&angle_pitch_pid, angle_roll_pitch_gain_p * angle_roll_pitch_master_gain);
-        //     pid_set_integral_gain(&angle_pitch_pid, angle_roll_pitch_gain_i * angle_roll_pitch_master_gain);
-        //     pid_set_derivative_gain(&angle_pitch_pid, angle_roll_pitch_gain_d * angle_roll_pitch_master_gain);
-        //     pid_reset_integral_sum(&angle_pitch_pid);
+            // Configure the roll pid 
+            pid_set_proportional_gain(&angle_roll_pid, angle_roll_pitch_gain_p * angle_roll_pitch_master_gain);
+            pid_set_integral_gain(&angle_roll_pid, angle_roll_pitch_gain_i * angle_roll_pitch_master_gain);
+            pid_set_derivative_gain(&angle_roll_pid, angle_roll_pitch_gain_d * angle_roll_pitch_master_gain);
+            pid_reset_integral_sum(&angle_roll_pid);
+        }else if(pid_change_mode == 2){ // Both depending on flight mode
 
-        //     // Configure the roll pid 
-        //     pid_set_proportional_gain(&angle_roll_pid, angle_roll_pitch_gain_p * angle_roll_pitch_master_gain);
-        //     pid_set_integral_gain(&angle_roll_pid, angle_roll_pitch_gain_i * angle_roll_pitch_master_gain);
-        //     pid_set_derivative_gain(&angle_roll_pid, angle_roll_pitch_gain_d * angle_roll_pitch_master_gain);
-        //     pid_reset_integral_sum(&angle_roll_pid);
-        // }
+            if(!use_angle_mode){ // ACRO MODE
+                acro_roll_pitch_gain_p = BASE_ACRO_roll_pitch_GAIN_P + added_proportional;
+                acro_roll_pitch_gain_i = BASE_ACRO_roll_pitch_GAIN_I + added_integral;
+                acro_roll_pitch_gain_d = BASE_ACRO_roll_pitch_GAIN_D + added_derivative;
+                acro_roll_pitch_master_gain = BASE_ACRO_roll_pitch_MASTER_GAIN + added_master_gain;
+
+                // Configure the roll pid 
+                pid_set_proportional_gain(&acro_roll_pid, acro_roll_pitch_gain_p * acro_roll_pitch_master_gain);
+                pid_set_integral_gain(&acro_roll_pid, acro_roll_pitch_gain_i * acro_roll_pitch_master_gain);
+                pid_set_derivative_gain(&acro_roll_pid, acro_roll_pitch_gain_d * acro_roll_pitch_master_gain);
+                pid_reset_integral_sum(&acro_roll_pid);
+
+                // Configure the pitch pid 
+                pid_set_proportional_gain(&acro_pitch_pid, acro_roll_pitch_gain_p * acro_roll_pitch_master_gain);
+                pid_set_integral_gain(&acro_pitch_pid, acro_roll_pitch_gain_i * acro_roll_pitch_master_gain);
+                pid_set_derivative_gain(&acro_pitch_pid, acro_roll_pitch_gain_d * acro_roll_pitch_master_gain);
+                pid_reset_integral_sum(&acro_pitch_pid);
+            }
+
+            if(use_angle_mode){ // ANGLE MODE
+                angle_roll_pitch_gain_p = BASE_ANGLE_roll_pitch_GAIN_P + added_proportional;
+                angle_roll_pitch_gain_i = BASE_ANGLE_roll_pitch_GAIN_I + added_integral;
+                angle_roll_pitch_gain_d = BASE_ANGLE_roll_pitch_GAIN_D + added_derivative;
+                angle_roll_pitch_master_gain = BASE_ANGLE_roll_pitch_MASTER_GAIN + added_master_gain;
+
+                added_angle_roll_pitch_gain_p = added_proportional;
+                added_angle_roll_pitch_gain_i = added_integral;
+                added_angle_roll_pitch_gain_d = added_derivative;
+                added_angle_roll_pitch_master_gain = added_master_gain;
+
+                // Configure the pitch pid 
+                pid_set_proportional_gain(&angle_pitch_pid, angle_roll_pitch_gain_p * angle_roll_pitch_master_gain);
+                pid_set_integral_gain(&angle_pitch_pid, angle_roll_pitch_gain_i * angle_roll_pitch_master_gain);
+                pid_set_derivative_gain(&angle_pitch_pid, angle_roll_pitch_gain_d * angle_roll_pitch_master_gain);
+                pid_reset_integral_sum(&angle_pitch_pid);
+
+                // Configure the roll pid 
+                pid_set_proportional_gain(&angle_roll_pid, angle_roll_pitch_gain_p * angle_roll_pitch_master_gain);
+                pid_set_integral_gain(&angle_roll_pid, angle_roll_pitch_gain_i * angle_roll_pitch_master_gain);
+                pid_set_derivative_gain(&angle_roll_pid, angle_roll_pitch_gain_d * angle_roll_pitch_master_gain);
+                pid_reset_integral_sum(&angle_roll_pid);
+            }
+
+        }
 
 
         // Start new log blackbox log file if one was running.
@@ -1461,7 +1568,7 @@ void handle_radio_communication(){
             printf("SD logging: Waiting for writing and slave ready\n");
             sd_card_wait_for_dma_transfer_complete();
             sd_card_wait_for_slave_ready();
-            if(write_repeat_logs_in_same_file){
+            if(blackbox_write_repeat_logs_in_same_file){
                 sd_card_wait_for_dma_transfer_complete();
                 sd_card_wait_for_slave_ready();
 
@@ -1498,7 +1605,8 @@ void handle_radio_communication(){
                     d_term_filtering_expo,
                     &betaflight_header_length,
                     sd_card_buffer,
-                    10000
+                    10000,
+                    blackbox_debug_mode
                 );
                 
                 sd_card_buffer_increment_index_by_amount(betaflight_header_length);
@@ -1599,7 +1707,7 @@ void handle_radio_communication(){
 
         float added_x_axis_offset;
         float added_y_axis_offset;
-
+        printf("Accel: %s\n", rx_data);
         extract_accelerometer_offsets(rx_data, strlen(rx_data), &added_x_axis_offset, &added_y_axis_offset);
         printf("\nGot offsets %f %f ", -added_x_axis_offset, -added_y_axis_offset);
 
@@ -1645,17 +1753,17 @@ void handle_radio_communication(){
 
 
 void initialize_control_abstractions(){
-    acro_roll_pid = pid_init(acro_roll_pitch_master_gain * acro_roll_pitch_gain_p, acro_roll_pitch_master_gain * acro_roll_pitch_gain_i, acro_roll_pitch_master_gain * acro_roll_pitch_gain_d, 0.0, get_absolute_time(), 25, -25, 1);
-    acro_pitch_pid = pid_init(acro_roll_pitch_master_gain * acro_roll_pitch_gain_p, acro_roll_pitch_master_gain * acro_roll_pitch_gain_i, acro_roll_pitch_master_gain * acro_roll_pitch_gain_d, 0.0, get_absolute_time(), 25, -25, 1);
-    acro_yaw_pid = pid_init(acro_yaw_gain_p, acro_yaw_gain_i, 0, 0.0, get_absolute_time(), 10.0, -10.0, 1);
+    acro_roll_pid = pid_init(acro_roll_pitch_master_gain * acro_roll_pitch_gain_p, acro_roll_pitch_master_gain * acro_roll_pitch_gain_i, acro_roll_pitch_master_gain * acro_roll_pitch_gain_d, 0.0, get_absolute_time(), 25, -25, 1, 0);
+    acro_pitch_pid = pid_init(acro_roll_pitch_master_gain * acro_roll_pitch_gain_p, acro_roll_pitch_master_gain * acro_roll_pitch_gain_i, acro_roll_pitch_master_gain * acro_roll_pitch_gain_d, 0.0, get_absolute_time(), 25, -25, 1, 0);
+    acro_yaw_pid = pid_init(acro_yaw_gain_p, acro_yaw_gain_i, 0, 0.0, get_absolute_time(), 10.0, -10.0, 1, 0);
 
-    angle_roll_pid = pid_init(angle_roll_pitch_master_gain * angle_roll_pitch_gain_p, angle_roll_pitch_master_gain * angle_roll_pitch_gain_i, angle_roll_pitch_master_gain * angle_roll_pitch_gain_d, 0.0, get_absolute_time(), acro_mode_rate_degrees_per_second, -acro_mode_rate_degrees_per_second, 1);
-    angle_pitch_pid = pid_init(angle_roll_pitch_master_gain * angle_roll_pitch_gain_p, angle_roll_pitch_master_gain * angle_roll_pitch_gain_i, angle_roll_pitch_master_gain * angle_roll_pitch_gain_d, 0.0, get_absolute_time(), acro_mode_rate_degrees_per_second, -acro_mode_rate_degrees_per_second, 1);
+    angle_roll_pid = pid_init(angle_roll_pitch_master_gain * angle_roll_pitch_gain_p, angle_roll_pitch_master_gain * angle_roll_pitch_gain_i, angle_roll_pitch_master_gain * angle_roll_pitch_gain_d, 0.0, get_absolute_time(), angle_mode_rate_degrees_per_second_max_integral_derivative, -angle_mode_rate_degrees_per_second_max_integral_derivative, 1, 0);
+    angle_pitch_pid = pid_init(angle_roll_pitch_master_gain * angle_roll_pitch_gain_p, angle_roll_pitch_master_gain * angle_roll_pitch_gain_i, angle_roll_pitch_master_gain * angle_roll_pitch_gain_d, 0.0, get_absolute_time(), angle_mode_rate_degrees_per_second_max_integral_derivative, -angle_mode_rate_degrees_per_second_max_integral_derivative, 1, 0);
 
-    vertical_velocity_pid = pid_init(vertical_velocity_gain_p, vertical_velocity_gain_i, vertical_velocity_gain_d, 0.0, get_absolute_time(), 90.0, 0.0, 1); // Min value is 0 because motors dont go lower that that
+    vertical_velocity_pid = pid_init(vertical_velocity_gain_p, vertical_velocity_gain_i, vertical_velocity_gain_d, 0.0, get_absolute_time(), 90.0, 0.0, 1, 0); // Min value is 0 because motors dont go lower that that
 
-    gps_longitude_pid = pid_init(gps_hold_gain_p, gps_hold_gain_i, gps_hold_gain_d, 0.0, get_absolute_time(), gps_pid_angle_of_attack_max, -gps_pid_angle_of_attack_max, 1);
-    gps_latitude_pid = pid_init(gps_hold_gain_p, gps_hold_gain_i, gps_hold_gain_d, 0.0, get_absolute_time(), gps_pid_angle_of_attack_max, -gps_pid_angle_of_attack_max, 1);
+    gps_longitude_pid = pid_init(gps_hold_gain_p, gps_hold_gain_i, gps_hold_gain_d, 0.0, get_absolute_time(), gps_pid_angle_of_attack_max, -gps_pid_angle_of_attack_max, 1, 0);
+    gps_latitude_pid = pid_init(gps_hold_gain_p, gps_hold_gain_i, gps_hold_gain_d, 0.0, get_absolute_time(), gps_pid_angle_of_attack_max, -gps_pid_angle_of_attack_max, 1, 0);
 
     filter_magnetometer_x = filtering_init_low_pass_filter_pt1(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
     filter_magnetometer_y = filtering_init_low_pass_filter_pt1(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
@@ -1871,15 +1979,15 @@ void setup_logging_to_sd(uint8_t use_updated_file_name){
             // Get the index of the file
 
             // OK
-            file_index = sd_special_get_file_index();
-            printf("SD logging: File index is %d\n", file_index);
+            blackbox_file_index = sd_special_get_file_index();
+            printf("SD logging: File index is %d\n", blackbox_file_index);
 
             // Create the new file name string. Will be used for repeated log starts
             uint16_t length = snprintf(
                 NULL, 
                 0,
                 "-%d%s", 
-                file_index,
+                blackbox_file_index,
                 log_file_blackbox_base_name
             );
             
@@ -1891,7 +1999,7 @@ void setup_logging_to_sd(uint8_t use_updated_file_name){
                 (char*)new_log_file_blackbox_base_name, 
                 length + 1, 
                 "-%d%s", 
-                file_index,
+                blackbox_file_index,
                 log_file_blackbox_base_name
             );
         }
@@ -1939,7 +2047,8 @@ void setup_logging_to_sd(uint8_t use_updated_file_name){
             d_term_filtering_expo,
             &betaflight_header_length,
             sd_card_buffer,
-            10000
+            10000,
+            blackbox_debug_mode
         );
         
         sd_card_buffer_increment_index_by_amount(betaflight_header_length);
@@ -1965,7 +2074,7 @@ void setup_logging_to_sd(uint8_t use_updated_file_name){
 
         printf("SD logging: Initialized txt logging. Code %d\n", sd_get_response());
 
-        sd_card_async = sd_special_enter_async_string_mode();
+        sd_card_async = sd_special_enter_async_string_mode(1);
 
         if(!sd_card_async){
             printf("SD logging: failed to enter async TXT mode\n");
@@ -1973,6 +2082,13 @@ void setup_logging_to_sd(uint8_t use_updated_file_name){
             sd_card_initialized = 0;
             return;
         }
+
+        
+        sd_buffer_swap();
+        sd_buffer_clear_index(1); // Reset the index
+
+        HAL_Delay(1000); // wait a bit for the logger to write the data into SD
+        
         printf("SD logging: entered async TXT mode\n");
     }
     
@@ -2038,6 +2154,8 @@ void handle_logging(){
         if(use_blackbox_logging){
             uint16_t data_size_data = 0;
             uint8_t* sd_card_buffer = (uint8_t*)sd_card_get_buffer_pointer(1);
+
+            float angle_mode_targers[] = {angle_target_roll, angle_target_pitch};
             betaflight_blackbox_get_encoded_data_string(
                 loop_iteration,
                 time_blackbox,
@@ -2052,43 +2170,53 @@ void handle_logging(){
                 motor_power,
                 magnetometer_data,
                 motor_frequency,
+                imu_orientation,
+                angle_mode_targers,
                 altitude,
                 &data_size_data,
-                sd_card_buffer
+                sd_card_buffer,
+                blackbox_debug_mode
             );
-            
-            sd_card_buffer_increment_index_by_amount(data_size);
             
             uint16_t data_size_gps = 0;
             if(got_gps){
-                uint16_t data_size_gps = 0;
                 betaflight_blackbox_get_encoded_gps_string(
                     bn357_get_utc_time_raw(),
-                    bn357_get_fix_quality(),
+                    bn357_get_satellites_quantity(),
                     bn357_get_latitude_decimal_format(),
                     bn357_get_longitude_decimal_format(),
                     &data_size_gps, // it will append but not overwrite
-                    sd_card_buffer + sd_buffer_size(1) // Offset the buffer, to not overwrite the data
+                    sd_card_buffer + data_size_data // Offset the buffer, to not overwrite the data
                 );
-                sd_card_buffer_increment_index_by_amount(data_size);
             }
-            data_size = data_size_data + data_size_gps;
-        }else{
-            // TXT based logging
-            // Log a bit of data
-            // sd_card_append_to_buffer(1, "%02d:%02d:%02d:%03d;", time_since_startup_hours, time_since_startup_minutes, time_since_startup_seconds, time_since_startup_ms);
-            // sd_card_append_to_buffer(1, "ACCEL,%.2f,%.2f,%.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
-            // sd_card_append_to_buffer(1, "GYRO,%.2f,%.2f,%.2f;", imu_orientation[0], imu_orientation[1], imu_orientation[2]);
-            // sd_card_append_to_buffer(1, "MAG,%.2f,%.2f,%.2f;", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
-            // sd_card_append_to_buffer(1, "MOTOR,1=%.2f,2=%.2f,3=%.2f,4=%.2f;", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
-            // sd_card_append_to_buffer(1, "ERROR,pitch=%.2f,roll=%.2f,yaw=%.2f,altitude=%.2f;", error_angle_pitch, error_angle_roll, error_acro_yaw, error_altitude);
-            // sd_card_append_to_buffer(1, "TEMP,%.2f;", temperature);
-            // sd_card_append_to_buffer(1, "ALT %.2f;", altitude);
-            // sd_card_append_to_buffer(1, "GPS,lon-%f,lat-%f;", bn357_get_longitude_decimal_format(), bn357_get_latitude_decimal_format());
-            // sd_card_append_to_buffer(1, "\n");
 
-            // sd_card_append_to_buffer(1, "%6.5f %6.5f %6.5f", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);  
-            // sd_card_append_to_buffer(1, "\n");
+            // printf("I %d\n", data_size_data);
+            // printf("G %d\n", data_size_gps);
+
+            data_size = data_size_data + data_size_gps;
+            sd_card_buffer_increment_index_by_amount(data_size);
+        }else{
+            if(txt_logging_mode == 0){
+                // TXT based logging
+                // Log a bit of data
+                // sd_card_append_to_buffer(1, "%02d:%02d:%02d:%03d;", time_since_startup_hours, time_since_startup_minutes, time_since_startup_seconds, time_since_startup_ms);
+                // sd_card_append_to_buffer(1, "ACCEL,%.2f,%.2f,%.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+                // sd_card_append_to_buffer(1, "GYRO,%.2f,%.2f,%.2f;", imu_orientation[0], imu_orientation[1], imu_orientation[2]);
+                // sd_card_append_to_buffer(1, "MAG,%.2f,%.2f,%.2f;", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);
+                // sd_card_append_to_buffer(1, "MOTOR,1=%.2f,2=%.2f,3=%.2f,4=%.2f;", motor_power[0], motor_power[1], motor_power[2], motor_power[3]);
+                // sd_card_append_to_buffer(1, "ERROR,pitch=%.2f,roll=%.2f,yaw=%.2f,altitude=%.2f;", error_angle_pitch, error_angle_roll, error_acro_yaw, error_altitude);
+                // sd_card_append_to_buffer(1, "TEMP,%.2f;", temperature);
+                // sd_card_append_to_buffer(1, "ALT %.2f;", altitude);
+                // sd_card_append_to_buffer(1, "GPS,lon-%f,lat-%f;", bn357_get_longitude_decimal_format(), bn357_get_latitude_decimal_format());
+                // sd_card_append_to_buffer(1, "\n");
+
+                // sd_card_append_to_buffer(1, "%6.5f %6.5f %6.5f", magnetometer_data[0], magnetometer_data[1], magnetometer_data[2]);  
+                // sd_card_append_to_buffer(1, "\n");
+                
+            }else if(txt_logging_mode == 1){ // Log gps target and current position
+                sd_card_append_to_buffer(1, "%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;", target_latitude, target_longitude, gps_latitude, gps_real_longitude, gps_hold_roll_adjustment, gps_hold_pitch_adjustment, imu_orientation[0], imu_orientation[1], imu_orientation[2]);
+                sd_card_append_to_buffer(1, "\n");
+            }
         } 
         
         if(sd_card_async){
@@ -2099,26 +2227,33 @@ void handle_logging(){
                 if(use_blackbox_logging){
                     logging2 = DWT->CYCCNT;
                     
-                    sd_special_write_chunk_of_byte_data_async(sd_card_get_buffer_pointer(1), data_size);
                     // uint8_t * buffer_new = (uint8_t *)sd_card_get_buffer_pointer(1);
                     // printf("%d write  ", data_size);
                     // for (uint16_t i = 0; i < data_size; i++){
                     //     printf("%02X ", buffer_new[i]);
                     // }
                     // printf("\n");
+
+                    sd_special_write_chunk_of_byte_data_async(sd_card_get_buffer_pointer(1), data_size);
+
                     sd_buffer_swap();
                     sd_buffer_clear_index(1); // Reset the index
-                    // sd_buffer_clear(1); 
-
-
-                    
-                    // printf("d%d\n", data_size);
+                    // sd_buffer_clear(1); // Dont need to wipe all of it for now
 
                     logging3 = DWT->CYCCNT;
                 }else{
+                    
+                    // uint8_t* sd_card_buffer = (uint8_t*)sd_card_get_buffer_pointer(1);
+                    // printf("%d write:'", strlen(sd_card_buffer));
+                    // for (uint16_t i = 0; i < strlen(sd_card_buffer); i++){
+                    //     printf("%c", sd_card_buffer[i]);
+                    // }
+                    // printf("'\n");
+
                     sd_special_write_chunk_of_string_data_async(sd_card_get_buffer_pointer(1));
                     sd_buffer_swap();
-                    sd_buffer_clear(1);
+                    sd_buffer_clear_index(1); // Reset the index
+                    // sd_buffer_clear(1); // Dont need to wipe all of it for now
                 }
             }
         }else{
@@ -2149,11 +2284,12 @@ void handle_logging(){
     // printf("\n");
 
     // Update the blue led with current sd state
-    if(sd_card_initialized){
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
-    }else{
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
-    }
+    // GPS stuff more imortant curently so this is disabled
+    // if(sd_card_initialized){
+    //     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+    // }else{
+    //     HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+    // }
 }
 
 

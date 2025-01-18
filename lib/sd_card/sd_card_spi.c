@@ -879,16 +879,19 @@ uint8_t sd_special_write_chunk_of_byte_data(const char *data, uint16_t length){
         return 0;
 }
 
-uint8_t sd_special_enter_async_string_mode(){
+uint8_t sd_special_enter_async_string_mode(uint8_t reset_sd_initialization_when_async_stops){
     if(m_device_handle){
         uint8_t response[1];
         uint8_t command = LOGGER_ENTER_ASYNC_STRING_MODE;
 
         slave_select();
         start_waiting_for_slave_ready();
-        HAL_SPI_Transmit(m_device_handle, &command, 1, 5000); // send command
-        if(!wait_for_slave_ready(5000)) goto error;
-        HAL_SPI_Receive(m_device_handle, response, 1, 5000);
+        HAL_SPI_Transmit(m_device_handle, &command, 1, 60000); // send command
+        if(!wait_for_slave_ready(60000)) goto error;
+        start_waiting_for_slave_ready();
+        HAL_SPI_Transmit(m_device_handle, &reset_sd_initialization_when_async_stops, 1, 60000); // tell slave what to do when async is stopped by master
+        if(!wait_for_slave_ready(60000)) goto error;
+        HAL_SPI_Receive(m_device_handle, response, 1, 60000);
         slave_deselect();
         
         if(!response[0]){
@@ -1007,17 +1010,22 @@ void delay_us(uint32_t microseconds) {
 uint8_t sd_special_write_chunk_of_string_data_async(const char *data){
     if(m_device_handle){
 
-        uint16_t file_length = strlen(data)+1; // \0 character as well
+        // \0 character not needed anymore as the SD card interface now accepts non \0 terminated strings (arrays of uint8)
+        uint16_t file_length = strlen(data);
         uint16_t total_length = file_length;
 
         sd_special_wait_until_async_write_done();
-        slave_deselect();
-        delay_us(25); // Need small delay for the slave to do internal reorganizing of buffers when it is ready to write new data
+        while (dma_transfer_call_status == 1);
         slave_select(); 
 
         // Use DMA to not block 
-        HAL_SPI_Transmit_DMA(m_device_handle, (uint8_t*)data, total_length);
+        HAL_StatusTypeDef ret = HAL_SPI_Transmit_DMA(m_device_handle, (uint8_t*)data, total_length);
 
+        if(ret != HAL_OK){
+            printf("sd_card_spi: sd_special_write_chunk_of_string_data_async error %d\n", ret);
+            return 0;
+        }
+        dma_transfer_call_status = 1;
         // Do not deselect the slave as it needs to be active in the background
 
         return 1;
@@ -1032,13 +1040,6 @@ uint8_t sd_special_write_chunk_of_byte_data_async(const char *data, uint16_t len
         // Wait until DMA transfer complete if there was a previous call
         sd_special_wait_until_async_write_done();
         while (dma_transfer_call_status == 1);
-
-        // No point deselecting
-        // slave_deselect();
-        // for (uint8_t i = 0; i < 30; i++){};
-        // 382 us
-        // slave_deselect();
-        // delay_us(25); // Need small delay for the slave to do internal reorganizing of buffers when it is ready to write new data
         slave_select(); 
 
         // Use DMA to not block 

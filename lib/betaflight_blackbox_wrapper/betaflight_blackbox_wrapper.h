@@ -34,7 +34,8 @@ void betaflight_blackbox_wrapper_get_header(
     uint16_t d_term_low_pass_expo,
     uint16_t* string_length_return,
     uint8_t* buffer,
-    uint16_t buffer_size
+    uint16_t buffer_size,
+    uint8_t mode
 );
 
 void betaflight_blackbox_get_encoded_data_string(
@@ -51,16 +52,19 @@ void betaflight_blackbox_get_encoded_data_string(
     float* motor_power,
     float* mag,
     float* motor_frequency,
+    float* imu_orientation,
+    float* angle_mode_targets,
     float altitude,
     uint16_t* string_length_return,
-    uint8_t *buffer
+    uint8_t *buffer,
+    uint8_t mode
 );
 
 char* betaflight_blackbox_get_end_of_log(uint16_t* string_length_return);
 
 void betaflight_blackbox_get_encoded_gps_string(
     uint32_t time_raw,
-    uint8_t fix_quality,
+    uint8_t sattalite_quantity,
     float latitude,
     float longitude,
     uint16_t* string_length_return,

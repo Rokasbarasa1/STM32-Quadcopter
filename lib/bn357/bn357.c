@@ -36,7 +36,7 @@ uint8_t receive_buffer_2[GPS_RECEIVE_BUFFER_SIZE];
 uint16_t receive_buffer_2_size;
 uint8_t buffer_for_dma = 0; // 0 is buf 1, 1 is buf 2
 
-volatile got_data = 0;
+volatile uint8_t got_data = 0;
 
 // Interrupt for uart 2 data received
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
@@ -166,9 +166,9 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
     char sub_string_gngga[length + 1];  // create a new string to store the substring, plus one for null terminator
     strncpy(sub_string_gngga, start, length);  // copy the substring to the new string
     sub_string_gngga[length] = '\0';  // add a null terminator to the new string
-// #if(BN357_DEBUG)
-//     printf("GNGGA Substring: %s\n", sub_string_gngga);  // print the substring
-// #endif
+#if(BN357_DEBUG)
+    printf("GNGGA Substring: %s\n", sub_string_gngga);  // print the substring
+#endif
 
 
 
@@ -394,9 +394,9 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
     char sub_string_gngsa[length + 1];  // create a new string to store the substring, plus one for null terminator
     strncpy(sub_string_gngsa, start, length);  // copy the substring to the new string
     sub_string_gngsa[length] = '\0';  // add a null terminator to the new string
-// #if(BN357_DEBUG)
-//     printf("GNGSA Substring: %s\n", sub_string_gngsa);  // print the substring
-// #endif
+#if(BN357_DEBUG)
+    printf("GNGSA Substring: %s\n", sub_string_gngsa);  // print the substring
+#endif
 
 
 

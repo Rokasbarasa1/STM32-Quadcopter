@@ -82,7 +82,7 @@ uint16_t sd_special_get_file_index();
 uint8_t sd_special_reset();
 uint8_t sd_special_write_chunk_of_string_data(const char *data);
 uint8_t sd_special_write_chunk_of_byte_data(const char *data, uint16_t length);
-uint8_t sd_special_enter_async_string_mode();
+uint8_t sd_special_enter_async_string_mode(uint8_t reset_sd_initialization_when_async_stops);
 uint8_t sd_special_enter_async_byte_mode(uint8_t reset_sd_initialization_when_async_stops);
 
 uint8_t sd_special_leave_async_mode();

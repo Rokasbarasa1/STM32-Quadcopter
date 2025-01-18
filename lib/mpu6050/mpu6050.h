@@ -52,3 +52,5 @@ void find_gyro_error(uint64_t sample_size);
 
 float angle_difference(float a, float b);
 void find_and_return_gyro_error(uint64_t sample_size, float *return_array);
+
+void mpu6050_set_complementary_ratio(float new_complementary_ratio);

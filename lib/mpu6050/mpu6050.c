@@ -442,7 +442,7 @@ void sensor_fusion_roll_pitch(float* gyro_angular, float accelerometer_roll, flo
     imu_orientation[1] = complementary_filter_calculate(
         m_complementary_ratio, 
         imu_orientation[1] + gyro_angular[1] * elapsed_time_sec,
-        accelerometer_roll
+        accelerometer_pitch
     );
 
     // I dont want to track how many times the degrees went over the 360 degree mark, no point.
@@ -551,4 +551,8 @@ float mpu6050_calculate_vertical_acceleration_cm_per_second(float acceleration_d
     vertical_acceleration = (vertical_acceleration - G) * 100;
 
     return vertical_acceleration;
+}
+
+void mpu6050_set_complementary_ratio(float new_complementary_ratio){
+    m_complementary_ratio = new_complementary_ratio;
 }

@@ -11,7 +11,8 @@ struct pid{
     uint64_t m_previous_time;
     float m_max_value;
     float m_min_value;
-    uint8_t m_stop_windup;
+    uint8_t m_stop_windup_integral;
+    uint8_t m_stop_windup_derivative;
     float m_last_proportional_error;
     float m_last_integral_error;
     float m_last_derivative_error;
@@ -25,7 +26,8 @@ struct pid pid_init(
     uint64_t time,
     float max_value,
     float min_value,
-    uint8_t stop_windup
+    uint8_t stop_windup_integral,
+    uint8_t stop_windup_derivative
 );
 float pid_get_error(struct pid* pid_instance, float value, uint64_t time);
 float pid_get_error_own_error(struct pid* pid_instance, float error, uint64_t time);
