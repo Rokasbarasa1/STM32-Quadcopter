@@ -191,7 +191,10 @@ Test checklist:
 * BMP280 (Barometer)
 * mmc5603 (Magnetometer)
 * BN357 (GPS)
+* NRF24l01+ (Radio RX)
 * STM32F411 blackpill board
 * HQProp DP 7x3.5x3 V1S 3 blade Propeller
 
-
+Future hardware:
+* HGLRC M100 5883 (GPS)
+* RadioMaster RP1 2.4GHz (ELRS RX)

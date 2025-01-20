@@ -424,6 +424,8 @@ float target_altitude = 0.0;
 float target_longitude = 0.0;
 float target_latitude = 0.0;
 
+uint8_t target_lon_lat_set = 0;
+
 // ------------------------------------------------------------------------------------------------------ Some configurations relating to PID
 const float gps_pid_angle_of_attack_max = 5.0;
 
@@ -556,7 +558,7 @@ const uint8_t d_term_filtering_expo = 7;
 
 struct kalman_filter altitude_and_velocity_kalman;
 // ------------------------------------------------------------------------------------------------------ Remote control settings
-float max_yaw_attack = 40.0;
+float max_yaw_attack = 80.0;
 float max_roll_attack = 10;
 float max_pitch_attack = 10;
 float roll_attack_step = 0.2;
@@ -857,6 +859,12 @@ void handle_get_and_calculate_sensor_values(){
         HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
         last_got_gps_timestamp = get_absolute_time()/1000;
         gps_can_be_used = 1;
+
+        if(!target_lon_lat_set){
+            target_longitude = gps_longitude;
+            target_latitude = gps_latitude;
+            target_lon_lat_set = 1;
+        }
     }else if(get_absolute_time()/1000 - last_got_gps_timestamp > max_allowed_time_miliseconds_between_got_gps){
         HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
         gps_can_be_used = 0;
@@ -2148,6 +2156,8 @@ void handle_logging(){
     time_since_startup_microseconds =           delta_time - time_since_startup_hours * HOURS_TO_MICROSECONDS - time_since_startup_minutes * MINUTES_TO_MICROSECONDS - time_since_startup_seconds * SECONDS_TO_MICROSECONDS - time_since_startup_ms * MILISECONDS_TO_MICROSECONDS;
     uint32_t time_blackbox = ((time_since_startup_hours * 60 + time_since_startup_minutes * 60) + time_since_startup_seconds) * 1000000 + time_since_startup_ms * 1000 + time_since_startup_microseconds;
 
+    uint8_t skip_logging = 0;
+
     if(sd_card_initialized){
         uint16_t data_size = 0;
 
@@ -2214,10 +2224,18 @@ void handle_logging(){
                 // sd_card_append_to_buffer(1, "\n");
                 
             }else if(txt_logging_mode == 1){ // Log gps target and current position
-                sd_card_append_to_buffer(1, "%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;", target_latitude, target_longitude, gps_latitude, gps_real_longitude, gps_hold_roll_adjustment, gps_hold_pitch_adjustment, imu_orientation[0], imu_orientation[1], imu_orientation[2]);
-                sd_card_append_to_buffer(1, "\n");
+                if(!got_gps) skip_logging = 1;
+
+                if(got_gps){
+                    sd_card_append_to_buffer(1, "%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;", target_latitude, target_longitude, gps_latitude, gps_real_longitude, gps_hold_roll_adjustment, gps_hold_pitch_adjustment, imu_orientation[0], imu_orientation[1], imu_orientation[2]);
+                    sd_card_append_to_buffer(1, "\n");
+                }else{
+                    sd_card_append_to_buffer(1, "NAN\n");
+                }
             }
         } 
+
+        // if(skip_logging) return;
         
         if(sd_card_async){
             if(use_simple_async){
