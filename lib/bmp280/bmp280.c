@@ -79,8 +79,7 @@ int32_t bmp280_convert_raw_temp(int32_t adc_T);
 uint32_t bmp280_convert_raw_pres(int32_t adc_P);
 uint8_t load_trim_registers();
 
-uint8_t init_bmp280(I2C_HandleTypeDef *i2c_handle_temp)
-{
+uint8_t init_bmp280(I2C_HandleTypeDef *i2c_handle_temp){
     i2c_handle = i2c_handle_temp;
 
     // Check that the i2c device is there
@@ -146,8 +145,7 @@ uint8_t init_bmp280(I2C_HandleTypeDef *i2c_handle_temp)
 }
 
 // Use the stored trim data to get the value for temperature
-int32_t bmp280_convert_raw_temp(int32_t adc_T)
-{
+int32_t bmp280_convert_raw_temp(int32_t adc_T){
     int32_t var1, var2, T;
     var1 = ((((adc_T >> 3) - ((int32_t)dig_T1 << 1))) * ((int32_t)dig_T2)) >> 11;
     var2 = (((((adc_T >> 4) - ((int32_t)dig_T1)) * ((adc_T >> 4) - ((int32_t)dig_T1))) >> 12) *
@@ -159,8 +157,7 @@ int32_t bmp280_convert_raw_temp(int32_t adc_T)
 }
 
 // Use the stored trim data to get the value for pressure
-uint32_t bmp280_convert_raw_pres(int32_t adc_P)
-{
+uint32_t bmp280_convert_raw_pres(int32_t adc_P){
     int64_t var1, var2, p;
     var1 = ((int64_t)t_fine) - 128000;
     var2 = var1 * var1 * (int64_t)dig_P6;
@@ -180,8 +177,7 @@ uint32_t bmp280_convert_raw_pres(int32_t adc_P)
 }
 
 // Load the trim data that is hardcoded into the bmp280 and store it in the variables.
-uint8_t load_trim_registers()
-{
+uint8_t load_trim_registers(){
     uint8_t trim_data[26];
     HAL_StatusTypeDef ret = HAL_I2C_Mem_Read(
         i2c_handle,
@@ -214,8 +210,7 @@ uint8_t load_trim_registers()
     return 1;
 }
 
-float bmp280_get_pressure_hPa()
-{
+float bmp280_get_pressure_hPa(){
     // For storing the bytes of temperature data that is going to be read
     uint8_t retrieved_data[] = {0, 0, 0};
 
@@ -238,8 +233,7 @@ float bmp280_get_pressure_hPa()
     return pressure;
 }
 
-float bmp280_get_temperature_celsius()
-{
+float bmp280_get_temperature_celsius(){
     // For storing the bytes of temperature data that is going to be read
     uint8_t retrieved_data[] = {0, 0, 0};
 
@@ -267,7 +261,7 @@ float bmp280_get_temperature_celsius()
 float bmp280_get_height_meters_above_sea_level(float pressure_sea_level_hpa, float temperature_sea_level){
     float pressure = bmp280_get_pressure_hPa();
 
-    return 44330 * (1.0 - pow(pressure / pressure_sea_level_hpa, 0.1903));
+    return 44330.0f * (1.0f - pow(pressure / pressure_sea_level_hpa, 0.1903f));
 }
 
 float bmp280_get_height_meters_from_reference(uint8_t reset_reference){
@@ -280,21 +274,20 @@ float bmp280_get_height_meters_from_reference(uint8_t reset_reference){
     
     // printf("44330 * (1.0 - pow(%.2f / %.2f, 0.1903))\n", pressure, reference_pressure);
     // printf("BMP280 pressure %f / ref %f\n", pressure, reference_pressure);
-    return 44330 * (1.0 - pow(pressure * reference_pressure, 0.1903));
+    return 44330.0f * (1.0f - pow(pressure * reference_pressure, 0.1903f));
 }
 
 float bmp280_get_height_centimeters_from_reference(uint8_t reset_reference){
-    return bmp280_get_height_meters_from_reference(reset_reference) * 100;
+    return bmp280_get_height_meters_from_reference(reset_reference) * 100.0f;
 }
 
 void bmp280_set_reference_pressure_from_number_of_samples(uint16_t sample_size){
-
-    float total_pleasure = 0;
+    float total_pressure = 0;
     for (uint16_t i = 0; i < sample_size; i++){
-        total_pleasure += bmp280_get_pressure_hPa();
+        total_pressure += bmp280_get_pressure_hPa();
         HAL_Delay(70);// It takes this amount of time to get new data
     }
 
-    reference_pressure = total_pleasure / sample_size;
+    reference_pressure = total_pressure / sample_size;
     // printf("BMP280 reference pressure: %f\n", reference_pressure);
 }

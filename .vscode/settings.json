@@ -38,7 +38,8 @@
         "bdshot600.h": "c",
         "math_constants.h": "c",
         "kalman_filter.h": "c",
-        "reset_i2c.h": "c"
+        "reset_i2c.h": "c",
+        "betaflight_blackbox_wrapper.h": "c"
     },
     "cSpell.words": [
         "acro",

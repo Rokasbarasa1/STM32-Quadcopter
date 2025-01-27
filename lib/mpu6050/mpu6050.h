@@ -37,6 +37,7 @@ void mpu6050_apply_calibrations(float accelerometer_correction[3], float gyro_co
 void mpu6050_apply_calibrations_gyro(float gyro_correction[3]);
 void mpu6050_apply_calibration_accelerometers(float accelerometer_correction[3]);
 float mpu6050_calculate_vertical_speed(float last_vertical_speed, float acceleration_data[3], float gyro_degrees[3], int64_t time);
+float old_mpu6050_calculate_vertical_acceleration_cm_per_second(float acceleration_data[3], float gyro_degrees[3]);
 float mpu6050_calculate_vertical_acceleration_cm_per_second(float acceleration_data[3], float gyro_degrees[3]);
 
 void calculate_roll_pitch_from_accelerometer_data(float *data, float *accelerometer_roll, float *accelerometer_pitch, float roll_offset, float pitch_offset);

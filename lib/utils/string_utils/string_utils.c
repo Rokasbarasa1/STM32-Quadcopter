@@ -1,8 +1,7 @@
 #include "./string_utils.h"
 
 // Find if string exists in char array, starting from the end of the string
-uint8_t find_substring_from_end(uint8_t *buffer, uint16_t start_index, uint16_t buffer_size, char *string, uint16_t *found_index)
-{
+uint8_t find_substring_from_end(uint8_t *buffer, uint16_t start_index, uint16_t buffer_size, char *string, uint16_t *found_index){
     // Cant start after buffer is done
     if (start_index >= buffer_size - 1)
     {
@@ -41,8 +40,7 @@ uint8_t find_substring_from_end(uint8_t *buffer, uint16_t start_index, uint16_t 
 }
 
 // Find if string exists in char array
-uint8_t find_substring(uint8_t *buffer, uint16_t start_index, uint16_t buffer_size, char *string, uint16_t *found_index)
-{
+uint8_t find_substring(uint8_t *buffer, uint16_t start_index, uint16_t buffer_size, char *string, uint16_t *found_index){
     // Cant start after buffer is done
     if (start_index >= buffer_size - 1)
     {
@@ -82,8 +80,7 @@ uint8_t find_substring(uint8_t *buffer, uint16_t start_index, uint16_t buffer_si
 }
 
 // Get the substring from array and return it as allocated memory of char
-char *get_substring(uint8_t *buffer, uint16_t buffer_size, uint16_t start_index, uint16_t end_index)
-{
+char *get_substring(uint8_t *buffer, uint16_t buffer_size, uint16_t start_index, uint16_t end_index){
     // Check for out of bounds
     if (end_index > buffer_size - 1)
     {
@@ -105,8 +102,7 @@ char *get_substring(uint8_t *buffer, uint16_t buffer_size, uint16_t start_index,
 }
 
 // Print char array pointer
-void print_char(char *data)
-{
+void print_char(char *data){
     for (uint16_t i = 0; i < 1000; i++)
     {
         if (data[i] == '\0')

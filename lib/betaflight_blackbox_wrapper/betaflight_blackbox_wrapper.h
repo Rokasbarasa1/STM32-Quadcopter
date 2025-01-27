@@ -17,6 +17,12 @@ void betaflight_blackbox_wrapper_get_header(
     float angle_mode_p,
     float angle_mode_i,
     float angle_mode_d,
+    float vertical_velocity_p,
+    float vertical_velocity_i,
+    float vertical_velocity_d,
+    float gps_p,
+    float gps_i,
+    float gps_d,
     uint32_t yaw_lowpass,
     float acro_mode_roll_pitch_integral_windup,
     uint32_t gyro_lowpass_value,
@@ -35,7 +41,8 @@ void betaflight_blackbox_wrapper_get_header(
     uint16_t* string_length_return,
     uint8_t* buffer,
     uint16_t buffer_size,
-    uint8_t mode
+    uint8_t mode,
+    float complementary_ratio_multi
 );
 
 void betaflight_blackbox_get_encoded_data_string(
@@ -48,6 +55,7 @@ void betaflight_blackbox_get_encoded_data_string(
     float* remote_control, // Roll, pitch, yaw, throttle
     float* set_points, // Targets for pid
     float* gyro_sums,
+    float vertical_accelereation,
     float* accelerometer_values,
     float* motor_power,
     float* mag,

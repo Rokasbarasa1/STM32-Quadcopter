@@ -36,7 +36,7 @@
 // you send them and thats it 
 #define R_REGISTER      0x00
 #define W_REGISTER      0x20
-#define REGISTER_MASK   0x1F    
+#define REGISTER_MASK   0x1F
 #define ACTIVATE        0x50
 #define R_RX_PL_WID     0x60
 #define R_RX_PAYLOAD    0x61
@@ -161,8 +161,7 @@ uint8_t nrf24_test(){
 }
 
 // reset some registers on the nrf24
-void nrf24_reset(uint8_t REG)
-{
+void nrf24_reset(uint8_t REG){
 	if (REG == STATUS){
 		write_register(STATUS, 0x00);
 	}

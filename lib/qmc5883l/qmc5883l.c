@@ -24,8 +24,7 @@ volatile float m_soft_iron[3][3] = {
 };
 
 // max value output is at 200 Hz
-uint8_t init_qmc5883l(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibration, const float hard_iron[3], const float soft_iron[3][3])
-{
+uint8_t init_qmc5883l(I2C_HandleTypeDef *i2c_handle_temp, uint8_t apply_calibration, const float hard_iron[3], const float soft_iron[3][3]){
     i2c_handle = i2c_handle_temp;
 
     // assign the correction for irons

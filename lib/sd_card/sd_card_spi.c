@@ -28,8 +28,7 @@ volatile uint8_t dma_transfer_call_status = 0;
 
 volatile uint8_t response_code = 0;
 
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
     if(GPIO_Pin == m_slave_ready_pin && slave_ready == 0 && driver_initialized == 1){
         // Falling 
         slave_ready = 1;

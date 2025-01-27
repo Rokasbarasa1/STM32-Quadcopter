@@ -13,7 +13,7 @@ volatile char m_longitude_direction = ' ';
 volatile float m_altitude = 0.0;
 volatile float m_altitude_geoid = 0.0;
 volatile float m_accuracy = 0.0;
-volatile uint8_t m_satellites_quantity = 0.0;
+volatile uint8_t m_satellites_quantity = 0;
 volatile uint8_t m_fix_quality = 0;
 volatile uint8_t m_time_utc_hours = 0;
 volatile uint8_t m_time_utc_minutes = 0;
@@ -22,13 +22,12 @@ volatile uint8_t m_up_to_date_date = 0;
 volatile uint32_t m_time_raw = 0;
 volatile uint8_t m_fix_type = 0;
 
-#define BN357_DEBUG 0
+#define BN357_DEBUG 1
 #define BN357_TRACK_TIMING 0
 
 volatile uint8_t continue_with_gps_data = 0;
 
-#define GPS_OUTPUT_BUFFER_SIZE 550
-#define GPS_RECEIVE_BUFFER_SIZE 550
+#define GPS_RECEIVE_BUFFER_SIZE 500
 
 uint8_t receive_buffer_1[GPS_RECEIVE_BUFFER_SIZE];
 uint16_t receive_buffer_1_size;
@@ -46,15 +45,17 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size){
     // If the stm32 is restarted  while it is initializing dma the
     // data arrives from the uart and it fucks up. So you have to restart it a few times
 
-    if (huart->Instance == USART2){   
+    if (huart->Instance == USART2){
 
         // Pick which buffer to use next
         if(buffer_for_dma == 0){
             // If it was buffer 1 before then not it will be buf 2
+            buffer_for_dma = 1;
             HAL_UARTEx_ReceiveToIdle_DMA(uart, receive_buffer_2, GPS_RECEIVE_BUFFER_SIZE);
             receive_buffer_1_size = Size;
         }else if(buffer_for_dma == 1){
             // If it was buffer 2 before then not it will be buf 1
+            buffer_for_dma = 0;
             HAL_UARTEx_ReceiveToIdle_DMA(uart, receive_buffer_1, GPS_RECEIVE_BUFFER_SIZE);
             receive_buffer_2_size = Size;
         }
@@ -122,8 +123,28 @@ uint8_t bn357_parse_data(){
         return 0;
     }
 
+// #if(BN357_DEBUG)
+//     printf("1s %d '", receive_buffer_1_size);
+
+//     for (uint16_t i = 0; i < receive_buffer_1_size; i++){
+//         printf("%c", receive_buffer_1[i]);
+//     }
+//     printf("'\n");
+// #endif
+
+// #if(BN357_DEBUG)
+//     printf("2s %d '", receive_buffer_2_size);
+
+//     for (uint16_t i = 0; i < receive_buffer_2_size; i++){
+//         printf("%c", receive_buffer_2[i]);
+//     }
+//     printf("'\n");
+// #endif
+
+    
     uint8_t response;
     if(buffer_for_dma == 0){
+
         // If buffer 1 is used currently by dma then use the other buffer for data.
         response = bn357_parse_and_store((char *)receive_buffer_2, receive_buffer_2_size);
     }else if(buffer_for_dma == 1){
@@ -143,10 +164,37 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
     uint32_t start_time = HAL_GetTick();
 #endif
 
+    // Skip UBX binary protocol bytes
+    uint8_t string_match[] = {'$','G','N','G','G','A'};
+    uint8_t string_match_length = 6;
+    uint8_t string_match_index = 0;
+    for (uint16_t i = 0; i < size_of_buffer; i++){
+        if(gps_output_buffer[i] == string_match[string_match_index]){
+            string_match_index++;
+            if(string_match_index == string_match_length){
+                gps_output_buffer = gps_output_buffer + i - string_match_length + 1;
+                size_of_buffer = size_of_buffer - i;
+#if(BN357_DEBUG)
+                printf("Skipped %d bytes\n", i);
+#endif
+                break;
+            }
+        }
+    }
+    
+#if(BN357_DEBUG)
+    printf("s %d '", size_of_buffer);
+
+    for (uint16_t i = 0; i < size_of_buffer; i++){
+        printf("%c", gps_output_buffer[i]);
+    }
+    printf("'\n");
+#endif
+
     // reset the state of successful gps parse
     m_up_to_date_date = 0;
     // find the starting position of the substring
-    char* start = strstr(gps_output_buffer, "$GNGGA");  
+    char* start = strstr(gps_output_buffer, "$GNGGA");
     // Check if the start exists
     if(start == NULL){
 #if(BN357_DEBUG)
@@ -275,18 +323,20 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
         printf("GNGGA: Failed at satellites quantity\n");
 #endif
         return 0;
+    }else if(start[0] == '0'){ // To help parsing of the values like "08"
+        start = start + 1;
     }
-    if(!m_minimal_gps_parse_enabled){
-        end = strchr(start, ',');
-        length = end - start;
-        char satellites_quantity_string[length + 1];
-        strncpy(satellites_quantity_string, start, length);
-        satellites_quantity_string[length] = '\0';
-        m_satellites_quantity = atoi(satellites_quantity_string);
-    #if(BN357_DEBUG)
-        printf("GNGGA Satellites quantity: %d\n", m_satellites_quantity);
-    #endif
-    }
+
+    end = strchr(start, ',');
+    length = end - start;
+    char satellites_quantity_string[length + 1];
+    strncpy(satellites_quantity_string, start, length);
+    satellites_quantity_string[length] = '\0';
+    // m_satellites_quantity = (uint8_t) strtol(satellites_quantity_string, NULL, 10);
+    m_satellites_quantity = atoi(satellites_quantity_string);
+#if(BN357_DEBUG)
+    printf("GNGGA Satellites quantity: %d\n", m_satellites_quantity);
+#endif
 
 
     // find accuracy

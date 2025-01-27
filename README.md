@@ -188,13 +188,19 @@ Test checklist:
 * 4 x EMAX ECO II Series 2807 Motor
 * 4 x HGLRC 30amp 3-5S Dshot600 BLHeli_S 16.5 BB2 ESC. (F-H-40 flashed with BlueJay 0.21.0V)
 * MPU6050 (Accelerometer + Gyro)
-* BMP280 (Barometer)
+* MS5611 (Barometer)
+    * Alternatives
+    * BME680
+    * BMP280 (Previous)
+    * BME280
+    * MPL3115A2
+
 * mmc5603 (Magnetometer)
-* BN357 (GPS)
+* HGLRC M100 5883 (GPS)
 * NRF24l01+ (Radio RX)
 * STM32F411 blackpill board
 * HQProp DP 7x3.5x3 V1S 3 blade Propeller
 
 Future hardware:
-* HGLRC M100 5883 (GPS)
+
 * RadioMaster RP1 2.4GHz (ELRS RX)

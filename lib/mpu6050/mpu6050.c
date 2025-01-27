@@ -533,7 +533,7 @@ float mpu6050_calculate_vertical_speed(float last_vertical_speed, float accelera
     return vertical_speed;
 }
 
-float mpu6050_calculate_vertical_acceleration_cm_per_second(float acceleration_data[3], float gyro_degrees[3]){
+float old_mpu6050_calculate_vertical_acceleration_cm_per_second(float acceleration_data[3], float gyro_degrees[3]){
 
     // Convert pitch and roll angles to radians
     float pitch_rad = gyro_degrees[0] * M_PI_DIV_BY_180;
@@ -549,6 +549,32 @@ float mpu6050_calculate_vertical_acceleration_cm_per_second(float acceleration_d
                                    a_z * cos(roll_rad) * cos(pitch_rad);
 
     vertical_acceleration = (vertical_acceleration - G) * 100;
+
+    return vertical_acceleration;
+}
+
+float mpu6050_calculate_vertical_acceleration_cm_per_second(float acceleration_data[3], float gyro_degrees[3]){
+
+    // Convert pitch and roll angles to radians
+    float pitch_rad = gyro_degrees[0] * M_PI_DIV_BY_180;
+    float roll_rad = gyro_degrees[1] * M_PI_DIV_BY_180;
+
+    // Calculate the vertical component of the acceleration
+    float a_x = acceleration_data[0] * G;
+    float a_y = acceleration_data[1] * G;
+    float a_z = acceleration_data[2] * G;
+
+    // Calculate the gravity vector components
+    float g_x = sin(pitch_rad) * G;
+    float g_y = -sin(roll_rad) * cos(pitch_rad) * G;
+    float g_z = cos(roll_rad) * cos(pitch_rad) * G;
+
+    // Subtract the gravity components from measured accelerations
+    float corrected_a_x = a_x - g_x;
+    float corrected_a_y = a_y - g_y;
+    float corrected_a_z = a_z - g_z;
+
+    float vertical_acceleration = corrected_a_z * 100; // Convert to cm/s²
 
     return vertical_acceleration;
 }

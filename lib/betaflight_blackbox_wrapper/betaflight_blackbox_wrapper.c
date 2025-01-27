@@ -37,6 +37,7 @@ void buffer_append(uint8_t* array, uint16_t array_size, uint16_t *start_index, c
     Modes
     0 - Motor debug
     1 - IMU debug
+    2 - Vertical velocity pid debug instad of acro mode pid
 */
 void betaflight_blackbox_wrapper_get_header(
     uint32_t refresh_rate,
@@ -52,6 +53,12 @@ void betaflight_blackbox_wrapper_get_header(
     float angle_mode_p,
     float angle_mode_i,
     float angle_mode_d,
+    float vertical_velocity_p,
+    float vertical_velocity_i,
+    float vertical_velocity_d,
+    float gps_p,
+    float gps_i,
+    float gps_d,
     uint32_t yaw_lowpass,
     float acro_mode_roll_pitch_integral_windup,
     uint32_t gyro_lowpass_value,
@@ -70,7 +77,8 @@ void betaflight_blackbox_wrapper_get_header(
     uint16_t* string_length_return,
     uint8_t* buffer,
     uint16_t buffer_size,
-    uint8_t mode
+    uint8_t mode,
+    float complementary_ratio_multi
 ){
     uint16_t string_length = 0;
 
@@ -89,6 +97,14 @@ void betaflight_blackbox_wrapper_get_header(
     uint32_t angle_mode_p_uint = floor(angle_mode_p * 100);
     uint32_t angle_mode_i_uint = floor(angle_mode_i * 100);
     uint32_t angle_mode_d_uint = floor(angle_mode_d * 10000);
+
+    uint32_t vertical_velocity_p_uint = floor(vertical_velocity_p * 100);
+    uint32_t vertical_velocity_i_uint = floor(vertical_velocity_i * 100000);
+    uint32_t vertical_velocity_d_uint = floor(vertical_velocity_d * 100000);
+
+    uint32_t gps_p_uint = floor(gps_p);
+    uint32_t gps_i_uint = floor(gps_i);
+    uint32_t gps_d_uint = floor(gps_d);
 
     // float acro_mode_roll_pitch_integral_windup = 0;
     uint32_t acro_mode_roll_pitch_integral_windup_uint = floor(acro_mode_roll_pitch_integral_windup);
@@ -265,6 +281,10 @@ void betaflight_blackbox_wrapper_get_header(
     buffer_append(buffer, buffer_size, &string_length, "H throttle_limit_percent:100\n"); // Not used
     buffer_append(buffer, buffer_size, &string_length, "H throttle_boost:0\n"); // Not used
     buffer_append(buffer, buffer_size, &string_length, "H throttle_boost_cutoff:0\n"); // Not used
+    buffer_append(buffer, buffer_size, &string_length, "H custom_complementary_multi:%d\n", (uint16_t)(complementary_ratio_multi * 100)); // Not used
+    buffer_append(buffer, buffer_size, &string_length, "H custom_blackbox_debug_mode:%d\n", mode); // Not used
+    buffer_append(buffer, buffer_size, &string_length, "H custom_vertical_velocity_gains:%d,%d,%d\n", vertical_velocity_p_uint, vertical_velocity_i_uint, vertical_velocity_d_uint); // Not used
+    buffer_append(buffer, buffer_size, &string_length, "H custom_gps_gains:%d,%d,%d\n", gps_p_uint, gps_i_uint, gps_d_uint); // Not used
 
     *string_length_return = string_length;
 }
@@ -275,8 +295,7 @@ void betaflight_blackbox_wrapper_get_header(
  * This is useful for printing the hex representation of a float number (which is considerably cheaper
  * than a full decimal float formatter, in both code size and output length).
  */
-uint32_t cast_float_bytes_to_int(float f)
-{
+uint32_t cast_float_bytes_to_int(float f){
     union floatConvert_t {
         float f;
         uint32_t u;
@@ -294,8 +313,7 @@ uint32_t cast_float_bytes_to_int(float f)
  * (Compared to just casting a signed to an unsigned which creates huge resulting numbers for
  * small negative integers).
  */
-uint32_t zigzag_encode(int32_t value)
-{
+uint32_t zigzag_encode(int32_t value){
     return (uint32_t)((value << 1) ^ (value >> 31));
 }
 
@@ -357,6 +375,7 @@ void blackbox_write_signed_16VB_array(int16_t *array, int count, uint8_t* byte_a
     Modes
     0 - Motor debug
     1 - IMU debug
+    2 - Vertical velocity pid debug instad of acro mode pid
 */
 void betaflight_blackbox_get_encoded_data_string(
     uint32_t loop_iteration,
@@ -368,6 +387,7 @@ void betaflight_blackbox_get_encoded_data_string(
     float* remote_control, // Roll, pitch, yaw, throttle
     float* set_points, // Targets for pid
     float* gyro_sums,
+    float vertical_accelereation,
     float* accelerometer_values,
     float* motor_power,
     float* mag,
@@ -387,14 +407,56 @@ void betaflight_blackbox_get_encoded_data_string(
     uint16_t gyro_scaling_factor = 1; // This is to convert it to raw degrees
     uint16_t accelerometer_scaling_factor = 16384;
 
-    int32_t PID_proportion_int[3] = {(int32_t)(PID_proportion[0]*scaling_factor), (int32_t)(PID_proportion[1]*scaling_factor), (int32_t)(PID_proportion[2]*scaling_factor)};
-    int32_t PID_integral_int[3] = {(int32_t)(PID_integral[0]*scaling_factor), (int32_t)(PID_integral[1]*scaling_factor), (int32_t)(PID_integral[2]*scaling_factor)};
-    int32_t PID_derivative_int[3] = {(int32_t)(PID_derivative[0]*scaling_factor), (int32_t)(PID_derivative[1]*scaling_factor), (int32_t)(PID_derivative[2]*scaling_factor)};
+    int32_t PID_proportion_int[3];
+    int32_t PID_integral_int[3];
+    int32_t PID_derivative_int[3];
+
+    PID_proportion_int[0] = (int32_t)(PID_proportion[0]*scaling_factor);
+    PID_proportion_int[1] = (int32_t)(PID_proportion[1]*scaling_factor);
+
+    PID_integral_int[0] = (int32_t)(PID_integral[0]*scaling_factor);
+    PID_integral_int[1] = (int32_t)(PID_integral[1]*scaling_factor);
+
+    PID_derivative_int[0] = (int32_t)(PID_derivative[0]*scaling_factor);
+    PID_derivative_int[2] = (int32_t)(PID_derivative[1]*scaling_factor);
+
+    if(mode == 2){
+        PID_proportion_int[2] = (int32_t)(PID_proportion[3]*scaling_factor);
+        PID_integral_int[2] = (int32_t)(PID_integral[3]*scaling_factor);
+        PID_derivative_int[2] = (int32_t)(PID_derivative[3]*scaling_factor);
+    }else{
+        PID_proportion_int[2] = (int32_t)(PID_proportion[2]*scaling_factor);
+        PID_integral_int[2] = (int32_t)(PID_integral[2]*scaling_factor);
+        PID_derivative_int[2] = (int32_t)(PID_derivative[2]*scaling_factor);
+    }
+
     int32_t PID_feed_forward_int[3] = {(int32_t)(PID_feed_forward[0]*scaling_factor), (int32_t)(PID_feed_forward[1]*scaling_factor), (int32_t)(PID_feed_forward[2]*scaling_factor)};
 
     int16_t remote_control_int[4] = {(int16_t)(remote_control[0]*scaling_factor), (int16_t)(remote_control[1]*scaling_factor), (int16_t)(remote_control[2]*scaling_factor), (int16_t)(remote_control[3]*scaling_factor)};
-    int16_t set_points_int[4] = {(int16_t)(set_points[0]), (int16_t)(set_points[1]), (int16_t)(set_points[2]), (int16_t)(set_points[3])}; // For some reason the setpoints dont have to be scaled for degrees, they just straight up convert to degrees and the setpoint3 does as well
-    int16_t gyro_sums_int[3] = {(int16_t)(gyro_sums[0]*gyro_scaling_factor), (int16_t)(gyro_sums[1]*gyro_scaling_factor), (int16_t)(gyro_sums[2]*gyro_scaling_factor)};
+
+    int16_t set_points_int[4];
+
+    set_points_int[0] = (int16_t)(set_points[0]);
+    set_points_int[1] = (int16_t)(set_points[1]);
+    set_points_int[3] = (int16_t)(set_points[3]);
+
+    if(mode == 2){
+        set_points_int[2] = (int16_t)(set_points[4]);
+    }else{
+        set_points_int[2] = (int16_t)(set_points[2]);
+    }
+
+    int16_t gyro_sums_int[3];
+
+    gyro_sums_int[0] = (int16_t)(gyro_sums[0]*gyro_scaling_factor);
+    gyro_sums_int[1] = (int16_t)(gyro_sums[1]*gyro_scaling_factor);
+
+    if(mode == 2){
+        gyro_sums_int[2] = (int16_t)(vertical_accelereation*gyro_scaling_factor);
+    }else{
+        gyro_sums_int[2] = (int16_t)(gyro_sums[2]*gyro_scaling_factor);
+    }
+
     int16_t accelerometer_values_int[3] = {(int16_t)(accelerometer_values[0]*accelerometer_scaling_factor), (int16_t)(accelerometer_values[1]*accelerometer_scaling_factor), (int16_t)(accelerometer_values[2]*accelerometer_scaling_factor)};
     uint16_t motor_power_int[4] = {
         (uint16_t)motor_power[2], 
