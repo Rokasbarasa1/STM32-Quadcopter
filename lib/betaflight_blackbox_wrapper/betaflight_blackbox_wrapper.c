@@ -53,12 +53,12 @@ void betaflight_blackbox_wrapper_get_header(
     float angle_mode_p,
     float angle_mode_i,
     float angle_mode_d,
-    float vertical_velocity_p,
-    float vertical_velocity_i,
-    float vertical_velocity_d,
-    float gps_p,
-    float gps_i,
-    float gps_d,
+    float altitude_hold_p,
+    float altitude_hold_i,
+    float altitude_hold_d,
+    float gps_hold_p,
+    float gps_hold_i,
+    float gps_hold_d,
     uint32_t yaw_lowpass,
     float acro_mode_roll_pitch_integral_windup,
     uint32_t gyro_lowpass_value,
@@ -98,13 +98,13 @@ void betaflight_blackbox_wrapper_get_header(
     uint32_t angle_mode_i_uint = floor(angle_mode_i * 100);
     uint32_t angle_mode_d_uint = floor(angle_mode_d * 10000);
 
-    uint32_t vertical_velocity_p_uint = floor(vertical_velocity_p * 100);
-    uint32_t vertical_velocity_i_uint = floor(vertical_velocity_i * 100000);
-    uint32_t vertical_velocity_d_uint = floor(vertical_velocity_d * 100000);
+    uint32_t altitude_hold_p_uint = floor(altitude_hold_p * 100);
+    uint32_t altitude_hold_i_uint = floor(altitude_hold_i * 100000);
+    uint32_t altitude_hold_d_uint = floor(altitude_hold_d * 100000);
 
-    uint32_t gps_p_uint = floor(gps_p);
-    uint32_t gps_i_uint = floor(gps_i);
-    uint32_t gps_d_uint = floor(gps_d);
+    uint32_t gps_hold_p_uint = floor(gps_hold_p);
+    uint32_t gps_hold_i_uint = floor(gps_hold_i);
+    uint32_t gps_hold_d_uint = floor(gps_hold_d);
 
     // float acro_mode_roll_pitch_integral_windup = 0;
     uint32_t acro_mode_roll_pitch_integral_windup_uint = floor(acro_mode_roll_pitch_integral_windup);
@@ -283,8 +283,8 @@ void betaflight_blackbox_wrapper_get_header(
     buffer_append(buffer, buffer_size, &string_length, "H throttle_boost_cutoff:0\n"); // Not used
     buffer_append(buffer, buffer_size, &string_length, "H custom_complementary_multi:%d\n", (uint16_t)(complementary_ratio_multi * 100)); // Not used
     buffer_append(buffer, buffer_size, &string_length, "H custom_blackbox_debug_mode:%d\n", mode); // Not used
-    buffer_append(buffer, buffer_size, &string_length, "H custom_vertical_velocity_gains:%d,%d,%d\n", vertical_velocity_p_uint, vertical_velocity_i_uint, vertical_velocity_d_uint); // Not used
-    buffer_append(buffer, buffer_size, &string_length, "H custom_gps_gains:%d,%d,%d\n", gps_p_uint, gps_i_uint, gps_d_uint); // Not used
+    buffer_append(buffer, buffer_size, &string_length, "H custom_altitude_hold_gains:%d,%d,%d\n", altitude_hold_p_uint, altitude_hold_i_uint, altitude_hold_d_uint); // Not used
+    buffer_append(buffer, buffer_size, &string_length, "H custom_gps_hold_gains:%d,%d,%d\n", gps_hold_p_uint, gps_hold_i_uint, gps_hold_d_uint); // Not used
 
     *string_length_return = string_length;
 }

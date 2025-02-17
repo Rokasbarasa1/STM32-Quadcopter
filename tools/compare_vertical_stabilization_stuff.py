@@ -4,31 +4,45 @@ import pandas as pd
 
 # Lists to store the first two columns
 altitude_barometer = []
-vertical_acceleration_old = []
-vertical_acceleration = []
-altitude_sensor_fusion = []
-vertical_velocity = []
+target_altitude_barometer = []
+altitude_barometer_rate_of_change = []
+target_altitude_barometer_rate_of_change = []
 
 # file_path = "../misc/testing_vertical_stabilization/5long_test.txt"
 # file_path = "../misc/testing_vertical_stabilization/6long_test.txt"
-file_path = "../misc/testing_vertical_stabilization/7long_test.txt"
+# file_path = "../misc/testing_vertical_stabilization/7long_test.txt"
+# file_path = "../misc/testing_vertical_stabilization/8long_test.txt"
+# file_path = "../misc/testing_vertical_stabilization/10long_test.txt"
+# file_path = "../misc/testing_vertical_stabilization/11long_test.txt"
+# file_path = "../misc/testing_vertical_stabilization/13long_test.txt"
+file_path = "../misc/testing_vertical_stabilization/15long_test.txt"
+file_path = "../misc/testing_vertical_stabilization/1Quadcopter.txt"
+file_path = "../misc/testing_vertical_stabilization/2Quadcopter.txt"
+
+
+skip_lines_from_start = 300
 
 # file_path = "../misc/testing_vertical_stabilization/3short_test.txt"
 
 # Read the file and parse the first two columns
 with open(file_path, 'r') as file:
+    index = 0
     for line in file:
         # Split the line into columns based on the semicolon delimiter
         columns = line.strip().split(';')
-        
+        index += 1
+
+        if(index < skip_lines_from_start):
+            continue
+
         # Ensure there are enough columns to avoid errors
         if len(columns) > 1:
             try:
                 # Append the first two columns (convert to floats)
                 altitude_barometer.append(float(columns[0]))
-                vertical_acceleration_old.append(float(columns[1]))
-                vertical_acceleration.append(float(columns[2]))
-                altitude_sensor_fusion.append(float(columns[3]))
+                target_altitude_barometer.append(float(columns[1]))
+                altitude_barometer_rate_of_change.append(float(columns[2]))
+                target_altitude_barometer_rate_of_change.append(float(columns[3]))
                 # vertical_velocity.append(float(columns[4]))
 
             except ValueError:
@@ -46,13 +60,11 @@ with open(file_path, 'r') as file:
 # Plotting the data
 plt.figure(figsize=(10, 6))
 
-plt.plot(altitude_barometer, label='Altitude barometer')
-# plt.plot(altitude_sensor_fusion, label='Altitude kalman')
+plt.plot(altitude_barometer, label='altitude_barometer')
+plt.plot(target_altitude_barometer, label='target_altitude_barometer')
+# plt.plot(altitude_barometer_rate_of_change, label='altitude_barometer_rate_of_change')
+# plt.plot(target_altitude_barometer_rate_of_change, label='target_altitude_barometer_rate_of_change')
 
-# plt.plot(vertical_acceleration_old, label='vertical_acceleration_old')
-# plt.plot(vertical_acceleration, label='vertical_acceleration')
-
-plt.plot(vertical_velocity, label='Vertical Speed')
 
 
 # plt.plot(column1Y, label='Y')
@@ -69,7 +81,7 @@ plt.grid(True)
 
 # Calculate tick positions based on the length of column1X
 num_samples = len(altitude_barometer)
-tick_positions = np.arange(0, num_samples, 521)
+tick_positions = np.arange(0, num_samples, 50)
 # Set custom tick labels
 tick_labels = np.arange(1, len(tick_positions) + 1)
 plt.xticks(tick_positions, tick_labels)

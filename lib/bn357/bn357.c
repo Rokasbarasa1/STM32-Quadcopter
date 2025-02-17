@@ -22,7 +22,7 @@ volatile uint8_t m_up_to_date_date = 0;
 volatile uint32_t m_time_raw = 0;
 volatile uint8_t m_fix_type = 0;
 
-#define BN357_DEBUG 1
+#define BN357_DEBUG 0
 #define BN357_TRACK_TIMING 0
 
 volatile uint8_t continue_with_gps_data = 0;
@@ -220,7 +220,7 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
 
 
 
-    // find utc time
+    // ----------------------------------------------------------------------------------------- find utc time
     start = strchr(sub_string_gngga, ',') + 1;
     if(start[0] == ','){
 #if(BN357_DEBUG)
@@ -240,14 +240,12 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
         m_time_utc_minutes = ((time % 10000) - m_time_utc_seconds) / 100;
         m_time_utc_hours = ((time % 1000000) - (m_time_utc_minutes * 100) - m_time_utc_seconds) / 10000;
     #if(BN357_DEBUG)
-        printf("GNGGA UTC time: %d%d%d%\n", m_time_utc_hours, m_time_utc_minutes, m_time_utc_seconds);
+        printf("GNGGA UTC time: %d%d%d\n", m_time_utc_hours, m_time_utc_minutes, m_time_utc_seconds);
     #endif
     }
 
 
-
-
-    // find latitude
+    // ----------------------------------------------------------------------------------------- find latitude
     start = end+1;
     if(start[0] == ','){
 #if(BN357_DEBUG)
@@ -268,10 +266,13 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
 #endif
 
 
-    // find latitude direction
-    m_latitude_direction = end+2;
+    // ----------------------------------------------------------------------------------------- find latitude direction
+    m_latitude_direction = (end+1)[0];
+#if(BN357_DEBUG)
+    printf("GNGGA Latitude direction: %c\n", m_latitude_direction);
+#endif
 
-    // find longitude
+    // ----------------------------------------------------------------------------------------- find longitude
     start = end+3; // skip the N character
     if(start[0] == ','){
 #if(BN357_DEBUG)
@@ -291,10 +292,13 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
     printf("GNGGA Longitude: %f\n", m_longitude);
 #endif
 
-    // find longitude direction
-    m_longitude_direction = end+2;
+    // ----------------------------------------------------------------------------------------- find longitude direction
+    m_longitude_direction = (end+1)[0];
+#if(BN357_DEBUG)
+    printf("GNGGA Longitude direction: %c\n", m_longitude_direction);
+#endif
 
-    // find fix quality
+    // ----------------------------------------------------------------------------------------- find fix quality
     start = end+3; // skip the E character
     if(start[0] == ','){
 #if(BN357_DEBUG)
@@ -302,8 +306,8 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
 #endif
         return 0;
     }
+    end = strchr(start, ',');
     if(!m_minimal_gps_parse_enabled){
-        end = strchr(start, ',');
         length = end - start;
         char fix_quality_string[length + 1];
         strncpy(fix_quality_string, start, length);
@@ -316,30 +320,33 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
 
 
 
-    // find satellites quantity
+    // ----------------------------------------------------------------------------------------- find satellites quantity
     start = end+1;
     if(start[0] == ','){
 #if(BN357_DEBUG)
         printf("GNGGA: Failed at satellites quantity\n");
 #endif
         return 0;
-    }else if(start[0] == '0'){ // To help parsing of the values like "08"
+    }
+
+    if(start[0] == '0'){ // To help parsing of the values like "08"
         start = start + 1;
     }
 
     end = strchr(start, ',');
+
     length = end - start;
+
     char satellites_quantity_string[length + 1];
     strncpy(satellites_quantity_string, start, length);
     satellites_quantity_string[length] = '\0';
-    // m_satellites_quantity = (uint8_t) strtol(satellites_quantity_string, NULL, 10);
     m_satellites_quantity = atoi(satellites_quantity_string);
 #if(BN357_DEBUG)
     printf("GNGGA Satellites quantity: %d\n", m_satellites_quantity);
 #endif
 
 
-    // find accuracy
+    // ----------------------------------------------------------------------------------------- find accuracy
     start = end+1;
     if(start[0] == ','){
 #if(BN357_DEBUG)
@@ -348,8 +355,8 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
         return 0;
     } 
 
+    end = strchr(start, ',');
     if(!m_minimal_gps_parse_enabled){
-        end = strchr(start, ',');
         length = end - start;
         char accuracy_quantity_string[length + 1];
         strncpy(accuracy_quantity_string, start, length);
@@ -361,7 +368,7 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
     }
 
 
-    // find altitude above sea levels
+    // ----------------------------------------------------------------------------------------- find altitude above sea levels
     start = end+1;
     if(start[0] == ','){
 #if(BN357_DEBUG)
@@ -370,8 +377,8 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
         return 0;
     } 
 
+    end = strchr(start, ',');
     if(!m_minimal_gps_parse_enabled){
-        end = strchr(start, ',');
         length = end - start;
         char altitude_string[length + 1];
         strncpy(altitude_string, start, length);
@@ -383,7 +390,7 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
     }
 
 
-    // find geoid altitude deviation
+    // ----------------------------------------------------------------------------------------- find geoid altitude deviation
     start = end+3;
     if(start[0] == ','){
 #if(BN357_DEBUG)
@@ -392,8 +399,8 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
         return 0;
     } 
 
+    end = strchr(start, ',');
     if(!m_minimal_gps_parse_enabled){
-        end = strchr(start, ',');
         length = end - start;
         char geoid_altitude_string[length + 1];
         strncpy(geoid_altitude_string, start, length);

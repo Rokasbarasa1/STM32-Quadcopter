@@ -18,7 +18,7 @@ shapely.speedups.enable()
 from matplotlib.animation import FuncAnimation
 
 
-data = np.genfromtxt('../misc/gps_targeting5.txt', delimiter=';')
+data = np.genfromtxt('../misc/gps_logs/gps_targeting6.txt', delimiter=';')
 
 target_lat = data[:, 0] 
 target_lon = data[:, 1]

@@ -93,6 +93,7 @@ float map_value_to_expo_range_inverted(float value, float min_expo, float max_ex
 
 void handle_get_and_calculate_sensor_values();
 void handle_radio_communication();
+void post_remote_control_step();
 void handle_logging();
 void handle_pid_and_motor_control();
 void setup_logging_to_sd(uint8_t use_updated_file_name);
@@ -379,14 +380,14 @@ float last_error_pitch = 0;
 #define BASE_ACRO_roll_pitch_GAIN_D 0.01
 
 #define BASE_ALTITUDE_HOLD_MASTER_GAIN 1.0
-#define BASE_ALTITUDE_HOLD_GAIN_P 0.0 // 1.15
+#define BASE_ALTITUDE_HOLD_GAIN_P 1.0 // 1.15
 #define BASE_ALTITUDE_HOLD_GAIN_I 0.0 // 0.0010
 #define BASE_ALTITUDE_HOLD_GAIN_D 0.0
 
 #define BASE_GPS_HOLD_MASTER_GAIN 1.0
-#define BASE_GPS_HOLD_GAIN_P 700000.0
+#define BASE_GPS_HOLD_GAIN_P 100000.0
 #define BASE_GPS_HOLD_GAIN_I 0.0
-#define BASE_GPS_HOLD_GAIN_D 21000.0
+#define BASE_GPS_HOLD_GAIN_D 0.0
 
 // Used for smooth changes to PID while using remote control. Do not touch this
 float angle_roll_pitch_master_gain = BASE_ANGLE_roll_pitch_MASTER_GAIN;
@@ -425,8 +426,8 @@ float added_altitude_hold_gain_i = 0.0f;
 float added_altitude_hold_gain_d = 0.0f;
 
 // PID for gps hold
-float gps_hold_master_gain = BASE_ALTITUDE_HOLD_MASTER_GAIN;
-float gps_hold_gain_p = BASE_GPS_HOLD_GAIN_P; 
+float gps_hold_master_gain = BASE_GPS_HOLD_MASTER_GAIN;
+float gps_hold_gain_p = BASE_GPS_HOLD_GAIN_P;
 float gps_hold_gain_i = BASE_GPS_HOLD_GAIN_I;
 float gps_hold_gain_d = BASE_GPS_HOLD_GAIN_D;
 
@@ -442,12 +443,12 @@ float acro_target_yaw = 0.0;
 float angle_target_pitch = 0.0;
 float angle_target_roll = 0.0;
 
-float target_vertical_velocity = 0.0;
-
 float target_altitude_barometer = 0.0;
+uint8_t target_altitude_barometer_set = 0;
 
-float target_altitude = 0.0;
+float altitude_barometer_rate_of_change_max_cm_s = 30.0f;
 float target_longitude = 0.0;
+float real_target_longitude = 0.0;
 float target_latitude = 0.0;
 
 uint8_t target_lon_lat_set = 0;
@@ -480,8 +481,9 @@ uint8_t gps_can_be_used = 0;
 
 float pressure_hpa = 0.0;
 float temperature_celsius = 0.0;
-float altitude_barometer = 0.0; // UNITS???
-float altitude_sensor_fusion = 0.0; // UNITS???
+float altitude_barometer = 0.0; // centimeters
+float altitude_sensor_fusion = 0.0; // centimeters
+uint8_t got_pressure = 0;
 
 float vertical_acceleration_old = 0.0; // UNITS???
 float vertical_acceleration = 0.0; // UNITS???
@@ -491,6 +493,10 @@ float vertical_velocity = 0.0; // UNITS???
 
 uint8_t gps_position_hold_enabled = 0;
 uint8_t gps_target_set = 0;
+uint8_t gps_target_unset_logged = 1;
+uint8_t gps_target_unset_cause_roll = 1; // For logging 
+float gps_target_unset_roll_value = 0.0f;
+float gps_target_unset_pitch_value = 0.0f;
 
 uint8_t use_gps_reset_count = 0;
 uint8_t use_gps_reset_count_to_deactivate = 10; // This is done because sometimes some noise sends a neutural pitch and roll
@@ -515,10 +521,9 @@ uint32_t max_allowed_time_miliseconds_between_got_gps = 1000;
 uint8_t ms5611_which_conversion = 0;// 0 - temperature, 1 - pressure
 uint32_t ms5611_conversion_start_timestamp = 0;
 uint32_t ms5611_min_pause_after_conversion_initiate_microseconds = 0; // Ask the driver what how many microseconds it needs to wait after initiating a conversion
-
 uint32_t ms5611_loop_start_timestamp = 0;
 uint32_t ms5611_set_reference_pressure_after_microseconds_of_loop = 4000000; // The actual pressure reading is only available some time into the loo. I do not know why.
-uint32_t ms5611_reference_set = 0;
+uint8_t ms5611_reference_set = 0;
 
 
 // ------------------------------------------------------------------------------------------------------ Sensor fusion and filtering stuff
@@ -622,12 +627,17 @@ float roll = 50.0;
 float minimum_signal_timing_seconds = 0.2; // Seconds
 uint64_t last_signal_timestamp_microseconds = 0;
 
-
 // Changing pid chcanges which pid
 // 0 - Acro mode
 // 1 - angle mode
-// 2 - both depending on flight mode set
-uint8_t pid_change_mode = 1;
+// 2 - all depending on flight mode set
+//      flight mode 0 - acro mode pid
+//      flight mode 1 - angle mode pid
+//      flight mode 2 - altitude hold pid
+//      flight mode 3 - gps hold pid
+//      flight mode 4 - gps hild pid
+
+uint8_t pid_change_mode = 2;
 
 // ------------------------------------------------------------------------------------------------------ Logging to SD card
 char log_file_base_name[] = "Quadcopter.txt";
@@ -671,11 +681,11 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi){
 
 // ------------------------------------------------------------------------------------------------------ Stuff for blackbox logging
 uint32_t loop_iteration = 1;
-float PID_proportional[4]; // acro roll, acro pitch, acro yaw, vertical velocity
-float PID_integral[4]; // acro roll, acro pitch, acro yaw, vertical velocity
-float PID_derivative[4]; // acro roll, acro pitch, acro yaw, vertical velocity
+float PID_proportional[5]; // acro roll, acro pitch, acro yaw, altitude hold outer, altitude hold inner
+float PID_integral[5]; // acro roll, acro pitch, acro yaw, altitude hold outer, altitude hold inner
+float PID_derivative[5]; // acro roll, acro pitch, acro yaw, altitude hold outer, altitude hold inner
 float PID_feed_forward[3];
-float PID_set_points[5]; // acro roll, acro pitch, acro yaw, throttle, vertical velocity
+float PID_set_points[6]; // acro roll, acro pitch, acro yaw, throttle, altitude hold outer, altitude hold inner
 float remote_control[4];
 
 // ------------------------------------------------------------------------------------------------------ Flight mode settings
@@ -686,7 +696,7 @@ float remote_control[4];
 // (3) - angle with altitude hold and gps hold
 // (4) - angle with gps hold and without altitude hold
 
-uint8_t flight_mode = 1;
+uint8_t flight_mode = 4;
 
 uint8_t use_angle_mode = 0;
 uint8_t use_vertical_velocity_control = 0;
@@ -726,6 +736,7 @@ int main(void){
 
         radio = DWT->CYCCNT;
         handle_radio_communication();
+        post_remote_control_step();
         radio_end = DWT->CYCCNT;
 
         sensors = DWT->CYCCNT;
@@ -888,6 +899,7 @@ void handle_get_and_calculate_sensor_values(){
     reset_array_data(acceleration_data, 3);
     reset_array_data(gyro_angular, 3);
     reset_array_data(magnetometer_data, 3);
+    got_pressure = 0;
     // temperature_celsius = 0.0f;
     // altitude_barometer = 0.0f;
     // vertical_velocity = 0.0f;
@@ -895,7 +907,6 @@ void handle_get_and_calculate_sensor_values(){
     // ------------------------------------------------------------------------------------------------------ Get the sensor data
     // Get data from motors
     if(bdshot600_dma_convert_all_responses(1)){
-         
         // Motor 0 - BL, 1 - BR, 2 - FR, 3 - FL
         motor_frequency[0] = low_pass_filter_pt1_read(&filter_motor_0, bdshot600_dma_get_frequency(motor_BL));
         motor_frequency[1] = low_pass_filter_pt1_read(&filter_motor_1, bdshot600_dma_get_frequency(motor_BR));
@@ -915,13 +926,16 @@ void handle_get_and_calculate_sensor_values(){
             ms5611_which_conversion = 1;
         }else if(ms5611_which_conversion == 1){
             pressure_hpa = ms5611_read_conversion_preasure_hPa();
+            got_pressure = 1;
+
+            // ONLY ONCE, set the reference after some time into the loop
             if(ms5611_reference_set == 0 && get_absolute_time() - ms5611_loop_start_timestamp > ms5611_set_reference_pressure_after_microseconds_of_loop){
-                altitude_barometer = ms5611_get_height_centimeters_from_reference(1, 0, 1);
                 ms5611_reference_set = 1;
+                altitude_barometer = ms5611_get_height_centimeters_from_reference(1, 0, 1);
             }else{
+                // NORMAL call
                 altitude_barometer = ms5611_get_height_centimeters_from_reference(1, 0, 0);
             }
-            // printf("p %.2f, a %.1f, t %.2f, as %.1f, vv %.2f\n", pressure_hpa, altitude_barometer, temperature_celsius, altitude_sensor_fusion, vertical_velocity);
             ms5611_initiate_prefered_temperature_conversion();
             ms5611_which_conversion = 0;
         }
@@ -935,6 +949,7 @@ void handle_get_and_calculate_sensor_values(){
     __enable_irq();
     sensors5 = DWT->CYCCNT;
 
+    // GPS stuff
     bn357_parse_data(); // Try to parse gps
     old_gps_longitude = gps_longitude;
     old_gps_latitude = gps_latitude;
@@ -950,6 +965,7 @@ void handle_get_and_calculate_sensor_values(){
 
         if(!target_lon_lat_set){
             target_longitude = gps_longitude;
+            real_target_longitude = gps_real_longitude;
             target_latitude = gps_latitude;
             target_lon_lat_set = 1;
         }
@@ -967,12 +983,8 @@ void handle_get_and_calculate_sensor_values(){
     invert_axies(gyro_angular);
     // Pitch device forwards -> Y axis positive. Roll device right -> X axis positive
 
-    // ------------------------------------------------------------------------------------------------------ Filter the sensor data
+    // ------------------------------------------------------------------------------------------------------ Filter the sensor data (sensitive to loop HZ disruptions)
     sensors6 = DWT->CYCCNT;
-
-    // Notch filter: https://www.youtube.com/watch?v=ysS4bIXFAsU
-    // Filtering rpm: https://www.youtube.com/watch?v=NCDyA9bnf4I&t=192s
-
 
     // Max 1.79. Without 1.46
     // RPM filtering
@@ -1087,10 +1099,17 @@ void handle_get_and_calculate_sensor_values(){
     // GPS STUFF
     float latitude_sign = 1 * (bn357_get_latitude_direction() == 'N') + (-1) * (bn357_get_latitude_direction() == 'S'); // Possible results: 0, 1 or -1
     float longitude_sign = 1 * (bn357_get_longitude_direction() == 'E') + (-1) * (bn357_get_longitude_direction() == 'W');
-    roll_effect_on_lat = -triangle_cos(imu_orientation[0] * M_PI_DIV_BY_180) * latitude_sign;  // + GOOD, - GOOD  // If moving north roll right positive, roll left south negative
-    pitch_effect_on_lat = triangle_cos(imu_orientation[1] * M_PI_DIV_BY_180) * latitude_sign;  // + GOOD, - GOOD  // If moving north forward positive, backwards negative
-    roll_effect_on_lon = triangle_cos(imu_orientation[0] * M_PI_DIV_BY_180) * longitude_sign;  // + GOOD, - GOOD
-    pitch_effect_on_lon = triangle_cos(imu_orientation[1] * M_PI_DIV_BY_180) * longitude_sign; // + GOOD, - GOOD 
+
+    // yaw north facing is 0, east is 90, south is 180, west is 270
+    // roll_effect_on_lat = -triangle_cos(imu_orientation[2] * M_PI_DIV_BY_180) * latitude_sign;  // + GOOD, - GOOD  // If moving north roll right positive, roll left south negative
+    // pitch_effect_on_lat = triangle_sin(imu_orientation[2] * M_PI_DIV_BY_180) * latitude_sign;  // + GOOD, - GOOD  // If moving north forward positive, backwards negative
+    // roll_effect_on_lon = triangle_sin(imu_orientation[2] * M_PI_DIV_BY_180) * longitude_sign;  // + GOOD, - GOOD
+    // pitch_effect_on_lon = triangle_cos(imu_orientation[2] * M_PI_DIV_BY_180) * longitude_sign; // + GOOD, - GOOD 
+
+    pitch_effect_on_lat = triangle_cos(imu_orientation[2] * M_PI_DIV_BY_180) * latitude_sign;  // + GOOD, - GOOD  // If moving north roll right positive, roll left south negative
+    roll_effect_on_lat = -triangle_sin(imu_orientation[2] * M_PI_DIV_BY_180) * latitude_sign;  // + GOOD, - GOOD  // If moving north forward positive, backwards negative
+    pitch_effect_on_lon = triangle_sin(imu_orientation[2] * M_PI_DIV_BY_180) * longitude_sign;  // + GOOD, - GOOD
+    roll_effect_on_lon = triangle_cos(imu_orientation[2] * M_PI_DIV_BY_180) * longitude_sign; // + GOOD, - GOOD 
 
     // printf("PLAT: %.2f RLAT: %.2f PLON: %.2f RLON: %.2f\n", 
     //     pitch_effect_on_lat,
@@ -1208,8 +1227,8 @@ void handle_pid_and_motor_control(){
         PID_set_points[2] = 0; // Logging
         PID_set_points[3] = 0; // Logging
 
-        gps_hold_roll_adjustment = 0.0f;
-        gps_hold_pitch_adjustment = 0.0f;
+        // gps_hold_roll_adjustment = 0.0f;
+        // gps_hold_pitch_adjustment = 0.0f;
 
         pid_reset_integral_sum(&acro_roll_pid);
         pid_reset_integral_sum(&acro_pitch_pid);
@@ -1218,8 +1237,14 @@ void handle_pid_and_motor_control(){
         pid_reset_integral_sum(&angle_pitch_pid);
         pid_reset_integral_sum(&angle_roll_pid);
 
+        pid_reset_integral_sum(&altitude_hold_pid);
+        pid_reset_integral_sum(&altitude_hold_pid);
+
         pid_reset_integral_sum(&gps_longitude_pid);
         pid_reset_integral_sum(&gps_latitude_pid);
+
+        //Set new target for the altitude
+        target_altitude_barometer = altitude_barometer;
 
         // Immediately after getting the motor values send them to motors. If manual mode is on
         if(manual_bdshot) bdshot600_dma_send_all_motor_data();
@@ -1287,10 +1312,17 @@ void handle_pid_and_motor_control(){
 
 
             // Limit the values
-            if(gps_hold_roll_adjustment_calculation > gps_pid_angle_of_attack_max) gps_hold_roll_adjustment_calculation = gps_pid_angle_of_attack_max;
-            else if(gps_hold_roll_adjustment_calculation < -gps_pid_angle_of_attack_max) gps_hold_roll_adjustment_calculation = -gps_pid_angle_of_attack_max;
-            if(gps_hold_pitch_adjustment_calculation > gps_pid_angle_of_attack_max) gps_hold_pitch_adjustment_calculation = gps_pid_angle_of_attack_max;
-            else if(gps_hold_pitch_adjustment_calculation < -gps_pid_angle_of_attack_max) gps_hold_pitch_adjustment_calculation = -gps_pid_angle_of_attack_max;
+            if(gps_hold_roll_adjustment_calculation > gps_pid_angle_of_attack_max){
+                gps_hold_roll_adjustment_calculation = gps_pid_angle_of_attack_max;
+            }else if(gps_hold_roll_adjustment_calculation < -gps_pid_angle_of_attack_max){
+                gps_hold_roll_adjustment_calculation = -gps_pid_angle_of_attack_max;
+            }
+
+            if(gps_hold_pitch_adjustment_calculation > gps_pid_angle_of_attack_max){
+                gps_hold_pitch_adjustment_calculation = gps_pid_angle_of_attack_max;
+            }else if(gps_hold_pitch_adjustment_calculation < -gps_pid_angle_of_attack_max){
+                gps_hold_pitch_adjustment_calculation = -gps_pid_angle_of_attack_max;
+            }
 
             gps_hold_roll_adjustment = gps_hold_roll_adjustment_calculation;
             gps_hold_pitch_adjustment = gps_hold_pitch_adjustment_calculation;
@@ -1310,7 +1342,7 @@ void handle_pid_and_motor_control(){
     
 
     // ---------------------------------------------------------------------------------------------- Altitude hold
-    if(use_vertical_velocity_control){
+    if(use_vertical_velocity_control && got_pressure){
         pid_set_desired_value(&altitude_hold_pid, target_altitude_barometer);
         pid_calculate_error(&altitude_hold_pid, altitude_barometer, get_absolute_time());
 
@@ -1320,20 +1352,14 @@ void handle_pid_and_motor_control(){
 
         PID_set_points[4] = target_altitude_barometer;
         error_altitude_barometer = PID_proportional[3] + PID_integral[3] + PID_derivative[3];
-    }else{
-        error_altitude_barometer = 0;
     }
 
     motor3 = DWT->CYCCNT;
 
     // ---------------------------------------------------------------------------------------------- Angle mode
     if(use_angle_mode){
-        // pid_set_desired_value(&angle_roll_pid, angle_target_roll + gps_hold_roll_adjustment);
-        // pid_set_desired_value(&angle_pitch_pid, angle_target_pitch + gps_hold_pitch_adjustment);
-
-        pid_set_desired_value(&angle_roll_pid, angle_target_roll);
-        pid_set_desired_value(&angle_pitch_pid, angle_target_pitch);
-
+        pid_set_desired_value(&angle_roll_pid, angle_target_roll + gps_hold_roll_adjustment);
+        pid_set_desired_value(&angle_pitch_pid, angle_target_pitch + gps_hold_pitch_adjustment);
 
         // For now not logging desired angle mode
         error_angle_roll = limit_max_value(pid_get_error(&angle_roll_pid, imu_orientation[0], get_absolute_time()), -acro_mode_rate_degrees_per_second, acro_mode_rate_degrees_per_second);
@@ -1429,7 +1455,6 @@ void handle_pid_and_motor_control(){
 
     // For throttle control logic
 
-    // float throttle_value = error_throttle * (~use_vertical_velocity_control & 1) + error_vertical_velocity * use_vertical_velocity_control;
     float throttle_value = error_throttle * (~use_vertical_velocity_control & 1) + error_altitude_barometer * use_vertical_velocity_control;
     motor_power[0] += throttle_value;
     motor_power[1] += throttle_value;
@@ -1498,12 +1523,30 @@ void handle_radio_communication(){
             // Current gps position is the target now
             target_latitude = gps_latitude;
             target_longitude = gps_longitude;
+            real_target_longitude = gps_real_longitude;
             gps_target_set = 1;
-            // printf("GPS STATE SET\n");
         }else if (pitch != 50.0 || roll != 50.0 ){
             if(use_gps_reset_count >= use_gps_reset_count_to_deactivate){
                 gps_position_hold_enabled = 0;
                 gps_target_set = 0;
+                // printf("gps unset ");
+
+                // LOGGING
+                gps_target_unset_logged = 0;
+                if(roll != 50.0){
+                    gps_target_unset_cause_roll = 1;
+                    gps_target_unset_roll_value = roll;
+                    gps_target_unset_pitch_value = 0.0f;
+                }else if(pitch != 50.0){
+                    gps_target_unset_cause_roll = 0;
+                    gps_target_unset_roll_value = 0.0f;
+                    gps_target_unset_pitch_value = pitch;
+                }
+
+                // printf("gps unset ");
+                // if(roll != 50.0) printf("r %.1f\n", roll);
+                // else if(pitch != 50.0) printf("p %.1f\n", pitch);
+
                 // printf("GPS STATE RESET, GPS FIX %d\n", gps_fix_type);
                 use_gps_reset_count = 0;
             }else{
@@ -1541,7 +1584,8 @@ void handle_radio_communication(){
         else acro_target_yaw = map_value(yaw, 0.0, 100.0, -max_yaw_attack, max_yaw_attack);
 
         // Throttle ##################################################################################################################
-        target_vertical_velocity = map_value(throttle, 0, 100, -max_throttle_vertical_velocity, max_throttle_vertical_velocity);
+
+        // Throttle is handled every loop in post remote function
     }else if(strcmp(rx_type, "pid") == 0){
         printf("\nGot pid change");
         
@@ -1911,6 +1955,19 @@ void handle_radio_communication(){
     rx_type[0] = '\0'; // Clear out the string by setting its first char to string terminator
 }
 
+void post_remote_control_step(){
+    if(target_altitude_barometer_set == 0 && ms5611_reference_set == 1){
+        target_altitude_barometer = altitude_barometer;
+        target_altitude_barometer_set = 1;
+    }
+    // Increment the altitude hold target
+    if(flight_mode == 2){
+        // Add a bit of rate of change dependant on the throttle and the refres rate
+        float rate_of_change_addition_altitude = (((apply_dead_zone(throttle-50.0f, 50.0f, -50.0f, 5.0f))/50.0f) * altitude_barometer_rate_of_change_max_cm_s) / REFRESH_RATE_HZ;
+        target_altitude_barometer += rate_of_change_addition_altitude;
+        // printf("Alt %.2f Altitude target: %.2f added %f, th %.1f\n", altitude_barometer, target_altitude_barometer, rate_of_change_addition_altitude, throttle);
+    }
+}
 
 void initialize_control_abstractions(){
     // PID controllers
@@ -1921,11 +1978,10 @@ void initialize_control_abstractions(){
     angle_roll_pid = pid_init(angle_roll_pitch_master_gain * angle_roll_pitch_gain_p, angle_roll_pitch_master_gain * angle_roll_pitch_gain_i, angle_roll_pitch_master_gain * angle_roll_pitch_gain_d, 0.0, get_absolute_time(), angle_mode_rate_degrees_per_second_max_integral_derivative, -angle_mode_rate_degrees_per_second_max_integral_derivative, 1, 0);
     angle_pitch_pid = pid_init(angle_roll_pitch_master_gain * angle_roll_pitch_gain_p, angle_roll_pitch_master_gain * angle_roll_pitch_gain_i, angle_roll_pitch_master_gain * angle_roll_pitch_gain_d, 0.0, get_absolute_time(), angle_mode_rate_degrees_per_second_max_integral_derivative, -angle_mode_rate_degrees_per_second_max_integral_derivative, 1, 0);
 
-    altitude_hold_pid = pid_init(altitude_hold_master_gain * altitude_hold_gain_p, altitude_hold_master_gain * altitude_hold_gain_i, altitude_hold_master_gain * altitude_hold_gain_d, 0.0, get_absolute_time(), 90.0, 0.0, 1, 0); // Min value is 0 because motors dont go lower that that
+    altitude_hold_pid = pid_init(altitude_hold_master_gain * altitude_hold_gain_p, altitude_hold_master_gain * altitude_hold_gain_i, altitude_hold_master_gain * altitude_hold_gain_d, 0.0, get_absolute_time(), 0.0, 0.0, 0, 0); // Min value is 0 because motors dont go lower that that
 
-    gps_longitude_pid = pid_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), gps_pid_angle_of_attack_max, -gps_pid_angle_of_attack_max, 1, 0);
-    gps_latitude_pid = pid_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), gps_pid_angle_of_attack_max, -gps_pid_angle_of_attack_max, 1, 0);
-
+    gps_longitude_pid = pid_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), 0, 0, 0, 0);
+    gps_latitude_pid = pid_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), 0, 0, 0, 0);
 
     // Filtering
     filter_magnetometer_x = filtering_init_low_pass_filter_pt1(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
@@ -2329,7 +2385,7 @@ void handle_logging(){
     time_since_startup_microseconds =           delta_time - time_since_startup_hours * HOURS_TO_MICROSECONDS - time_since_startup_minutes * MINUTES_TO_MICROSECONDS - time_since_startup_seconds * SECONDS_TO_MICROSECONDS - time_since_startup_ms * MILISECONDS_TO_MICROSECONDS;
     uint32_t time_blackbox = ((time_since_startup_hours * 60 + time_since_startup_minutes * 60) + time_since_startup_seconds) * 1000000 + time_since_startup_ms * 1000 + time_since_startup_microseconds;
 
-    uint8_t skip_logging = 0;
+    uint8_t skip_write = 0;
 
     if(sd_card_initialized){
         uint16_t data_size = 0;
@@ -2399,30 +2455,105 @@ void handle_logging(){
                 
             }else if(txt_logging_mode == 1){ // Log gps target and current position
                 if(got_gps){
-                    sd_card_append_to_buffer(1, "%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;", target_latitude, target_longitude, gps_latitude, gps_real_longitude, gps_hold_roll_adjustment, gps_hold_pitch_adjustment, imu_orientation[0], imu_orientation[1], imu_orientation[2]);
-                    sd_card_append_to_buffer(1, "\n");
+                    // printf("s %f\n",gps_hold_roll_adjustment);
+                    // target lat, target lon, lat, lon, roll_adjust, pitch_adjust, roll, pitch, yaw, sats, roll_effect_on_lat, pitch_effect_on_lat, roll_effect_on_lon, pitch_effect_on_lon, error_lat, error_lon
+                    if(gps_target_unset_logged == 0){
+                        if(gps_target_unset_cause_roll){
+                            sd_card_append_to_buffer(1, "%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%f;%f;%f;%f;%f;%f;r%.3f;\n", 
+                                target_latitude, 
+                                real_target_longitude, 
+                                gps_latitude, 
+                                gps_real_longitude, 
+                                gps_hold_roll_adjustment, 
+                                gps_hold_pitch_adjustment, 
+                                roll,
+                                pitch,
+                                imu_orientation[2],
+                                bn357_get_satellites_quantity(),
+                                roll_effect_on_lat,
+                                pitch_effect_on_lat,
+                                roll_effect_on_lon,
+                                pitch_effect_on_lon,
+                                error_latitude,
+                                error_longitude,
+                                gps_target_unset_roll_value
+                            );
+                        }else{
+                            sd_card_append_to_buffer(1, "%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%f;%f;%f;%f;%f;%f;p%.3f;\n", 
+                                target_latitude, 
+                                real_target_longitude, 
+                                gps_latitude, 
+                                gps_real_longitude, 
+                                gps_hold_roll_adjustment, 
+                                gps_hold_pitch_adjustment, 
+                                roll,
+                                pitch,
+                                imu_orientation[2],
+                                bn357_get_satellites_quantity(),
+                                roll_effect_on_lat,
+                                pitch_effect_on_lat,
+                                roll_effect_on_lon,
+                                pitch_effect_on_lon,
+                                error_latitude,
+                                error_longitude,
+                                gps_target_unset_pitch_value
+                            );
+                        }
+                        
+                        gps_target_unset_logged = 1;
+                    }else{
+                        sd_card_append_to_buffer(1, "%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%f;%f;%f;%f;%f;%f;\n", 
+                            target_latitude,
+                            real_target_longitude,
+                            gps_latitude, 
+                            gps_real_longitude, 
+                            gps_hold_roll_adjustment, 
+                            gps_hold_pitch_adjustment, 
+                            roll,
+                            pitch,
+                            // imu_orientation[0], 
+                            // imu_orientation[1], 
+                            imu_orientation[2],
+                            bn357_get_satellites_quantity(),
+                            roll_effect_on_lat,
+                            pitch_effect_on_lat,
+                            roll_effect_on_lon,
+                            pitch_effect_on_lon,
+                            error_latitude,
+                            error_longitude
+                        );
+                    }
+
+                    
                 }else{
                     sd_card_append_to_buffer(1, "NAN\n");
                 }
             }else if(txt_logging_mode == 2){
-                    // alt_barometer, vert_accel, vert_accel_new, alt_kalman, vert_vel, target_vert, PID, P, I, D
-                    sd_card_append_to_buffer(1, "%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;\n", 
-                        altitude_barometer,
-                        vertical_acceleration_old,
-                        vertical_acceleration,
-                        altitude_sensor_fusion,
-                        vertical_velocity,
-                        target_vertical_velocity,
-                        PID_proportional[3] + PID_integral[3] + PID_derivative[3],
-                        PID_proportional[3],
-                        PID_integral[3],
-                        PID_derivative[3]
-                    );
+                if(got_pressure == 1){
+                    if(ms5611_reference_set == 1){
+                        // alt_barometer, target_alt, alt_rate_of_change, outer PID, outer P, outer I, outer D, inner PID, inner P, inner I, inner D
+                        sd_card_append_to_buffer(1, "%f;%f;%f;%f;%f;%f;%f;\n", 
+                            altitude_barometer,
+                            target_altitude_barometer,
+                            throttle,
+                            PID_proportional[3] + PID_integral[3] + PID_derivative[3],
+                            PID_proportional[3],
+                            PID_integral[3],
+                            PID_derivative[3]
+                        );
+                    }else if(ms5611_reference_set == 0){
+                        // IF reference not set then dont log the data
+                        sd_card_append_to_buffer(1, "0.0;0.0;0.0;0.0;0.0;0.0;0.0;\n");
+                    }
+                }else{
+                    skip_write = 1;
+                }
             }
-        } 
+        }
 
-        // if(skip_logging) return;
-        
+        // Be sure that the write still happens at least once per second
+        if(skip_write) return;
+
         if(sd_card_async){
             if(use_simple_async){
                 sd_special_write_chunk_of_string_data_no_slave_response(sd_card_get_buffer_pointer(1));
