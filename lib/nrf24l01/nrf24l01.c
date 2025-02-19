@@ -312,7 +312,21 @@ void nrf24_read_all(uint8_t *data){
 	}
 }
 
-uint8_t init_nrf24(SPI_HandleTypeDef * spi_port){
+void nrf24_crc(uint8_t enable){
+    uint8_t config = read_register(CONFIG);
+
+    if(enable){
+        config |= (1 << 3);  // Set EN_CRC to enable CRC.
+        config |= (1 << 2);  // Set CRCO for 2-byte CRC.
+    }else{
+        config &= ~(1 << 3); // Clear EN_CRC to disable CRC.
+    }
+
+    write_register(CONFIG, config);
+}
+
+
+uint8_t init_nrf24(SPI_HandleTypeDef * spi_port, uint8_t use_crc){
 
     device_handle = spi_port;
 
@@ -331,6 +345,7 @@ uint8_t init_nrf24(SPI_HandleTypeDef * spi_port){
 
     data |= CONFIG_PWR_DOWN; // Restart it 
     write_register(CONFIG, data);
+    nrf24_crc(use_crc);
 
     data = DISABLE_ACK; // No ack
     write_register(EN_AA, data);
@@ -356,6 +371,8 @@ uint8_t init_nrf24(SPI_HandleTypeDef * spi_port){
     printf("NRF24 initialized\n");
     return 1;
 }
+
+
 
 //Examples
 

@@ -666,7 +666,7 @@ const uint8_t use_blackbox_logging = 0;
 // 0 - general logging
 // 1 - gps logging
 // 2 - vertical velocity logging
-uint8_t txt_logging_mode = 2;
+uint8_t txt_logging_mode = 1;
 
 
 void DMA1_Stream7_IRQHandler(void){
@@ -857,7 +857,7 @@ uint8_t init_drivers(){
     uint8_t ms5611 = init_ms5611(&hi2c1);
 
     uint8_t bn357 = init_bn357(&huart2, &hdma_usart2_rx, 1);
-    uint8_t nrf24 = init_nrf24(&hspi1);
+    uint8_t nrf24 = init_nrf24(&hspi1, 1);
 
     printf("-----------------------------INITIALIZING MODULES DONE... ");
 
@@ -1495,7 +1495,18 @@ void handle_radio_communication(){
     }
 
     nrf24_receive(rx_data);
+
+
     uint8_t rx_data_size = strlen(rx_data);
+
+    rx_data_size = 32;
+    // printf("Received: '");
+    // for (size_t i = 0; i < 32; i++)
+    // {
+    //     printf("%c", rx_data[i]);
+    // }
+    // printf("'\n");
+    
     // Get the type of request
     extract_request_type(rx_data, rx_data_size, rx_type);
 
@@ -1587,7 +1598,7 @@ void handle_radio_communication(){
 
         // Throttle is handled every loop in post remote function
     }else if(strcmp(rx_type, "pid") == 0){
-        printf("\nGot pid change");
+        printf("Got pid change\n");
         
         float added_proportional = 0;
         float added_integral = 0;
@@ -1619,6 +1630,7 @@ void handle_radio_communication(){
             pid_set_integral_gain(&acro_pitch_pid, acro_roll_pitch_gain_i * acro_roll_pitch_master_gain);
             pid_set_derivative_gain(&acro_pitch_pid, acro_roll_pitch_gain_d * acro_roll_pitch_master_gain);
             pid_reset_integral_sum(&acro_pitch_pid);
+            printf("Changed PID of acro mode\n");
         }else if(pid_change_mode == 1){ // Angle mode change
             angle_roll_pitch_gain_p = BASE_ANGLE_roll_pitch_GAIN_P + added_proportional;
             angle_roll_pitch_gain_i = BASE_ANGLE_roll_pitch_GAIN_I + added_integral;
@@ -1641,6 +1653,7 @@ void handle_radio_communication(){
             pid_set_integral_gain(&angle_roll_pid, angle_roll_pitch_gain_i * angle_roll_pitch_master_gain);
             pid_set_derivative_gain(&angle_roll_pid, angle_roll_pitch_gain_d * angle_roll_pitch_master_gain);
             pid_reset_integral_sum(&angle_roll_pid);
+            printf("Changed PID of angle mode\n");
         }else if(pid_change_mode == 2){ // Both depending on flight mode
 
             if(flight_mode == 0){ // ACRO MODE
@@ -1665,6 +1678,7 @@ void handle_radio_communication(){
                 pid_set_integral_gain(&acro_pitch_pid, acro_roll_pitch_gain_i * acro_roll_pitch_master_gain);
                 pid_set_derivative_gain(&acro_pitch_pid, acro_roll_pitch_gain_d * acro_roll_pitch_master_gain);
                 pid_reset_integral_sum(&acro_pitch_pid);
+                printf("Changed PID of acro mode\n");
             }else if(flight_mode == 1){ // ANGLE MODE
                 angle_roll_pitch_gain_p = BASE_ANGLE_roll_pitch_GAIN_P + added_proportional;
                 angle_roll_pitch_gain_i = BASE_ANGLE_roll_pitch_GAIN_I + added_integral;
@@ -1687,6 +1701,7 @@ void handle_radio_communication(){
                 pid_set_integral_gain(&angle_roll_pid, angle_roll_pitch_gain_i * angle_roll_pitch_master_gain);
                 pid_set_derivative_gain(&angle_roll_pid, angle_roll_pitch_gain_d * angle_roll_pitch_master_gain);
                 pid_reset_integral_sum(&angle_roll_pid);
+                printf("Changed PID of angle mode\n");
             }else if(flight_mode == 2){ // Alitude hold
                 altitude_hold_gain_p = BASE_ANGLE_roll_pitch_GAIN_P + added_proportional;
                 altitude_hold_gain_i = BASE_ANGLE_roll_pitch_GAIN_I + added_integral;
@@ -1703,6 +1718,7 @@ void handle_radio_communication(){
                 pid_set_integral_gain(&altitude_hold_pid, altitude_hold_gain_i * altitude_hold_master_gain);
                 pid_set_derivative_gain(&altitude_hold_pid, altitude_hold_gain_d * altitude_hold_master_gain);
                 pid_reset_integral_sum(&altitude_hold_pid);
+                printf("Changed PID of altitude hold\n");
             }else if(flight_mode == 3 || flight_mode == 4){ // GPS hold
                 gps_hold_gain_p = BASE_ANGLE_roll_pitch_GAIN_P + added_proportional;
                 gps_hold_gain_i = BASE_ANGLE_roll_pitch_GAIN_I + added_integral;
@@ -1725,6 +1741,7 @@ void handle_radio_communication(){
                 pid_set_integral_gain(&gps_longitude_pid, gps_hold_gain_i * gps_hold_master_gain);
                 pid_set_derivative_gain(&gps_longitude_pid, gps_hold_gain_d * gps_hold_master_gain);
                 pid_reset_integral_sum(&gps_longitude_pid);
+                printf("Changed PID of GPS hold\n");
             }
         }
 
@@ -1902,18 +1919,24 @@ void handle_radio_communication(){
         
 
     }else if(strcmp(rx_type, "remoteSyncBase") == 0){
-        printf("\nGot remoteSyncBase");
+        printf("Got remoteSyncBase\n");
         send_pid_base_info_to_remote();
     }else if(strcmp(rx_type, "remoteSyncAdded") == 0){
-        printf("\nGot remoteSyncAdded");
+        printf("Got remoteSyncAdded\n");
         send_pid_added_info_to_remote();
     }else if(strcmp(rx_type, "accel") == 0){
 
         float added_x_axis_offset;
         float added_y_axis_offset;
-        printf("Accel: %s\n", rx_data);
+
+        printf("Accel: '");
+        for (size_t i = 0; i < 32; i++){
+            printf("%c", rx_data[i]);
+        }
+        printf("'\n");
+
         extract_accelerometer_offsets(rx_data, strlen(rx_data), &added_x_axis_offset, &added_y_axis_offset);
-        printf("\nGot offsets %f %f ", -added_x_axis_offset, -added_y_axis_offset);
+        printf("Got offsets %f %f\n", -added_x_axis_offset, -added_y_axis_offset);
 
         accelerometer_roll_offset = base_accelerometer_roll_offset - added_x_axis_offset;
         accelerometer_pitch_offset = base_accelerometer_pitch_offset -  added_y_axis_offset;
@@ -1937,13 +1960,13 @@ void handle_radio_communication(){
         
         // Reset the sesor fusion and the pid accumulation
     }else if(strcmp(rx_type, "fm") == 0){
-        printf("\nGot flight mode");
+        printf("Got flight mode\n");
 
         uint8_t new_flight_mode;
 
         extract_flight_mode(rx_data, strlen(rx_data), &new_flight_mode);
 
-        printf("\nGot new flight mode %d\n", new_flight_mode);
+        printf("Got new flight mode %d\n", new_flight_mode);
         flight_mode = new_flight_mode;
 
         set_flight_mode(flight_mode);

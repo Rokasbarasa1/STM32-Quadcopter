@@ -93,7 +93,7 @@ enum t_rf_setup {
     RF_DATA_RATE_2_MBPS   = 0b00001000,
 };
 
-uint8_t init_nrf24(SPI_HandleTypeDef * spi_port);
+uint8_t init_nrf24(SPI_HandleTypeDef * spi_port, uint8_t use_crc);
 void nrf24_tx_mode (uint8_t *address, uint8_t channel);
 void nrf24_rx_mode(uint8_t *address, uint8_t channel);
 uint8_t nrf24_data_available(int pipe_number);
