@@ -1,274 +1,4 @@
-# import numpy as np
-# import pandas as pd
-# import geopandas as gpd
-# from scipy.stats import gaussian_kde
-# import matplotlib.pyplot as plt
-# from matplotlib.font_manager import FontProperties
-# from matplotlib.path import Path
-# from matplotlib.textpath import TextToPath
-# import tilemapbase
-# import warnings
-# import matplotlib.cbook
-# warnings.filterwarnings("ignore", category=matplotlib.cbook.mplDeprecation)
-
-# import os
-# import seaborn as sns
-# import shapely.speedups
-# shapely.speedups.enable()
-# from matplotlib.animation import FuncAnimation
-# from matplotlib.widgets import Slider, Button
-
-# # I fucked up gps logging so this script fixes that 
-# # data = np.genfromtxt('../misc/gps_logs/gps_targeting7_big.txt', delimiter=';')
-# # data = np.genfromtxt('../misc/gps_logs/gps_targeting7.txt', delimiter=';')
-# # data = np.genfromtxt('../misc/gps_logs/gps_targeting8.txt', delimiter=';')
-# # data = np.genfromtxt('../misc/gps_logs/gps_targeting9.txt', delimiter=';')
-# # data = np.genfromtxt('../misc/gps_logs/gps_targeting13.txt', delimiter=';')
-
-# # data = np.genfromtxt('../misc/gps_logs/gps_targeting15.txt', delimiter=';')
-# # data = np.genfromtxt('../misc/gps_logs/gps_targeting16.txt', delimiter=';')
-# # data = np.genfromtxt('../misc/gps_logs/gps_targeting17.txt', delimiter=';')
-
-# # data = np.genfromtxt('../misc/gps_logs/gps_targeting18.txt', delimiter=';')
-# # data = np.genfromtxt('../misc/gps_logs/gps_targeting19.txt', delimiter=';')
-# # data = np.genfromtxt('../misc/gps_logs/gps_targeting20.txt', delimiter=';')
-# data = np.genfromtxt('../misc/gps_logs/gps_targeting24.txt', delimiter=';')
-
-
-# skip_lines_amount = 0
-# # skip_lines_amount = 1400
-
-# # Skip the first 100 lines of data
-# data = data[skip_lines_amount:]
-
-
-# # Skip rows with 0 in the first column until a real value shows up
-# # first_non_zero_index = np.argmax(data[:, 0] != 0)
-# # data = data[first_non_zero_index:]
-
-# # Reverse the linearization of longitude
-# # M_PI_DIV_BY_180 = 0.0174533
-# # data[:, 1] = data[:, 1] / np.cos(data[:, 0] * M_PI_DIV_BY_180)
-# # data[:, 3] = data[:, 3] / np.cos(data[:, 2] * M_PI_DIV_BY_180)
-
-
-# target_lat = data[:, 0]
-# target_lon = data[:, 1]
-# current_lat = data[:, 2]
-# current_lon = data[:, 3]
-# roll_error = data[:, 4]
-# pitch_error = data[:, 5]
-# roll_degrees = data[:, 6]
-# pitch_degrees = data[:, 7]
-# yaw_degrees = data[:, 8]
-# sats = data[:, 9]
-
-# # Remove rows where roll_degrees or pitch_degrees are 0.0
-# valid_indices = (roll_degrees != 0.0) & (pitch_degrees != 0.0)
-# target_lat = target_lat[valid_indices]
-# target_lon = target_lon[valid_indices]
-# current_lat = current_lat[valid_indices]
-# current_lon = current_lon[valid_indices]
-# roll_error = roll_error[valid_indices]
-# pitch_error = pitch_error[valid_indices]
-# roll_degrees = roll_degrees[valid_indices]
-# pitch_degrees = pitch_degrees[valid_indices]
-# yaw_degrees = yaw_degrees[valid_indices]
-# sats = sats[valid_indices]
-
-# # skip = 52  # 521Hz / 10Hz ≈ 52
-# # target_lat = target_lat[::skip]
-# # target_lon = target_lon[::skip]
-# # current_lat = current_lat[::skip]
-# # current_lon = current_lon[::skip]
-# # roll_error = roll_error[::skip]
-# # pitch_error = pitch_error[::skip]
-# # yaw_degrees = yaw_degrees[::skip]
-
-# yaw_degrees = (yaw_degrees + 270) % 360
-
-# # "<target lat>;<target lon>;<current lat>;<current lon>;<roll error>;<pitch error>;<roll degrees>;<pitch degrees>;<yaw degrees>;"
-
-# # map_buffer = 0.003
-# map_buffer = 0.0003
-
-
-# bounding_box = [current_lon.min() - map_buffer, current_lon.max() + map_buffer, current_lat.min() - map_buffer, current_lat.max() + map_buffer]
-# print(bounding_box)
-
-# # Lon delta 0.000685
-# # lat delta 0.000544
-
-# # Initialize tilemapbase
-# tilemapbase.init(create=True)
-# extent = tilemapbase.Extent.from_lonlat(bounding_box[0], bounding_box[1], bounding_box[2], bounding_box[3])  # Example coordinates (London area)
-# extent = extent.to_aspect(1.0)
-# tiles = tilemapbase.tiles.build_OSM()
-
-
-# fig, ax = plt.subplots(figsize=(10, 10))
-
-# # Add the background map
-# plotter = tilemapbase.Plotter(extent, tiles, zoom=18)
-# plotter.plot(ax)
-
-# # Project and plot the data points
-# projected_points_target = np.array([tilemapbase.project(lon, lat) for lon, lat in zip(target_lon, target_lat)])
-# x_target = projected_points_target[:, 0]
-# y_target = projected_points_target[:, 1]
-
-# projected_points_current = np.array([tilemapbase.project(lon, lat) for lon, lat in zip(current_lon, current_lat)])
-# x_current = projected_points_current[:, 0]
-# y_current = projected_points_current[:, 1]
-
-
-# # scatter_target = ax.scatter([], [], color='red', s=5, label='Targets')
-# # Plot the points on the map
-# # ax.scatter(x_target, y_target, color='red', s=5, label='Targets')
-# scatter_current = ax.scatter([], [], color='blue', s=35, label='Current')
-# plot_current, = ax.plot([], [], color='blue', linewidth=1, label='Path')
-
-
-# # Initialize the arrow to indicate yaw
-# quiver_yaw = ax.quiver(x_current[0], y_current[0], np.cos(np.radians(yaw_degrees[0])) * 0.0001, np.sin(np.radians(yaw_degrees[0])) * 0.0001, scale=1, scale_units='xy', angles='xy', color='red')
-# quiver_pitch = ax.quiver(x_current[0], y_current[0], np.cos(np.radians(yaw_degrees[0])) * 0.0000002, np.sin(np.radians(yaw_degrees[0])) * 0.0000002, scale=1, scale_units='xy', angles='xy', color='purple')
-# quiver_roll = ax.quiver(x_current[0], y_current[0], np.cos(np.radians(yaw_degrees[0] + 90)) * 0.0000002, np.sin(np.radians(yaw_degrees[0] + 90)) * 0.0000002, scale=1, scale_units='xy', angles='xy', color='orange')
-
-
-# # Add title and labels if needed
-# ax.set_title("Map with Points Overlay")
-# ax.set_xlabel("Longitude")
-# ax.set_ylabel("Latitude")
-
-# last_satalite_count = 0
-
-# scatter_target = ax.scatter([], [], color='red', s=35, label='Targets')
-
-# def animate(i):
-#     global last_satalite_count  # Add this line
-
-#     if i < len(x_target):
-#         dx = np.cos(np.radians(yaw_degrees[i])) * 0.0000002
-#         dy = np.sin(np.radians(yaw_degrees[i])) * 0.0000002
-#         quiver_yaw.set_offsets([x_current[i], y_current[i]])
-#         quiver_yaw.set_UVC(dx, dy)
-
-
-#         dx_pitch = np.cos(np.radians(yaw_degrees[i])) * 0.0000001 * pitch_error[i]
-#         dy_pitch = np.sin(np.radians(yaw_degrees[i])) * 0.0000001 * pitch_error[i]
-#         quiver_pitch.set_offsets([x_current[i], y_current[i]])
-#         quiver_pitch.set_UVC(dx_pitch, dy_pitch)
-
-
-#         dx_roll = np.cos(np.radians(yaw_degrees[i] + 90)) * 0.0000001 * roll_error[i]
-#         dy_roll = np.sin(np.radians(yaw_degrees[i] + 90)) * 0.0000001 * roll_error[i]
-#         quiver_roll.set_offsets([x_current[i], y_current[i]])
-#         quiver_roll.set_UVC(dx_roll, dy_roll)
-
-
-#         # Update the scatter plot data
-#         plot_current.set_data(x_current[:i+1], y_current[:i+1])
-#         scatter_current.set_offsets([x_current[i], y_current[i]])
-        
-#         # Gradually reveal target points
-#         scatter_target.set_offsets([[x_target[i], y_target[i]]])
-
-#         if(last_satalite_count != sats[i]):
-#             print(f"Satelite count: {sats[i]}")
-#             last_satalite_count = sats[i]
-        
-#         # if(i % 100 == 0):
-#         #     print(i)
-
-
-#         # Set the animation interval to match the desired frequency (521 Hz)
-#         # interval = int(1000 / 521)
-#         # ani.event_source.interval = interval
-
-#         # Return the updated objects
-#         return plot_current, scatter_current, scatter_target, quiver_yaw, quiver_pitch, quiver_roll
-
-
-# # Add a slider for the timeline
-# ax_slider = plt.axes([0.1, 0.01, 0.65, 0.03], facecolor='lightgoldenrodyellow')
-# slider = Slider(ax_slider, 'Frame', 0, len(x_target) - 1, valinit=0, valstep=1)
-
-# # Add a pause button
-# ax_button_pause = plt.axes([0.8, 0.01, 0.1, 0.04])
-# button_pause = Button(ax_button_pause, 'Pause', color='lightgoldenrodyellow', hovercolor='0.975')
-
-# # Add a continue button
-# ax_button_continue = plt.axes([0.9, 0.01, 0.1, 0.04])
-# button_continue = Button(ax_button_continue, 'Continue', color='lightgoldenrodyellow', hovercolor='0.975')
-
-# # Variable to control the animation state
-# is_paused = False
-
-# def update(val):
-#     frame = int(slider.val)
-#     animate(frame)
-
-# def pause(event):
-#     global is_paused
-#     is_paused = True
-
-# def continue_(event):
-#     global is_paused
-#     is_paused = False
-
-# slider.on_changed(update)
-# button_pause.on_clicked(pause)
-# button_continue.on_clicked(continue_)
-
-# def animation_func(i):
-#     if not is_paused:
-#         slider.set_val(i)
-#         return animate(i)
-#     return []
-
-# ani = FuncAnimation(fig, animation_func, frames=len(x_target), interval=20, blit=True)
-# ax_slider = plt.axes([0.1, 0.01, 0.65, 0.03], facecolor='lightgoldenrodyellow')
-# slider = Slider(ax_slider, 'Frame', 0, len(x_target) - 1, valinit=0, valstep=1)
-
-# # Add a pause button
-# ax_button_pause = plt.axes([0.8, 0.01, 0.1, 0.04])
-# button_pause = Button(ax_button_pause, 'Pause', color='lightgoldenrodyellow', hovercolor='0.975')
-
-# # Add a continue button
-# ax_button_continue = plt.axes([0.9, 0.01, 0.1, 0.04])
-# button_continue = Button(ax_button_continue, 'Continue', color='lightgoldenrodyellow', hovercolor='0.975')
-
-# # Variable to control the animation state
-# is_paused = False
-
-# def update(val):
-#     frame = int(slider.val)
-#     animate(frame)
-
-# def pause(event):
-#     global is_paused
-#     is_paused = True
-
-# def continue_(event):
-#     global is_paused
-#     is_paused = False
-
-# slider.on_changed(update)
-# button_pause.on_clicked(pause)
-# button_continue.on_clicked(continue_)
-
-# def animation_func(i):
-#     if not is_paused:
-#         slider.set_val(i)
-#         return animate(i)
-#     return []
-
-# ani = FuncAnimation(fig, animation_func, frames=len(x_target), interval=20, blit=True)
-
-# # ani = FuncAnimation(fig, animate, frames=len(x_target), interval=20, blit=True)
-
-# plt.show()
-
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -329,7 +59,7 @@ class PID:
 # -----------------------------
 # 1. Load & Prepare Your Data
 # -----------------------------
-data = np.genfromtxt('../misc/gps_logs/gps_targeting26.txt', delimiter=';')
+data = np.genfromtxt('../misc/gps_logs/gps_targeting31.txt', delimiter=';', usecols=range(16))
 
 target_lat = data[:, 0]
 target_lon = data[:, 1]
@@ -348,13 +78,12 @@ pitch_effect_on_lon = data[:, 13]
 error_lat = data[:, 14]
 error_lon = data[:, 15]
 
-yaw_degrees = (yaw_degrees + 270) % 360
 
 
 
 # Define PID parameters
-gps_hold_outer_master_gain = 1.0
-gps_hold_outer_gain_p = 100000.0
+gps_hold_outer_master_gain = 1000.0
+gps_hold_outer_gain_p = 100.0
 gps_hold_outer_gain_i = 0.0
 gps_hold_outer_gain_d = 0.0
 
@@ -394,8 +123,50 @@ for i in range(len(data)):
     error_lat[i] = gps_latitude_outer_pid.calculate_error(current_lat[i], current_time_us)
     error_lon[i] = gps_longitude_outer_pid.calculate_error(current_lon[i], current_time_us)
 
+    yaw_radians = yaw_degrees[i] * 0.0174533 
+
+    temp_roll_effect_on_lat = roll_effect_on_lat[i]
+    temp_pitch_effect_on_lat = pitch_effect_on_lat[i]
+    temp_roll_effect_on_lon = roll_effect_on_lon[i]
+    temp_pitch_effect_on_lon = pitch_effect_on_lon[i]
+
+    roll_effect_on_lat[i] = -math.sin(yaw_radians)#  * latitude_sign;  // + GOOD, - GOOD  // If moving north roll right positive, roll left south negative
+    pitch_effect_on_lat[i] = math.cos(yaw_radians)# * latitude_sign;  // + GOOD, - GOOD  // If moving north forward positive, backwards negative
+    roll_effect_on_lon[i] = math.cos(yaw_radians)# * longitude_sign;  // + GOOD, - GOOD
+    pitch_effect_on_lon[i] = math.sin(yaw_radians)# * longitude_sign; // + GOOD, - GOOD 
+
+    print(f"Yaw: {yaw_degrees[i]}")
+    print(f"Original Roll Effect on Lat: {temp_roll_effect_on_lat}, Calculated: {roll_effect_on_lat[i]}")
+    print(f"Original Pitch Effect on Lat: {temp_pitch_effect_on_lat}, Calculated: {pitch_effect_on_lat[i]}")
+    print(f"Original Roll Effect on Lon: {temp_roll_effect_on_lon}, Calculated: {roll_effect_on_lon[i]}")
+    print(f"Original Pitch Effect on Lon: {temp_pitch_effect_on_lon}, Calculated: {pitch_effect_on_lon[i]}")
+    print("\n")
+
+    # Length of the vector of lat and lon errrors
+    error_magnitude = math.sqrt(error_lat[i] * error_lat[i] + error_lon[i] * error_lon[i])
+
+    if error_magnitude == 0:
+        normalized_error_latitude = 0
+        normalized_error_longitude = 0
+    else:
+        normalized_error_latitude = error_lat[i] / error_magnitude
+        normalized_error_longitude = error_lon[i] / error_magnitude
+
+    gps_hold_roll_adjustment_calculation = (roll_effect_on_lat[i] * normalized_error_latitude +
+                                            roll_effect_on_lon[i] * normalized_error_longitude)
+    gps_hold_pitch_adjustment_calculation = (pitch_effect_on_lat[i] * normalized_error_latitude +
+                                             pitch_effect_on_lon[i] * normalized_error_longitude)
+
+    scale_factor = min(error_magnitude, 5.0)
+
+    roll_error[i] = gps_hold_roll_adjustment_calculation * scale_factor
+    pitch_error[i] = gps_hold_pitch_adjustment_calculation * scale_factor
+
+
     # Increment time
     current_time_us += time_increment_us
+
+yaw_degrees = (yaw_degrees + 270) % 360
 
 start_index = 0 # Default
 
@@ -444,7 +215,7 @@ start_index = 0 # Default
 
 # The goal is to reach the target point not only lat or lon individually
 # Testing lat lon pitch forward
-start_index = 1799 # Facing north towards taget 
+# start_index = 1799 # Facing north towards taget 
 
 # Testing lat lon pitch back 
 # start_index = 1585 # Facing west with target right behind
@@ -455,8 +226,8 @@ start_index = 1799 # Facing north towards taget
 # Testing lat lon roll left
 # start_index = 1605 # Facing south with target to the left of it
 
-roll_error = -pitch_effect_on_lat * error_lat + pitch_effect_on_lon * error_lon
-pitch_error = -roll_effect_on_lat * error_lat + roll_effect_on_lon * error_lon
+# roll_error = -pitch_effect_on_lat * error_lat + pitch_effect_on_lon * error_lon
+# pitch_error = -roll_effect_on_lat * error_lat + roll_effect_on_lon * error_lon
 
 
 
@@ -485,7 +256,7 @@ pitch_error = -roll_effect_on_lat * error_lat + roll_effect_on_lon * error_lon
 roll_error = np.clip(roll_error, -5.0, 5.0)
 pitch_error = np.clip(pitch_error, -5.0, 5.0)
 
-map_buffer = 0.0003
+map_buffer = 0.0007
 bounding_box = [
     current_lon.min() - map_buffer, 
     current_lon.max() + map_buffer, 

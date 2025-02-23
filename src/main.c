@@ -299,13 +299,13 @@ float magnetometer_soft_iron_correction[3][3] = {
 
 // Accelerometer
 float accelerometer_correction[3] = {
-    0.048688, -0.011751, 1.118072
+    -0.022429, -0.334548, 0.952135
 };
 
 float accelerometer_scale_factor_correction[3][3] = {
-    {0.989138,-0.0125890,0.004309},
-    {-0.012589,0.997708,-0.001005},
-    {0.004309,-0.001005,0.972671}
+    {1.007638,0.034535,0.012508},
+    {0.034535,0.951928,-0.307391},
+    {0.012508,-0.307391,0.969725}
 };
 
 // Gyro
@@ -313,8 +313,8 @@ float gyro_correction[3] = {
     -2.532809, 2.282250, 0.640916
 };
 
-float base_accelerometer_roll_offset = -1.84;
-float base_accelerometer_pitch_offset = 2.39;
+float base_accelerometer_roll_offset = 0.0;
+float base_accelerometer_pitch_offset = 0.0;
 
 float accelerometer_roll_offset = 0;
 float accelerometer_pitch_offset = 0;
@@ -384,8 +384,8 @@ float last_error_pitch = 0;
 #define BASE_ALTITUDE_HOLD_GAIN_I 0.0 // 0.0010
 #define BASE_ALTITUDE_HOLD_GAIN_D 0.0
 
-#define BASE_GPS_HOLD_MASTER_GAIN 1.0
-#define BASE_GPS_HOLD_GAIN_P 100000.0
+#define BASE_GPS_HOLD_MASTER_GAIN 1000.0
+#define BASE_GPS_HOLD_GAIN_P 100.0
 #define BASE_GPS_HOLD_GAIN_I 0.0
 #define BASE_GPS_HOLD_GAIN_D 0.0
 
@@ -949,6 +949,9 @@ void handle_get_and_calculate_sensor_values(){
     __enable_irq();
     sensors5 = DWT->CYCCNT;
 
+    // printf("ACCEL,%5.2f,%5.2f,%5.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
+    // printf("GYRO,%5.2f,%5.2f,%5.2f;\n", gyro_angular[0], gyro_angular[1], gyro_angular[2]);
+    
     // GPS stuff
     bn357_parse_data(); // Try to parse gps
     old_gps_longitude = gps_longitude;
@@ -1101,15 +1104,10 @@ void handle_get_and_calculate_sensor_values(){
     float longitude_sign = 1 * (bn357_get_longitude_direction() == 'E') + (-1) * (bn357_get_longitude_direction() == 'W');
 
     // yaw north facing is 0, east is 90, south is 180, west is 270
-    // roll_effect_on_lat = -triangle_cos(imu_orientation[2] * M_PI_DIV_BY_180) * latitude_sign;  // + GOOD, - GOOD  // If moving north roll right positive, roll left south negative
-    // pitch_effect_on_lat = triangle_sin(imu_orientation[2] * M_PI_DIV_BY_180) * latitude_sign;  // + GOOD, - GOOD  // If moving north forward positive, backwards negative
-    // roll_effect_on_lon = triangle_sin(imu_orientation[2] * M_PI_DIV_BY_180) * longitude_sign;  // + GOOD, - GOOD
-    // pitch_effect_on_lon = triangle_cos(imu_orientation[2] * M_PI_DIV_BY_180) * longitude_sign; // + GOOD, - GOOD 
-
-    pitch_effect_on_lat = triangle_cos(imu_orientation[2] * M_PI_DIV_BY_180) * latitude_sign;  // + GOOD, - GOOD  // If moving north roll right positive, roll left south negative
-    roll_effect_on_lat = -triangle_sin(imu_orientation[2] * M_PI_DIV_BY_180) * latitude_sign;  // + GOOD, - GOOD  // If moving north forward positive, backwards negative
-    pitch_effect_on_lon = triangle_sin(imu_orientation[2] * M_PI_DIV_BY_180) * longitude_sign;  // + GOOD, - GOOD
-    roll_effect_on_lon = triangle_cos(imu_orientation[2] * M_PI_DIV_BY_180) * longitude_sign; // + GOOD, - GOOD 
+    roll_effect_on_lat = -sin(imu_orientation[2] * M_PI_DIV_BY_180) * latitude_sign;  // + GOOD, - GOOD  // If moving north forward positive, backwards negative
+    pitch_effect_on_lat = cos(imu_orientation[2] * M_PI_DIV_BY_180) * latitude_sign;  // + GOOD, - GOOD  // If moving north roll right positive, roll left south negative
+    roll_effect_on_lon = cos(imu_orientation[2] * M_PI_DIV_BY_180) * longitude_sign; // + GOOD, - GOOD 
+    pitch_effect_on_lon = sin(imu_orientation[2] * M_PI_DIV_BY_180) * longitude_sign;  // + GOOD, - GOOD
 
     // printf("PLAT: %.2f RLAT: %.2f PLON: %.2f RLON: %.2f\n", 
     //     pitch_effect_on_lat,
@@ -1243,6 +1241,9 @@ void handle_pid_and_motor_control(){
         pid_reset_integral_sum(&gps_longitude_pid);
         pid_reset_integral_sum(&gps_latitude_pid);
 
+        error_latitude = 0.0;
+        error_longitude = 0.0;
+
         //Set new target for the altitude
         target_altitude_barometer = altitude_barometer;
 
@@ -1265,10 +1266,28 @@ void handle_pid_and_motor_control(){
             error_latitude = pid_get_error(&gps_latitude_pid, gps_latitude, get_absolute_time());
             error_longitude = pid_get_error(&gps_longitude_pid, gps_longitude, get_absolute_time());
 
+            // Length of the lat lon error vector
+            float error_magnitude = sqrtf(error_latitude * error_latitude + error_longitude * error_longitude);
 
-            float gps_hold_roll_adjustment_calculation = roll_effect_on_lat * error_latitude + roll_effect_on_lon * error_longitude;
-            float gps_hold_pitch_adjustment_calculation = pitch_effect_on_lat * error_latitude + pitch_effect_on_lon * error_longitude;
+            // Get unit vectors of error lat and lon
+            float normalized_error_latitude = 0.0f;
+            float normalized_error_longitude = 0.0f;
+            if(error_magnitude == 0.0f){
+                normalized_error_latitude = 0.0f;
+                normalized_error_longitude = 0.0f;
+            }else{
+                normalized_error_latitude = error_latitude / error_magnitude;
+                normalized_error_longitude = error_longitude / error_magnitude;
+            }
 
+            float gps_hold_roll_adjustment_calculation = roll_effect_on_lat * normalized_error_latitude + roll_effect_on_lon * normalized_error_longitude;
+            float gps_hold_pitch_adjustment_calculation = pitch_effect_on_lat * normalized_error_latitude + pitch_effect_on_lon * normalized_error_longitude;
+
+            float scale_factor = fmin(error_magnitude, gps_pid_angle_of_attack_max);
+
+            gps_hold_roll_adjustment = gps_hold_roll_adjustment_calculation * scale_factor;
+            gps_hold_pitch_adjustment = gps_hold_pitch_adjustment_calculation * scale_factor;
+            
 
             // if(gps_hold_roll_adjustment_calculation > gps_pid_angle_of_attack_max){
             //     gps_hold_roll_adjustment_calculation = gps_pid_angle_of_attack_max;
@@ -1312,20 +1331,20 @@ void handle_pid_and_motor_control(){
 
 
             // Limit the values
-            if(gps_hold_roll_adjustment_calculation > gps_pid_angle_of_attack_max){
-                gps_hold_roll_adjustment_calculation = gps_pid_angle_of_attack_max;
-            }else if(gps_hold_roll_adjustment_calculation < -gps_pid_angle_of_attack_max){
-                gps_hold_roll_adjustment_calculation = -gps_pid_angle_of_attack_max;
-            }
+            // if(gps_hold_roll_adjustment_calculation > gps_pid_angle_of_attack_max){
+            //     gps_hold_roll_adjustment_calculation = gps_pid_angle_of_attack_max;
+            // }else if(gps_hold_roll_adjustment_calculation < -gps_pid_angle_of_attack_max){
+            //     gps_hold_roll_adjustment_calculation = -gps_pid_angle_of_attack_max;
+            // }
 
-            if(gps_hold_pitch_adjustment_calculation > gps_pid_angle_of_attack_max){
-                gps_hold_pitch_adjustment_calculation = gps_pid_angle_of_attack_max;
-            }else if(gps_hold_pitch_adjustment_calculation < -gps_pid_angle_of_attack_max){
-                gps_hold_pitch_adjustment_calculation = -gps_pid_angle_of_attack_max;
-            }
+            // if(gps_hold_pitch_adjustment_calculation > gps_pid_angle_of_attack_max){
+            //     gps_hold_pitch_adjustment_calculation = gps_pid_angle_of_attack_max;
+            // }else if(gps_hold_pitch_adjustment_calculation < -gps_pid_angle_of_attack_max){
+            //     gps_hold_pitch_adjustment_calculation = -gps_pid_angle_of_attack_max;
+            // }
 
-            gps_hold_roll_adjustment = gps_hold_roll_adjustment_calculation;
-            gps_hold_pitch_adjustment = gps_hold_pitch_adjustment_calculation;
+            // gps_hold_roll_adjustment = gps_hold_roll_adjustment_calculation;
+            // gps_hold_pitch_adjustment = gps_hold_pitch_adjustment_calculation;
             
             // printf("%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;", target_latitude, target_longitude, gps_latitude, gps_longitude, gps_hold_roll_adjustment, gps_hold_pitch_adjustment, imu_orientation[0], imu_orientation[1], imu_orientation[2]);
             // printf("%.2f;%.2f;%.2f;%.2f;", roll_effect_on_lat, roll_effect_on_lon, pitch_effect_on_lat, pitch_effect_on_lon);
@@ -2482,7 +2501,7 @@ void handle_logging(){
                     // target lat, target lon, lat, lon, roll_adjust, pitch_adjust, roll, pitch, yaw, sats, roll_effect_on_lat, pitch_effect_on_lat, roll_effect_on_lon, pitch_effect_on_lon, error_lat, error_lon
                     if(gps_target_unset_logged == 0){
                         if(gps_target_unset_cause_roll){
-                            sd_card_append_to_buffer(1, "%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%f;%f;%f;%f;%f;%f;r%.3f;\n", 
+                            sd_card_append_to_buffer(1, "%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%f;%f;%f;%f;%f;%f;%f;%f;r%.3f;\n", 
                                 target_latitude, 
                                 real_target_longitude, 
                                 gps_latitude, 
@@ -2499,10 +2518,12 @@ void handle_logging(){
                                 pitch_effect_on_lon,
                                 error_latitude,
                                 error_longitude,
+                                imu_orientation[0],
+                                imu_orientation[1],
                                 gps_target_unset_roll_value
                             );
                         }else{
-                            sd_card_append_to_buffer(1, "%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%f;%f;%f;%f;%f;%f;p%.3f;\n", 
+                            sd_card_append_to_buffer(1, "%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%f;%f;%f;%f;%f;%f;%f;%f;p%.3f;\n", 
                                 target_latitude, 
                                 real_target_longitude, 
                                 gps_latitude, 
@@ -2519,13 +2540,15 @@ void handle_logging(){
                                 pitch_effect_on_lon,
                                 error_latitude,
                                 error_longitude,
+                                imu_orientation[0],
+                                imu_orientation[1],
                                 gps_target_unset_pitch_value
                             );
                         }
                         
                         gps_target_unset_logged = 1;
                     }else{
-                        sd_card_append_to_buffer(1, "%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%f;%f;%f;%f;%f;%f;\n", 
+                        sd_card_append_to_buffer(1, "%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%f;%f;%f;%f;%f;%f;%f;%f;\n", 
                             target_latitude,
                             real_target_longitude,
                             gps_latitude, 
@@ -2534,8 +2557,6 @@ void handle_logging(){
                             gps_hold_pitch_adjustment, 
                             roll,
                             pitch,
-                            // imu_orientation[0], 
-                            // imu_orientation[1], 
                             imu_orientation[2],
                             bn357_get_satellites_quantity(),
                             roll_effect_on_lat,
@@ -2543,7 +2564,9 @@ void handle_logging(){
                             roll_effect_on_lon,
                             pitch_effect_on_lon,
                             error_latitude,
-                            error_longitude
+                            error_longitude,
+                            imu_orientation[0],
+                            imu_orientation[1]
                         );
                     }
 

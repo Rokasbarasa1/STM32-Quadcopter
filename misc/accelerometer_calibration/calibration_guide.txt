@@ -1,0 +1,9 @@
+// Accelerometer
+float accelerometer_correction[3] = {
+    -0.022429, -0.334548, 0.952135
+};
+
+Above numbers are not from magneto, not from, not from static error from 1000 samples either. 
+
+I get 100 samples on level ground and then i look at the data and compare the outputs of the mpu6050 accelerometer data function
+to what they are expected to be. 0.00, 0.00 and 1.00. I then adjust the correction to be that value
