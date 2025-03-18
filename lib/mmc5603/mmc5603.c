@@ -25,6 +25,9 @@
 
 I2C_HandleTypeDef *i2c_handle;
 
+
+float mmc5603_old_magenetometer_readings[3] = {0, 0, 0};
+
 // Storage of hard iron correction, values should be replaced by what is passed
 volatile float m_mmc5603_hard_iron[3] = {
     0, 0, 0
@@ -329,6 +332,10 @@ void mmc5603_magnetometer_readings_micro_teslas(float *data){
     data[1] = (float)Y * DECIMAL_TO_MICRO_TESLA_RATIO;
     data[2] = (float)Z * DECIMAL_TO_MICRO_TESLA_RATIO;
 
+    mmc5603_old_magenetometer_readings[0] = data[0];
+    mmc5603_old_magenetometer_readings[1] = data[1];
+    mmc5603_old_magenetometer_readings[2] = data[2];
+
     // Fix the micro tesla value with calibrations
     for (uint8_t i = 0; i < 3; i++){
         data[i] = data[i] - m_mmc5603_hard_iron[i];
@@ -513,3 +520,8 @@ void mmc5603_magnetometer_readings_micro_teslas_bridge_offset_removed(float *dat
     data[2] = (set_magnetometer_data[2] - reset_magnetometer_data[2])/2;
 }
 
+void mmc5603_previous_raw_magetometer_readings(float *data){
+    data[0] = mmc5603_old_magenetometer_readings[0];
+    data[1] = mmc5603_old_magenetometer_readings[1];
+    data[2] = mmc5603_old_magenetometer_readings[2];
+}

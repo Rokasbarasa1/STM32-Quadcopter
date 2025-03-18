@@ -19,7 +19,7 @@ from matplotlib.animation import FuncAnimation
 import math
 
 # I fucked up gps logging so this script fixes that 
-data = np.genfromtxt('../misc/gps_logs/gps_targeting32.txt', delimiter=';', usecols=range(16))
+data = np.genfromtxt('../misc/gps_logs/gps_targeting33.txt', delimiter=';', usecols=range(16))
 
 # Skip rows with 0 in the first column until a real value shows up
 first_non_zero_index = np.argmax(data[:, 0] != 0)
@@ -134,7 +134,7 @@ yaw_degrees = (yaw_degrees + 270) % 360
 
 # "<target lat>;<target lon>;<current lat>;<current lon>;<roll error>;<pitch error>;<roll degrees>;<pitch degrees>;<yaw degrees>;"
 
-map_buffer = 0.002
+map_buffer = 0.0006
 # map_buffer = 0.003
 
 bounding_box = [current_lon.min() - map_buffer, current_lon.max() + map_buffer, current_lat.min() - map_buffer, current_lat.max() + map_buffer]

@@ -22,3 +22,4 @@ uint8_t mmc5603_read_status_register();
 uint8_t mmc5603_perform_self_test();
 void mmc5603_get_bridge_offset(float *data);
 void mmc5603_magnetometer_readings_micro_teslas_bridge_offset_removed(float *data);
+void mmc5603_previous_raw_magetometer_readings(float *data);
