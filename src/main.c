@@ -49,6 +49,7 @@ static void MX_TIM4_Init(void);
 // Other imports
 #include "../lib/utils/ned_coordinates/ned_coordinates.h"
 #include "../lib/pid/pid.h"
+#include "../lib/pid/pid_double.h"
 #include "../lib/filtering/filtering.h"
 #include "../lib/kalman_filter/kalman_filter.h"
 #include "../lib/utils/matrix_operations/matrix_operations.h"
@@ -221,7 +222,7 @@ const uint32_t dshot_refresh_rate = 500; // Hz
 #define actual_min_dshot600_throttle_value 91 // Lowest value that lets the motors spin freely and at low rpm
 
 // Take 75 percent of max because my battery can't handle all that current.
-const uint16_t actual_max_dshot600_throttle_value = min_dshot600_throttle_value + ((max_dshot600_throttle_value - min_dshot600_throttle_value) * 75) / 100; // (max lipo amp rating / max draw of a bldc motor being used x 4) 0.917 * (max_pwm - min_pwm) + min_pwm = 371.4
+const uint16_t actual_max_dshot600_throttle_value = min_dshot600_throttle_value + ((max_dshot600_throttle_value - min_dshot600_throttle_value) * 40) / 100; // (max lipo amp rating / max draw of a bldc motor being used x 4) 0.917 * (max_pwm - min_pwm) + min_pwm = 371.4
 
 // Motor 0 - BL, 1 - BR, 2 - FR, 3 - FL
 float motor_power[] = {0.0, 0.0, 0.0, 0.0}; // Percent
@@ -345,8 +346,8 @@ struct pid angle_roll_pid;
 
 struct pid altitude_hold_pid;
 
-struct pid gps_longitude_pid;
-struct pid gps_latitude_pid;
+struct pid_double gps_longitude_pid;
+struct pid_double gps_latitude_pid;
 
 float error_acro_roll = 0;
 float error_acro_pitch = 0;
@@ -452,9 +453,9 @@ uint8_t target_altitude_barometer_set = 0;
 float last_throttle_deadzone = 0.0;
 
 float altitude_barometer_rate_of_change_max_cm_s = 30.0f;
-float target_longitude = 0.0;
-float real_target_longitude = 0.0;
-float target_latitude = 0.0;
+double target_longitude = 0.0;
+double real_target_longitude = 0.0;
+double target_latitude = 0.0;
 
 uint8_t target_lon_lat_set = 0;
 
@@ -469,37 +470,52 @@ float acceleration_data[] = {0,0,0};
 float gyro_angular[] = {0,0,0};
 float imu_orientation[] = {0,0,0};
 float magnetometer_data[] = {0,0,0};
-float old_gps_longitude = 0.0;
-float gps_longitude = 0.0;
-float gps_real_longitude = 0.0;
-float gps_latitude = 0.0;
 
-
-float gps_longitude_micro = 0.0;
-float gps_latitude_micro = 0.0;
-
-float old_gps_latitude = 0.0;
-float delta_gps_latitude = 0.0;
-float delta_gps_longitude = 0.0;
-float in_between_gps_latitude = 0.0;
-float in_between_gps_longitude = 0.0;
-uint8_t in_between_gps_loop_divider = 50;
-uint8_t in_between_gps_loop_divider_counter = 0;
-uint8_t gps_fix_type = 0.0;
+uint8_t gps_fix_type = 0;
+uint8_t gps_satalittes_count = 0;
 uint8_t got_gps = 0;
-uint8_t gps_can_be_used = 0;
 
-// #define GPS_REFRESH_RATE_HZ 10
-// float gps_timing
+uint8_t got_gps_multiple = 0;
+
+
+uint8_t gps_can_be_used = 0;
+double gps_latitude = 0.0;
+double gps_longitude = 0.0;
+double gps_real_longitude = 0.0;
+
+double old_gps_latitude = 0.0;
+double old_gps_longitude = 0.0;
+double newest_gps_latitude = 0.0;
+double newest_gps_longitude = 0.0;
 
 uint8_t use_gps_mutiply = 1;
-float delta_gps_lat = 0.0;
-float delta_gps_lon = 0.0;
+uint8_t use_gps_filtering = 0;
+
+double gps_latitude_micro = 0.0;
+double gps_longitude_micro = 0.0;
+double delta_gps_lat = 0.0;
+double delta_gps_lon = 0.0;
+
 uint8_t multiply_gps_frequency = 10;
+
 uint8_t gps_micro_bits_added = 0;
-uint32_t last_got_gps_timestamp_microseconds = 0;
-uint32_t last_gps_microstep_timestamp_microseconds = 0;
-uint32_t time_between_gps_refresh_ms = 0;
+
+uint64_t last_got_gps_timestamp_microseconds = 0;
+uint64_t last_gps_microstep_timestamp_microseconds = 0;
+uint64_t time_between_gps_refresh_microseconds = 0;
+
+
+
+
+
+uint64_t last_fake_got_gps_timestamp_microseconds = 0;
+
+
+
+
+
+
+
 
 
 float pressure_hpa = 0.0;
@@ -517,7 +533,11 @@ float vertical_velocity = 0.0; // UNITS???
 uint8_t gps_position_hold_enabled = 0;
 uint8_t gps_target_set = 0;
 uint8_t gps_target_unset_logged = 1;
-uint8_t gps_target_unset_cause_roll = 1; // For logging 
+
+// 0 - pitch
+// 1 - roll 
+// 2 - radio off
+uint8_t gps_target_unset_cause = 1; // For logging
 float gps_target_unset_roll_value = 0.0f;
 float gps_target_unset_pitch_value = 0.0f;
 
@@ -668,10 +688,10 @@ uint8_t pid_change_mode = 2;
 
 // ------------------------------------------------------------------------------------------------------ Logging to SD card
 char log_file_base_name[] = "Quad.txt";
-char log_file_base_name_gps[] = "QuadGPS.txt";
-char log_file_base_name_alt[] = "QuadALT.txt";
-char log_file_base_name_mag[] = "QuadMAG.txt";
-char log_file_base_name_yaw[] = "QuadYAW.txt";
+char log_file_base_name_gps[] = "QuadGPS.csv";
+char log_file_base_name_alt[] = "QuadALT.csv";
+char log_file_base_name_mag[] = "QuadMAG.csv";
+char log_file_base_name_yaw[] = "QuadYAW.csv";
 char log_file_blackbox_base_name[] = "Quadcopter.BBL";
 char *new_log_file_blackbox_base_name;
 uint16_t blackbox_file_index = 0;
@@ -993,36 +1013,72 @@ void handle_get_and_calculate_sensor_values(){
     bn357_parse_data(); // Try to parse gps
     got_gps = bn357_get_status_up_to_date(1);
     if(got_gps){
-        old_gps_longitude = gps_longitude;
         old_gps_latitude = gps_latitude;
+        old_gps_longitude = gps_longitude;
     }
-    gps_latitude = bn357_get_latitude_decimal_format();
-    gps_longitude = bn357_get_linear_longitude_decimal_format(); // Linear for pid
-    gps_real_longitude = bn357_get_longitude_decimal_format(); // Linear for pid
+    gps_latitude = (double) bn357_get_latitude_decimal_format();
+    gps_longitude = (double) bn357_get_linear_longitude_decimal_format(); // Linear for pid
+    if(got_gps){
+        newest_gps_latitude = gps_latitude;
+        newest_gps_longitude = gps_longitude;
+    }
+    gps_real_longitude = (double) bn357_get_longitude_decimal_format();
     gps_fix_type = bn357_get_fix_type();
-    // if(got_gps && bn357_get_satellites_quantity() >= 10 ){ // Keep this light on for at least 1 second
+    gps_satalittes_count = bn357_get_satellites_quantity();
+
+
+
+
+    // if(last_fake_got_gps_timestamp_microseconds == 0 || get_absolute_time() - last_fake_got_gps_timestamp_microseconds > 100000){
+    //     last_fake_got_gps_timestamp_microseconds = get_absolute_time();
+    //     printf("G\n");
+    //     old_gps_latitude = newest_gps_latitude;
+    //     old_gps_longitude = newest_gps_longitude;
+    //     gps_latitude = old_gps_latitude + 0.000100;
+    //     gps_longitude = old_gps_longitude + 0.000100;
+    //     gps_real_longitude = gps_longitude;
+    //     newest_gps_latitude = gps_latitude;
+    //     newest_gps_longitude = gps_longitude;
+    //     gps_fix_type = 3;
+    //     gps_satalittes_count = 1;
+    //     got_gps = 1;
+    // }else{
+    //     got_gps = 0;
+    // }
+
+
+
+
+    got_gps_multiple = 0;
+    uint8_t filter_gps = 0;
     if(got_gps){ // Keep this light on for at least 1 second
         if(use_gps_mutiply){
             // If gps data arrived early then add up the prevous steps
-            if(gps_micro_bits_added != 0 && gps_micro_bits_added != multiply_gps_frequency){
-                gps_latitude = gps_latitude + (delta_gps_lat * (multiply_gps_frequency - gps_micro_bits_added));
-                gps_longitude = gps_longitude + (delta_gps_lon * (multiply_gps_frequency - gps_micro_bits_added));
-            }
+            // if(gps_micro_bits_added != 0 && gps_micro_bits_added != multiply_gps_frequency){
+            //     gps_latitude = gps_latitude + (delta_gps_lat * ((double)(multiply_gps_frequency - gps_micro_bits_added)));
+            //     gps_longitude = gps_longitude + (delta_gps_lon * ((double)(multiply_gps_frequency - gps_micro_bits_added)));
+            // }
             
-            delta_gps_lat = (gps_latitude - old_gps_latitude)/multiply_gps_frequency;
-            delta_gps_lon = (gps_longitude - old_gps_longitude)/multiply_gps_frequency;
-
-            gps_latitude_micro = old_gps_latitude + delta_gps_lat;
-            gps_longitude_micro = old_gps_longitude + delta_gps_lon;
-
-            old_gps_latitude = gps_latitude;
-            old_gps_longitude = gps_longitude;
-            
-            time_between_gps_refresh_ms = (get_absolute_time() - last_got_gps_timestamp_microseconds) / 1000;
+            time_between_gps_refresh_microseconds = get_absolute_time() - last_got_gps_timestamp_microseconds;
             last_got_gps_timestamp_microseconds = get_absolute_time();
+
+            delta_gps_lat = (gps_latitude - old_gps_latitude)/((double)multiply_gps_frequency);
+            delta_gps_lon = (gps_longitude - old_gps_longitude)/((double)multiply_gps_frequency);
+
+            // 12.511806-
+            // 12.511809
+            // Start counting from the previous value
+            // gps_latitude_micro = old_gps_latitude + delta_gps_lat;
+            // gps_longitude_micro = old_gps_longitude + delta_gps_lon;
+
+            gps_latitude_micro = old_gps_latitude;
+            gps_longitude_micro = old_gps_longitude;
+
             last_gps_microstep_timestamp_microseconds = get_absolute_time();
-            gps_micro_bits_added = 1;
+            gps_micro_bits_added = 0;
+            // got_gps_multiple = 1;
         }
+        filter_gps = 1;
 
         HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
         last_got_gps_timestamp = get_absolute_time()/1000;
@@ -1040,14 +1096,15 @@ void handle_get_and_calculate_sensor_values(){
     }
 
     if(use_gps_mutiply){
-        if(gps_can_be_used && (get_absolute_time() - last_gps_microstep_timestamp_microseconds) >= time_between_gps_refresh_ms/multiply_gps_frequency){
+        if(gps_can_be_used && gps_micro_bits_added != multiply_gps_frequency -1 && get_absolute_time() - last_gps_microstep_timestamp_microseconds >= time_between_gps_refresh_microseconds/((uint64_t)(multiply_gps_frequency+1))){
             last_gps_microstep_timestamp_microseconds = get_absolute_time();
             gps_latitude_micro = gps_latitude_micro + delta_gps_lat;
             gps_longitude_micro = gps_longitude_micro + delta_gps_lon;
             gps_micro_bits_added++;
+            filter_gps = 1;
+            got_gps_multiple = 1;
         }
-    
-    
+
         gps_latitude = gps_latitude_micro;
         gps_longitude = gps_longitude_micro;
     }
@@ -1166,7 +1223,7 @@ void handle_get_and_calculate_sensor_values(){
 
     altitude_barometer = low_pass_filter_biquad_read(&altitude_barometer_filtering, altitude_barometer);
 
-    if(got_gps){
+    if(filter_gps && use_gps_filtering){
         gps_longitude = low_pass_filter_biquad_read(&biquad_filter_gps_lon, gps_longitude);
         gps_latitude = low_pass_filter_biquad_read(&biquad_filter_gps_lat, gps_latitude);
     }
@@ -1185,6 +1242,9 @@ void handle_get_and_calculate_sensor_values(){
     // GPS STUFF
     float latitude_sign = 1 * (bn357_get_latitude_direction() == 'N') + (-1) * (bn357_get_latitude_direction() == 'S'); // Possible results: 0, 1 or -1
     float longitude_sign = 1 * (bn357_get_longitude_direction() == 'E') + (-1) * (bn357_get_longitude_direction() == 'W');
+
+    latitude_sign = 1;
+    longitude_sign = 1;
 
     // yaw north facing is 0, east is 90, south is 180, west is 270
     roll_effect_on_lat = -sin(imu_orientation[2] * M_PI_DIV_BY_180) * latitude_sign;  // + GOOD, - GOOD  // If moving north forward positive, backwards negative
@@ -1309,8 +1369,8 @@ void handle_pid_and_motor_control(){
         pid_reset_integral_sum(&altitude_hold_pid);
         pid_reset_integral_sum(&altitude_hold_pid);
 
-        pid_reset_integral_sum(&gps_longitude_pid);
-        pid_reset_integral_sum(&gps_latitude_pid);
+        pid_double_reset_integral_sum(&gps_longitude_pid);
+        pid_double_reset_integral_sum(&gps_latitude_pid);
 
         error_latitude = 0.0;
         error_longitude = 0.0;
@@ -1318,12 +1378,15 @@ void handle_pid_and_motor_control(){
         gps_hold_roll_adjustment = 0.0;
         gps_hold_pitch_adjustment = 0.0;
 
-        if(got_gps){
+        if(got_gps || got_gps_multiple){
             target_latitude = gps_latitude;
             target_longitude = gps_longitude;
+            real_target_longitude = gps_real_longitude;
+            gps_target_unset_logged = 0;
+            gps_target_unset_cause = 2;
         }
 
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+        // HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
 
         //Set new target for the altitude
         target_altitude_barometer = altitude_barometer;
@@ -1341,17 +1404,16 @@ void handle_pid_and_motor_control(){
         // If the gps is not up to date then do not use it
         // if(gps_position_hold_enabled && gps_can_be_used && old_gps_longitude != gps_longitude && old_gps_latitude != gps_latitude){
         if(gps_position_hold_enabled && gps_can_be_used){
-            pid_set_desired_value(&gps_latitude_pid, target_latitude);
-            pid_set_desired_value(&gps_longitude_pid, target_longitude);
+            pid_double_set_desired_value(&gps_latitude_pid, target_latitude);
+            pid_double_set_desired_value(&gps_longitude_pid, target_longitude);
 
-            error_latitude = pid_get_error(&gps_latitude_pid, gps_latitude, get_absolute_time());
-            error_longitude = pid_get_error(&gps_longitude_pid, gps_longitude, get_absolute_time());
+            error_latitude = pid_double_get_error(&gps_latitude_pid, gps_latitude, get_absolute_time());
+            error_longitude = pid_double_get_error(&gps_longitude_pid, gps_longitude, get_absolute_time());
 
 
-            PID_proportional[4] = pid_get_last_proportional_error(&gps_latitude_pid);
-            PID_integral[4] = pid_get_last_integral_error(&gps_latitude_pid);
-            PID_derivative[4] = pid_get_last_derivative_error(&gps_latitude_pid);
-
+            PID_proportional[4] = pid_double_get_last_proportional_error(&gps_latitude_pid);
+            PID_integral[4] = pid_double_get_last_integral_error(&gps_latitude_pid);
+            PID_derivative[4] = pid_double_get_last_derivative_error(&gps_latitude_pid);
 
             // Length of the lat lon error vector
             float error_magnitude = sqrtf(error_latitude * error_latitude + error_longitude * error_longitude);
@@ -1533,11 +1595,14 @@ void handle_pid_and_motor_control(){
 }
 
 void handle_radio_communication(){
+    __disable_irq();
     if(!nrf24_data_available(1)){
+        __enable_irq();
         return;
     }
 
     nrf24_receive(rx_data);
+    __enable_irq();
 
 
     uint8_t rx_data_size = strlen(rx_data);
@@ -1588,11 +1653,11 @@ void handle_radio_communication(){
                 // LOGGING
                 gps_target_unset_logged = 0;
                 if(roll != 50.0){
-                    gps_target_unset_cause_roll = 1;
+                    gps_target_unset_cause = 1;
                     gps_target_unset_roll_value = roll;
                     gps_target_unset_pitch_value = 0.0f;
                 }else if(pitch != 50.0){
-                    gps_target_unset_cause_roll = 0;
+                    gps_target_unset_cause = 0;
                     gps_target_unset_roll_value = 0.0f;
                     gps_target_unset_pitch_value = pitch;
                 }
@@ -1774,16 +1839,16 @@ void handle_radio_communication(){
                 added_gps_hold_master_gain = added_master_gain;
 
                 // Configure the pitch pid 
-                pid_set_proportional_gain(&gps_latitude_pid, gps_hold_gain_p * gps_hold_master_gain);
-                pid_set_integral_gain(&gps_latitude_pid, gps_hold_gain_i * gps_hold_master_gain);
-                pid_set_derivative_gain(&gps_latitude_pid, gps_hold_gain_d * gps_hold_master_gain);
-                pid_reset_integral_sum(&gps_latitude_pid);
+                pid_double_set_proportional_gain(&gps_latitude_pid, gps_hold_gain_p * gps_hold_master_gain);
+                pid_double_set_integral_gain(&gps_latitude_pid, gps_hold_gain_i * gps_hold_master_gain);
+                pid_double_set_derivative_gain(&gps_latitude_pid, gps_hold_gain_d * gps_hold_master_gain);
+                pid_double_reset_integral_sum(&gps_latitude_pid);
 
                 // Configure the roll pid 
-                pid_set_proportional_gain(&gps_longitude_pid, gps_hold_gain_p * gps_hold_master_gain);
-                pid_set_integral_gain(&gps_longitude_pid, gps_hold_gain_i * gps_hold_master_gain);
-                pid_set_derivative_gain(&gps_longitude_pid, gps_hold_gain_d * gps_hold_master_gain);
-                pid_reset_integral_sum(&gps_longitude_pid);
+                pid_double_set_proportional_gain(&gps_longitude_pid, gps_hold_gain_p * gps_hold_master_gain);
+                pid_double_set_integral_gain(&gps_longitude_pid, gps_hold_gain_i * gps_hold_master_gain);
+                pid_double_set_derivative_gain(&gps_longitude_pid, gps_hold_gain_d * gps_hold_master_gain);
+                pid_double_reset_integral_sum(&gps_longitude_pid);
                 printf("Changed PID of GPS hold\n");
             }
         }
@@ -2067,8 +2132,8 @@ void initialize_control_abstractions(){
 
     altitude_hold_pid = pid_init(altitude_hold_master_gain * altitude_hold_gain_p, altitude_hold_master_gain * altitude_hold_gain_i, altitude_hold_master_gain * altitude_hold_gain_d, 0.0, get_absolute_time(), 10.0, -0.0, 1, 0); // Min value is 0 because motors dont go lower that that
 
-    gps_longitude_pid = pid_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), 0, 0, 0, 0);
-    gps_latitude_pid = pid_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), 0, 0, 0, 0);
+    gps_longitude_pid = pid_double_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), 0, 0, 0, 0);
+    gps_latitude_pid = pid_double_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), 0, 0, 0, 0);
 
     // Filtering
     filter_magnetometer_x = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
@@ -2125,8 +2190,13 @@ void initialize_control_abstractions(){
         )
     );
 
-    // biquad_filter_gps_lat = filtering_init_low_pass_filter_biquad(gps_filtering_min_cutoff, 10);
-    // biquad_filter_gps_lon = filtering_init_low_pass_filter_biquad(gps_filtering_min_cutoff, 10);
+    if(multiply_gps_frequency){
+        biquad_filter_gps_lat = filtering_init_low_pass_filter_biquad(gps_filtering_min_cutoff, 10*multiply_gps_frequency);
+        biquad_filter_gps_lon = filtering_init_low_pass_filter_biquad(gps_filtering_min_cutoff, 10*multiply_gps_frequency);
+    }else{
+        biquad_filter_gps_lat = filtering_init_low_pass_filter_biquad(gps_filtering_min_cutoff, 10);
+        biquad_filter_gps_lon = filtering_init_low_pass_filter_biquad(gps_filtering_min_cutoff, 10);
+    }
 
     // Sensor fusion
     float S_state[2][1] = {
@@ -2549,86 +2619,112 @@ void handle_logging(){
                 // sd_card_append_to_buffer(1, "\n");
                 
             }else if(txt_logging_mode == 1){ // Log gps target and current position
-                if(got_gps){
+                if(got_gps || got_gps_multiple){
                     // printf("s %f\n",gps_hold_roll_adjustment);
                     // target lat, target lon, lat, lon, roll_adjust, pitch_adjust, roll, pitch, yaw, sats, roll_effect_on_lat, pitch_effect_on_lat, roll_effect_on_lon, pitch_effect_on_lon, error_lat, error_lon
                     if(gps_target_unset_logged == 0){
-                        if(gps_target_unset_cause_roll){
-                            sd_card_append_to_buffer(1, "%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%f;%f;%f;r%.3f;\n", 
-                                target_latitude, 
-                                real_target_longitude, 
-                                gps_latitude, 
-                                gps_real_longitude, 
-                                gps_hold_roll_adjustment, 
-                                gps_hold_pitch_adjustment, 
-                                roll,
-                                pitch,
-                                imu_orientation[2],
-                                bn357_get_satellites_quantity(),
-                                roll_effect_on_lat,
-                                pitch_effect_on_lat,
-                                roll_effect_on_lon,
-                                pitch_effect_on_lon,
-                                error_latitude,
-                                error_longitude,
-                                imu_orientation[0],
-                                imu_orientation[1],
-                                PID_proportional[4],
-                                PID_integral[4],
-                                PID_derivative[4],
+                        if(gps_target_unset_cause == 1){
+                            sd_card_append_to_buffer(1, "%f;%f;%f;%f;%f;%f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;r%.3f;\n", 
+                                target_latitude,            // %f;
+                                target_longitude,           // %f;
+                                real_target_longitude,      // %f;
+                                gps_latitude,               // %f;
+                                gps_longitude,              // %f;
+                                gps_real_longitude,         // %f;
+                                gps_satalittes_count,       // %d;
+                                imu_orientation[2],         // %.1f;
+                                roll_effect_on_lat,         // %.2f;
+                                pitch_effect_on_lat,        // %.2f;
+                                PID_proportional[4],        // %.2f;     // Lat
+                                PID_derivative[4],          // %.2f;     // Lat
+                                gps_hold_roll_adjustment,   // %.1f;
+                                gps_hold_pitch_adjustment,  // %.1f;
+                                imu_orientation[0],         // %.1f;
+                                imu_orientation[1],         // %.1f;
                                 gps_target_unset_roll_value
                             );
-                        }else{
-                            sd_card_append_to_buffer(1, "%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%f;%f;%f;p%.3f;\n", 
-                                target_latitude, 
-                                real_target_longitude, 
-                                gps_latitude, 
-                                gps_real_longitude, 
-                                gps_hold_roll_adjustment, 
-                                gps_hold_pitch_adjustment, 
-                                roll,
-                                pitch,
-                                imu_orientation[2],
-                                bn357_get_satellites_quantity(),
-                                roll_effect_on_lat,
-                                pitch_effect_on_lat,
-                                roll_effect_on_lon,
-                                pitch_effect_on_lon,
-                                error_latitude,
-                                error_longitude,
-                                imu_orientation[0],
-                                imu_orientation[1],
-                                PID_proportional[4],
-                                PID_integral[4],
-                                PID_derivative[4],
+                        }else if(gps_target_unset_cause == 0){
+                            sd_card_append_to_buffer(1, "%f;%f;%f;%f;%f;%f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;p%.3f;\n", 
+                                target_latitude,            // %f;
+                                target_longitude,           // %f;
+                                real_target_longitude,      // %f;
+                                gps_latitude,               // %f;
+                                gps_longitude,              // %f;
+                                gps_real_longitude,         // %f;
+                                gps_satalittes_count,       // %d;
+                                imu_orientation[2],         // %.1f;
+                                roll_effect_on_lat,         // %.2f;
+                                pitch_effect_on_lat,        // %.2f;
+                                PID_proportional[4],        // %.2f;     // Lat
+                                PID_derivative[4],          // %.2f;     // Lat
+                                gps_hold_roll_adjustment,   // %.1f;
+                                gps_hold_pitch_adjustment,  // %.1f;
+                                imu_orientation[0],         // %.1f;
+                                imu_orientation[1],         // %.1f;
                                 gps_target_unset_pitch_value
                             );
+                        }else if(gps_target_unset_cause == 2){
+                            if(got_gps){
+                                sd_card_append_to_buffer(1, "%f;%f;%f;%f;%f;%f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;radoffgot;\n", 
+                                    target_latitude,            // %f;
+                                    target_longitude,           // %f;
+                                    real_target_longitude,      // %f;
+                                    gps_latitude,               // %f;
+                                    gps_longitude,              // %f;
+                                    gps_real_longitude,         // %f;
+                                    gps_satalittes_count,       // %d;
+                                    imu_orientation[2],         // %.1f;
+                                    roll_effect_on_lat,         // %.2f;
+                                    pitch_effect_on_lat,        // %.2f;
+                                    PID_proportional[4],        // %.2f;     // Lat
+                                    PID_derivative[4],          // %.2f;     // Lat
+                                    gps_hold_roll_adjustment,   // %.1f;
+                                    gps_hold_pitch_adjustment,  // %.1f;
+                                    imu_orientation[0],         // %.1f;
+                                    imu_orientation[1]          // %.1f;
+                                );
+                            }else{
+                                sd_card_append_to_buffer(1, "%f;%f;%f;%f;%f;%f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;radoff;\n", 
+                                    target_latitude,            // %f;
+                                    target_longitude,           // %f;
+                                    real_target_longitude,      // %f;
+                                    gps_latitude,               // %f;
+                                    gps_longitude,              // %f;
+                                    gps_real_longitude,         // %f;
+                                    gps_satalittes_count,       // %d;
+                                    imu_orientation[2],         // %.1f;
+                                    roll_effect_on_lat,         // %.2f;
+                                    pitch_effect_on_lat,        // %.2f;
+                                    PID_proportional[4],        // %.2f;     // Lat
+                                    PID_derivative[4],          // %.2f;     // Lat
+                                    gps_hold_roll_adjustment,   // %.1f;
+                                    gps_hold_pitch_adjustment,  // %.1f;
+                                    imu_orientation[0],         // %.1f;
+                                    imu_orientation[1]          // %.1f;
+                                );
+                            }
                         }
                         
                         gps_target_unset_logged = 1;
                     }else{
-                        sd_card_append_to_buffer(1, "%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%f;%f;%f;\n", 
-                            target_latitude,
-                            real_target_longitude,
-                            gps_latitude, 
-                            gps_real_longitude, 
-                            gps_hold_roll_adjustment, 
-                            gps_hold_pitch_adjustment, 
-                            roll,
-                            pitch,
-                            imu_orientation[2],
-                            bn357_get_satellites_quantity(),
-                            roll_effect_on_lat,
-                            pitch_effect_on_lat,
-                            roll_effect_on_lon,
-                            pitch_effect_on_lon,
-                            error_latitude,
-                            error_longitude,
-                            imu_orientation[0],
-                            imu_orientation[1],
-                            PID_proportional[4],
-                            PID_integral[4],
-                            PID_derivative[4]
+                        // sd_card_append_to_buffer(1, "%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%f;%f;%f;\n", 
+                        sd_card_append_to_buffer(1, "%f;%f;%f;%f;%f;%f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;\n", 
+                            target_latitude,            // %f;
+                            target_longitude,           // %f;
+                            real_target_longitude,      // %f;
+                            gps_latitude,               // %f;
+                            gps_longitude,              // %f;
+                            gps_real_longitude,         // %f;
+                            gps_satalittes_count,       // %d;
+                            imu_orientation[2],         // %.1f;
+                            roll_effect_on_lat,         // %.2f;
+                            pitch_effect_on_lat,        // %.2f;
+                            PID_proportional[4],        // %.2f;     // Lat
+                            PID_derivative[4],          // %.2f;     // Lat
+                            gps_hold_roll_adjustment,   // %.1f;
+                            gps_hold_pitch_adjustment,  // %.1f;
+                            imu_orientation[0],         // %.1f;
+                            imu_orientation[1]          // %.1f;
                         );
                     }
 

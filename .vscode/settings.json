@@ -39,7 +39,8 @@
         "math_constants.h": "c",
         "kalman_filter.h": "c",
         "reset_i2c.h": "c",
-        "betaflight_blackbox_wrapper.h": "c"
+        "betaflight_blackbox_wrapper.h": "c",
+        "pid_double.h": "c"
     },
     "cSpell.words": [
         "acro",
