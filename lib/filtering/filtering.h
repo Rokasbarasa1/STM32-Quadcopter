@@ -9,6 +9,7 @@ struct low_pass_pt1_filter{
 };
 
 struct low_pass_pt1_filter filtering_init_low_pass_filter_pt1(float cutoff_frequency, float sample_rate);
+void low_pass_filter_pt1_set_initial_values(struct low_pass_pt1_filter* filter, float initial_value);
 float low_pass_filter_pt1_read(struct low_pass_pt1_filter* filter, float current_value);
 
 
@@ -27,6 +28,7 @@ struct low_pass_biquad_filter{
 };
 
 struct low_pass_biquad_filter filtering_init_low_pass_filter_biquad(float cutoff_frequency, float sample_rate);
+void low_pass_filter_biquad_set_initial_values(struct low_pass_biquad_filter* filter, float initial_value);
 float low_pass_filter_biquad_read(struct low_pass_biquad_filter* filter, float current_value);
 void low_pass_filter_biquad_set_cutoff_frequency(struct low_pass_biquad_filter* filter, float cutoff_frequency);
 void low_pass_filter_biquad_set_cutoff_frequency_using_reference_filter(struct low_pass_biquad_filter* filter, struct low_pass_biquad_filter* filter_reference);

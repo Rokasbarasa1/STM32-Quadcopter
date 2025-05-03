@@ -498,7 +498,7 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
 
 
 float bn357_get_latitude_decimal_format(){
-    return m_latitude;
+    return m_latitude * 1000000.0;
 }
 
 char bn357_get_latitude_direction(){
@@ -507,7 +507,7 @@ char bn357_get_latitude_direction(){
 
 // For logging
 float bn357_get_longitude_decimal_format(){
-    return m_longitude;
+    return m_longitude * 1000000.0;
 }
 
 // For calculations
@@ -516,7 +516,7 @@ float bn357_get_linear_longitude_decimal_format(){
     // That is not good for pid which measures proportional error
     // The pid will think the longitude is more responsive
     // Scale it to be linear
-    return m_longitude*cos(m_latitude * M_PI_DIV_BY_180);
+    return (m_longitude*cos(m_latitude * M_PI_DIV_BY_180)) * 1000000.0;
 }
 
 char bn357_get_longitude_direction(){

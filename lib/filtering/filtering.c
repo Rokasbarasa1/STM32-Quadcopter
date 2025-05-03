@@ -10,6 +10,10 @@ struct low_pass_pt1_filter filtering_init_low_pass_filter_pt1(float cutoff_frequ
     return new_filter;
 }
 
+void low_pass_filter_pt1_set_initial_values(struct low_pass_pt1_filter* filter, float initial_value){
+    filter->previous_filter_output = initial_value;
+}
+
 // Formula to calculate what frequency the filter attenuates:
 // Frequency = <Sampling rate> / (2 * M_PI * ((1/alpha) - 1))
 
@@ -54,12 +58,19 @@ struct low_pass_biquad_filter filtering_init_low_pass_filter_biquad(float cutoff
     new_filter.coefficient_a1 *= a0_normalization;
     new_filter.coefficient_a2 *= a0_normalization;
 
-    new_filter.previous_input1 = 0;
-    new_filter.previous_input2 = 0;
-    new_filter.previous_output1 = 0;
-    new_filter.previous_output2 = 0;
+    new_filter.previous_input1 = 0.0;
+    new_filter.previous_input2 = 0.0;
+    new_filter.previous_output1 = 0.0;
+    new_filter.previous_output2 = 0.0;
 
     return new_filter;
+}
+
+void low_pass_filter_biquad_set_initial_values(struct low_pass_biquad_filter* filter, float initial_value){
+    filter->previous_input1 = initial_value;
+    filter->previous_input2 = initial_value;
+    filter->previous_output1 = initial_value;
+    filter->previous_output2 = initial_value;
 }
 
 float low_pass_filter_biquad_read(struct low_pass_biquad_filter* filter, float current_value){
