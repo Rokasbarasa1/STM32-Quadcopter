@@ -501,6 +501,10 @@ float bn357_get_latitude_decimal_format(){
     return m_latitude * 1000000.0;
 }
 
+float bn357_get_latitude(){
+    return m_latitude;
+}
+
 char bn357_get_latitude_direction(){
     return m_latitude_direction;
 }
@@ -510,6 +514,11 @@ float bn357_get_longitude_decimal_format(){
     return m_longitude * 1000000.0;
 }
 
+
+float bn357_get_longitude(){
+    return m_longitude;
+}
+
 // For calculations
 float bn357_get_linear_longitude_decimal_format(){
     // The longitude increases in precision as we go up in latitude
@@ -517,6 +526,14 @@ float bn357_get_linear_longitude_decimal_format(){
     // The pid will think the longitude is more responsive
     // Scale it to be linear
     return (m_longitude*cos(m_latitude * M_PI_DIV_BY_180)) * 1000000.0;
+}
+
+float bn357_get_linear_longitude(){
+    // The longitude increases in precision as we go up in latitude
+    // That is not good for pid which measures proportional error
+    // The pid will think the longitude is more responsive
+    // Scale it to be linear
+    return m_longitude*cos(m_latitude * M_PI_DIV_BY_180);
 }
 
 char bn357_get_longitude_direction(){

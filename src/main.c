@@ -386,7 +386,7 @@ float last_error_pitch = 0;
 #define BASE_ALTITUDE_HOLD_GAIN_I 0.0 // 0.0010
 #define BASE_ALTITUDE_HOLD_GAIN_D 0.0
 
-#define BASE_GPS_HOLD_MASTER_GAIN 1000000.0
+#define BASE_GPS_HOLD_MASTER_GAIN 1.0
 #define BASE_GPS_HOLD_GAIN_P 0.3
 #define BASE_GPS_HOLD_GAIN_I 0.0
 #define BASE_GPS_HOLD_GAIN_D 0.0
@@ -490,7 +490,7 @@ float real_gps_longitude = 0.0;
 float real_gps_real_longitude = 0.0;
 
 uint8_t use_gps_mutiply = 1;
-uint8_t use_gps_filtering = 1;
+uint8_t use_gps_filtering = 0;
 
 float gps_latitude_micro = 0.0;
 float gps_longitude_micro = 0.0;
@@ -2606,6 +2606,7 @@ void handle_logging(){
                     if(gps_target_unset_logged == 0){
                         if(gps_target_unset_cause == 1){
                             sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;r%.3f;\n", 
+                            // sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;r%.3f;\n", 
                                 real_gps_latitude,
                                 real_gps_longitude,
                                 real_gps_real_longitude,
@@ -2629,6 +2630,7 @@ void handle_logging(){
                             );
                         }else if(gps_target_unset_cause == 0){
                             sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;p%.3f;\n", 
+                            // sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;p%.3f;\n", 
                                 real_gps_latitude,
                                 real_gps_longitude,
                                 real_gps_real_longitude,
@@ -2653,6 +2655,7 @@ void handle_logging(){
                         }else if(gps_target_unset_cause == 2){
                             if(got_gps){
                                 sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;radoffgot;\n", 
+                                // sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;radoffgot;\n", 
                                     real_gps_latitude,
                                     real_gps_longitude,
                                     real_gps_real_longitude,
@@ -2675,6 +2678,7 @@ void handle_logging(){
                                 );
                             }else{
                                 sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;radoff;\n", 
+                                // sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;radoff;\n", 
                                     real_gps_latitude,
                                     real_gps_longitude,
                                     real_gps_real_longitude,
@@ -2700,8 +2704,8 @@ void handle_logging(){
                         
                         gps_target_unset_logged = 1;
                     }else{
-                        // sd_card_append_to_buffer(1, "%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%d;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%f;%f;%f;\n", 
                         sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;\n", 
+                        // sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;\n", 
                             real_gps_latitude,
                             real_gps_longitude,
                             real_gps_real_longitude,
