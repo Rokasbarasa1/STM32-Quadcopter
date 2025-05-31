@@ -161,7 +161,7 @@ void calculate_yaw_tilt_compensated_using_magnetometer_data(float *magnetometer_
     float Mx = mx * cos(pitch_radians) + mz * sin(pitch_radians);
     float My = mx * sin(roll_radians) * sin(pitch_radians) + my * cos(roll_radians) - mz * sin(roll_radians) * cos(pitch_radians);
 
-    *yaw_output = atan2(My, Mx) * M_180_DIV_BY_PI;
+    *yaw_output = atan2(-My, Mx) * M_180_DIV_BY_PI;
 
 
     *yaw_output += yaw_offset;
