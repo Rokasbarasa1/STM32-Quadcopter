@@ -2,39 +2,59 @@
 
 ![IMG_4697](https://github.com/user-attachments/assets/5bd907f9-0777-416a-9e56-f72a6bac76c3)
 
-Work in progress. For in depth documentation use my self-balancing robot project which uses most of the same components, I am at the moment focusing on documenting the testing proccess of this robot. [<b>Link to self balancing robot</b>](https://github.com/Rokasbarasa1/ESP32-self-balancing-robot)
+I am making a quadcopter from sreach (firmware including). This is the second step after my [Self balancing robot](https://github.com/Rokasbarasa1/ESP32-self-balancing-robot) project. It is still a work in progress, but a lot of the heavy lifting has already been done.
 
-STM32F411, MPU6050, QMC5883l, BN357, BMP280, NRF24l01, Second STM32F411 SD Logger
+### Some features:
+* Acro and Angle modes.
+* GPS position hold flight mode (Work in progress).
+* Altitude hold flight mode (Work in progress).
 
-[Link to SD logger repo](https://github.com/Rokas-embedded/Logger)
+### Sensors and hardware used for controller:
+* Controller mcu - STM32F411
+* Accelerometer + Gyro - MPU6050
+* Magnetometer - MMC5603 (Used QMC5883 before)
+* GPS - HGLRC M100 5883 (Used BN357 before)
+* Barometer - MS5611 (Used BMP280 before)
+* Radio link - RadioMaster RP1 2.4GHz ELRS (Work in progress)
+* Debug Radio communication - NRF24l01
+* Logging - [Second STM32F411 SD Logger](https://github.com/Rokasbarasa1/Logger). 
 
-## How it looks like
+### Hardware of the drone itself:
+* Motors - 4 x EMAX ECO II Series 2807 Motor
+* ESC's - 4 x HGLRC 30amp 3-5S Dshot600 BLHeli_S 16.5 BB2 ESC (F-H-40 flashed with BlueJay 0.21.0V for BDshot600)
+* Proppelers - 4 x HQProp DP 7x3.5x3 V1S 3 blade Propeller
+* Battery - CNHL Black Series 3200mAh 14.8V 30C 4S (also used Turnigy 2200mAh 3S 25C)
 
-### Controller:
-![](./images/controller_with_sd.jpg)
+# Latest flight video (January 2025)
 
-### Frame top:
-![IMG_4899](https://github.com/user-attachments/assets/da05143e-058d-49e6-974b-7a364a5608be)
+[![Watch the video](https://img.youtube.com/vi/jI-Cl2vByNU/maxresdefault.jpg)](https://www.youtube.com/watch?v=jI-Cl2vByNU)
 
-### Frame bottom:
-![IMG_4904](https://github.com/user-attachments/assets/6a92aa1c-1b76-4436-8c6b-8c039739f69b)
-
-[# Video of latest test<br/>](https://www.youtube.com/shorts/T7edImUDWZM)
-![image](https://github.com/user-attachments/assets/486cfe71-4dac-4b64-8877-ad49a3ccc6d2)
-
-### Hardware:
-* 4 x EMAX ECO II Series 2807 Motor
-* 4 x HGLRC 30amp 3-5S Dshot600 BLHeli_S 16.5 BB2 ESC
-* MPU6050 (Accelerometer + Gyro)
-* BMP280 (Barometer)
-* mmc5603 (Magnetometer)
-* BN357 (GPS)
-* STM32F411 blackpill board
-* HQProp DP 7x3.5x3 V1S 3 blade Propeller
-
+# Pictures (Outdated)
+![Frame top](https://github.com/user-attachments/assets/da05143e-058d-49e6-974b-7a364a5608be)
+![Frame bottom](https://github.com/user-attachments/assets/6a92aa1c-1b76-4436-8c6b-8c039739f69b)
+![Controller](./images/controller_with_sd.jpg)
 
 
-## TODO lists
+
+### Checklist for going testing
+* Drone frame
+* Controller
+* Controller antenna
+* Propellers
+* Sd card adapter
+* Micro sd card
+* Pliers 
+* Wire cutters
+* Screwdriver 
+* Screwdriver bits
+* Remote control
+* Laptop
+* Usb extension cable
+* STM32 programmer
+* Charged battery
+* Battery checker
+
+### Old todo lists i will remove later
 
 TODO after test 1:
 * X Take off testing equipment as drone is too heavy to fly.
@@ -164,43 +184,4 @@ The fft graphs don't show throttle vs frequency noise plot. No Throttle detected
 
 
 
-Test checklist:
-* Drone frame
-* Controller
-* Controller antenna
-* Propellers
 
-* Sd card adapter
-* Micro sd card
-* Pliers 
-* Wire cutters
-* Screwdriver 
-* Screwdriver bits
-* Remote control
-* Laptop
-* Usb extension cable
-* STM32 programmer
-* Charged battery
-* Battery checker
-
-
-### Hardware:
-* 4 x EMAX ECO II Series 2807 Motor
-* 4 x HGLRC 30amp 3-5S Dshot600 BLHeli_S 16.5 BB2 ESC. (F-H-40 flashed with BlueJay 0.21.0V)
-* MPU6050 (Accelerometer + Gyro)
-* MS5611 (Barometer)
-    * Alternatives
-    * BME680
-    * BMP280 (Previous)
-    * BME280
-    * MPL3115A2
-
-* mmc5603 (Magnetometer)
-* HGLRC M100 5883 (GPS)
-* NRF24l01+ (Radio RX)
-* STM32F411 blackpill board
-* HQProp DP 7x3.5x3 V1S 3 blade Propeller
-
-Future hardware:
-
-* RadioMaster RP1 2.4GHz (ELRS RX)
