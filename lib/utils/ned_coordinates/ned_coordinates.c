@@ -86,5 +86,5 @@ float angle_between_2d_vectors(float ax, float ay, float bx, float by ){
     return atan2(
         (ax * by - ay * bx), 
         (ax * bx + ay * by)
-    )*M_180_DIV_BY_PI;
+    )*M_RAD_TO_DEG;
 }

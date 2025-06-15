@@ -40,7 +40,10 @@
         "kalman_filter.h": "c",
         "reset_i2c.h": "c",
         "betaflight_blackbox_wrapper.h": "c",
-        "pid_double.h": "c"
+        "pid_double.h": "c",
+        "iir_filter.h": "c",
+        "moving_average.h": "c",
+        "outlier_detection.h": "c"
     },
     "cSpell.words": [
         "acro",

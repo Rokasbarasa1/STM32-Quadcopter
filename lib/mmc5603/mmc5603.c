@@ -341,11 +341,14 @@ void mmc5603_magnetometer_readings_micro_teslas(float *data){
         data[i] = data[i] - m_mmc5603_hard_iron[i];
     }
 
+
+    float temp[3];
     for (uint8_t i = 0; i < 3; i++){
-        data[i] = (m_mmc5603_soft_iron[i][0] * data[0]) +
+        temp[i] = (m_mmc5603_soft_iron[i][0] * data[0]) +
                   (m_mmc5603_soft_iron[i][1] * data[1]) +
                   (m_mmc5603_soft_iron[i][2] * data[2]);
     }
+    for (uint8_t i = 0; i < 3; i++) data[i] = temp[i];
 }
 
 void mmc5603_set(){

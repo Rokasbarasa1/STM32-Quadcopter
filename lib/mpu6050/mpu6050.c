@@ -236,8 +236,8 @@ void calculate_roll_pitch_from_accelerometer_data(float *data, float *accelerome
     float y = data[1];
     float z = data[2];
 
-    *accelerometer_roll = atan2f(y, sqrtf(x * x + z * z)) * M_180_DIV_BY_PI + roll_offset;
-    *accelerometer_pitch = -(atan2f(x, sqrtf(y * y + z * z)) * M_180_DIV_BY_PI) + pitch_offset;
+    *accelerometer_roll = atan2f(y, sqrtf(x * x + z * z)) * M_RAD_TO_DEG + roll_offset;
+    *accelerometer_pitch = -(atan2f(x, sqrtf(y * y + z * z)) * M_RAD_TO_DEG) + pitch_offset;
 }
 
 // Get many values of the accelerometer error and average them together. Then print out the result
