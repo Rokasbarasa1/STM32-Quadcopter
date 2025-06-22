@@ -8,6 +8,7 @@ I am making a quadcopter from scratch (firmware including). This is the second s
 * Acro and Angle modes.
 * GPS position hold flight mode (Work in progress).
 * Altitude hold flight mode (Work in progress).
+* Controled by my custom [Pi-pico based remote control]([https://github.com/Rokasbarasa1/Logger](https://github.com/Rokasbarasa1/Pi-Pico-remote-control)). 
 
 ### Sensors and hardware used for controller:
 * Controller mcu - STM32F411
@@ -17,7 +18,7 @@ I am making a quadcopter from scratch (firmware including). This is the second s
 * Barometer - MS5611 (Used BMP280 before)
 * Radio link - RadioMaster RP1 2.4GHz ELRS (Work in progress)
 * Debug Radio communication - NRF24l01
-* Logging - [Second STM32F411 SD Logger](https://github.com/Rokasbarasa1/Logger). 
+* Logging - [My custom STM32F411 based SD Logger](https://github.com/Rokasbarasa1/Logger). 
 
 ### Hardware of the drone itself:
 * Motors - 4 x EMAX ECO II Series 2807 Motor
