@@ -35,8 +35,6 @@ I am making a quadcopter from scratch (firmware including). This is the second s
 ![Frame bottom](https://github.com/user-attachments/assets/6a92aa1c-1b76-4436-8c6b-8c039739f69b)
 ![Controller](./images/controller_with_sd.jpg)
 
-
-
 ### Checklist for going testing
 * Drone frame
 * Controller
@@ -54,6 +52,51 @@ I am making a quadcopter from scratch (firmware including). This is the second s
 * STM32 programmer
 * Charged battery
 * Battery checker
+
+# Design documentation (work in progress)
+
+## Controller 
+I only picket the STM32 as it was the next step for me to gain experiance in, if i have used anything else i would have been fine also, I think. I do like the small form factor of the blackpill board and the more GPIO space it has. On the ESP32 you cant use almost half of the pins. On the Pi-pico a lot of the pins are ground.
+
+I hate the CubeMX code generation, feels like there is just junk in my repo and noone uses the method of writing the periheral intialization themselves. Even the documentation feels like it wants you to ignore how to initialize the peripherals and just rely on code gen. The parts where i actually needed to initialize everything myelf were more painful that they needed to be. There is especially little attention the documetation of stm32 gives to DMA, i had to look trough actual implementation code to get what i needed. There are also a lot of quirks that make some functions completely useless unless you set it up right. ESP32 and Pi-pico were much much better at this.
+
+Flashing the firmware on it is a lot easier though, sometimes. If i was working on a breadboard, the Pi-pico would be a lot easier. When i made a protective cover for the brain part of the drone it was kind of ok to just press the pins against the programing pins, this is without soldering them on, kind of like pogo pins. 
+
+For performance the STM32 is deffinetely not as fast as the ESP32, but it is fast enough, most of the performance is lost on sensor communication anyway.  
+
+## Code design decisions
+The code looks not as a usual developers code looks like. I like having full names of the variables, no such bullshit as dT for delta time or whatever one letter variable. The same is for functions, full verbose names. I like to come back to old features and understand what is happenning. Lots of comments also. 
+
+If there was a prettier implementation for C (C code formaters are garbage, all of them) I would use it to enforce the same syntax everywhere. Like breaking of function variables if the developer has broken at least one. curly braces in line with for loops and if statments and functions.
+
+I tried to seperate the code into modules, of radio, data getting, motor control/pid and logging. They need to be moved to different files like controller/services/models architecture on backends, but at the moment it is just so much easier to have everything logic related in one file. In the future will be, main.c/business logic/drivers, with main.c only being able to reach drivers if it goes trough business logic. I come from full-stack development and we have much better understanding of code organization than embedded developers. The code will be seperated into seperate files once I am done with the project. I dont care about clean code, the functions will not be made 5 lines long.
+
+## Sensors
+I used a lot of the same sensors as with my Self-balancing robot, but I got more out of them. I will describe them again.
+
+A note about the sensor driver implementation. I continued the use of enums for defining the registers of the sensor and so on. Makes reading of the sensor code and even configuration of it a lot easier.
+
+Usage of macros for constant definitions is also done now. No more magic numbers, they have names now. Some pre division of these values is also done.
+
+### I2C
+I noticed that the STM32 did badly with an interrupt happenning while I2C communication was happenning. The i2c communication would freeze and take up 100 ms each one. For that reason all interrupts are disabled before any i2c communication. I put that in main.c but I should probably do it in each sensor driver.
+
+I should have not used the I2c bus anymore in this project, for any of the sensors, its a bit too slow. I went above the recomended bus frequency for it and reached 1.6 MHz but went donw to 1.0 Mhz for stability just in case. That saved quite a of cpu time.
+
+### Accelerometer
+I used the MPU6050 again, it works fine. I did add more calibration to it. I learned form the magnetometer driver development that the way the sensor feels the gravity can be distorted, it can be not a perfect circle, but something oval. For that you need to get a lot of measurements and do the same "hard-iron" and "soft-iron" calibration as for the magnetometer. I have to admit that i did not go all out with the "soft-iron" equivalent of calibrating the accelerometer, I did a half-assed job and I kept that. I did make sure to do the "hard-iron" style calibration good though.  
+
+### Gyro
+
+Nothing changed 
+
+### Gyro
+
+## Other hardware
+
+
+
+
 
 ### Old todo lists i will remove later
 
