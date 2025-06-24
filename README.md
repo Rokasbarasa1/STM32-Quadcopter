@@ -55,46 +55,80 @@ I am making a quadcopter from scratch (firmware including). This is the second s
 
 # Design documentation (work in progress)
 
+
 ## Controller 
-I only picket the STM32 as it was the next step for me to gain experiance in, if i have used anything else i would have been fine also, I think. I do like the small form factor of the blackpill board and the more GPIO space it has. On the ESP32 you cant use almost half of the pins. On the Pi-pico a lot of the pins are ground.
 
-I hate the CubeMX code generation, feels like there is just junk in my repo and noone uses the method of writing the periheral intialization themselves. Even the documentation feels like it wants you to ignore how to initialize the peripherals and just rely on code gen. The parts where i actually needed to initialize everything myelf were more painful that they needed to be. There is especially little attention the documetation of stm32 gives to DMA, i had to look trough actual implementation code to get what i needed. There are also a lot of quirks that make some functions completely useless unless you set it up right. ESP32 and Pi-pico were much much better at this.
+The controller is the main piece of the system. It is much more limited in what it can do than a normal computer, it is smaller, slower and resource constrained. So it cannot run a full GUI operating system. The good thing about them is that they are cheap and, depending on which one you get, just powerful enough to do interesting things. They are also cheap, I got mine for 7.28 USD. The microcontroller itself is just a chip on the breadboard. It is very self sufficient, sometimes you can just supply them stable power and they work fine. Like the attiny85 that just plugs into a breadboard. 
 
-Flashing the firmware on it is a lot easier though, sometimes. If i was working on a breadboard, the Pi-pico would be a lot easier. When i made a protective cover for the brain part of the drone it was kind of ok to just press the pins against the programing pins, this is without soldering them on, kind of like pogo pins. 
+We need one that is more powerful than that so we will go with one called the STM32F411. ST(M)icroelectronics is the manufacturer, the 32 bit is how big data chunks the system can handle, and the F stands mainstream performance line of their chips, 411 is just a serial number for features. We dont really care about the features that much, it is maninstream so it will work for most things. 
 
-For performance the STM32 is deffinetely not as fast as the ESP32, but it is fast enough, most of the performance is lost on sensor communication anyway.  
+I went with a ST microcontroller as it was one I had not used before. The chip on this one is very small so it is mounted on a pcb to seperate the tiny pins on the chip into big pins that we can use. The PCB that it is mounted on gives the microcontroller name blackpill because its a black pcb and its small. The pcb also has some extra features like voltage regulators to protect the chip, external oscillators to speed it up and leds to help us indicate status later. The pcb is so small that it lacks some quality of life features that a big pcb would have, like a programmer. The chip has to instead be programmed usng another product of ST called ST-link V2, which just converts a Usb interface to a programming interface for the stm32, it uses 4 pins to do that. This is negative of ST's products, other manufacturers dont have this problem with small pcb's, most of the time. The upside is you can debug the code with the same product, this is something that is painful on other microcontroller brands. The small form factor of the pcb is also very helpful for integrating the microcontroller into projects.
 
-## Code design decisions
-The code looks not as a usual developers code looks like. I like having full names of the variables, no such bullshit as dT for delta time or whatever one letter variable. The same is for functions, full verbose names. I like to come back to old features and understand what is happenning. Lots of comments also. 
+Each microcontroller manufacturer has their own "library" that abstracts the difficullt hardware drivers (HAL), on top of which the coding of the microcontroller can be done. In the case of the STM32 it is STM32Cube which lets you use C or C++ to write code for it. You can use Rust or anything else to write the code but then you are not using the manufacturers libraries and have to relly on open source. In my case I went with C as it is very simple and I can get great performance out of it. 
 
-If there was a prettier implementation for C (C code formaters are garbage, all of them) I would use it to enforce the same syntax everywhere. Like breaking of function variables if the developer has broken at least one. curly braces in line with for loops and if statments and functions.
+_The STM32F411 has a lot more GPIO than ESP32, which maybe has half of its pins unavailable and a bit more than the Pi-Pico on which a lot of the pins are grounds. Its also easier to mount on a breadboard than the ESP32._
 
-I tried to seperate the code into modules, of radio, data getting, motor control/pid and logging. They need to be moved to different files like controller/services/models architecture on backends, but at the moment it is just so much easier to have everything logic related in one file. In the future will be, main.c/business logic/drivers, with main.c only being able to reach drivers if it goes trough business logic. I come from full-stack development and we have much better understanding of code organization than embedded developers. The code will be seperated into seperate files once I am done with the project. I dont care about clean code, the functions will not be made 5 lines long.
+_I hate the CubeMX code generation, feels like there is just junk in my repo. The alternative is really badly documented, to the point of needing to go into the library code to figure out how to use it. Feels like they skimped out on actual documentation to make you use the shitty code gen. Using the library code to figure something out is not easy either as there are multiple functions with similar names or functions that are depreceated. It always confusing to set anything up from scratch, like spi or i2c, there are so many functions that are supposed to do the exact same thing. By far the worst experiance of developing embededd software. Even fucking atmelavr felt like butter compared to this, though that might be a high bar in the embedded world. You cannot have development velocity in this ecosystem if you touch even a bit of the ST library. ESP32, Pi-pico and atmega are a lot better at this._
 
-## Sensors
-I used a lot of the same sensors as with my Self-balancing robot, but I got more out of them. I will describe them again.
+_Flashing the firmware on it is a lot easier though, in cases. If i was working on a breadboard, the Pi-pico would be a lot easier. When i made a protective cover for the controller part of the drone it was easy to press the pins of the programmer agains unsoldered holes of the pcb for programming. I did not have to fish for the 4 pins to attach too. This meant that sometimes the programming would not work, but overall it was a good experiance._
 
-A note about the sensor driver implementation. I continued the use of enums for defining the registers of the sensor and so on. Makes reading of the sensor code and even configuration of it a lot easier.
+_For performance the STM32 is deffinetely not as fast as the ESP32, but it is fast enough, most of the performance is lost on sensor communication anyway.*
 
-Usage of macros for constant definitions is also done now. No more magic numbers, they have names now. Some pre division of these values is also done.
+### Code design decisions
 
-### I2C
-I noticed that the STM32 did badly with an interrupt happenning while I2C communication was happenning. The i2c communication would freeze and take up 100 ms each one. For that reason all interrupts are disabled before any i2c communication. I put that in main.c but I should probably do it in each sensor driver.
+_The code looks not as a usual developers code looks like. I like having full names of the variables, no such bullshit as dT for delta time or whatever one letter variable. The same is for functions, full verbose names. I like to come back to old features and understand what is happenning. Lots of comments also._ 
 
-I should have not used the I2c bus anymore in this project, for any of the sensors, its a bit too slow. I went above the recomended bus frequency for it and reached 1.6 MHz but went donw to 1.0 Mhz for stability just in case. That saved quite a of cpu time.
+_If there was a prettier implementation for C (C code formaters are garbage, all of them) I would use it to enforce the same syntax everywhere, but there is not so there are gaps. I would love to enforce breaking of function variables if the developer has broken at least one, curly braces in line with for loops and if statments and functions.
+
+_I tried to seperate the code into modules, of radio, data getting, motor control/pid and logging. They need to be moved to different files like controller/services/models architecture on backends, but at the moment it is just so much easier to have everything logic related in one file. In the future will be, main.c/business logic/drivers, with main.c only being able to reach drivers if it goes trough business logic. I come from full-stack development and we have much better understanding of code organization than embedded developers. The code will be seperated into seperate files once I am done with the project. I dont care about clean code, the functions will not be made 5 lines long._
+
+## Sensors drivers
+To make our drone sense the world around it we need sensors. Based on the output of these sensors the code that i wrote in the microcontroller will make decisions and perform further actions to manipulate the environment it is in.
+
+
+_A note about the sensor driver implementation. I continued the use of enums for defining the registers of the sensor and so on. Makes reading of the sensor code and even configuration of it a lot easier._
+
+_Usage of macros for constant definitions is also done now. No more magic numbers, they have names now. Some pre division of these values is also done._
+
+### I2C and sensors in general
+The sensors are just little microcontrollers in most cases, they have logic and interfaces that let the data be extracted from them digitally(toggling a single pin or more from 3.3v to 0V). There are sensors that are analog, but we are not using them, they are harder to work with. For this communication we will use I2C. I2c is just a recipe (protocol) for what way to toggle the pins and in what order that both the controller trying to get the data (master) and the sensor (slave) understand and adhere to. There are other protoocls as well that the sensors support, like SPI, but I chose this one because it is easier to deal with.
+
+To do things with a sensor you need to read its datasheet. The most important part of which is the register map, it tells you where everything is stored and what register addresses you need to give to the sensor to read out the data from the registers. With i2c this often looks like sending the address of the register then reading the number of bytes you expect the data to be. Sometimes these sensors dont just automatically fill up their registers with data and you need to actually send commands that trigger actions that fill up populate those registers. Sometimes these commands just activate some special ability of the sensor. Thes sensors are almost always configurable in the same way also, by sending what register you want to fill up and then sending the bytes of data you want to put in that register. Configuring the sensor can be though of as having a wall of switches (the register map). There are as many rows of switches on it and the rows correspond to registers, each row has a number of switches that correspond to how large the register is in bits (most often its 8 bits). Each switch in the row does something, each one has a long description of its functionality in the datasheet. Some of the rows of switches you cannot manipulate as they are the ones storing the measurement that the sensor does, so the analogy falls appart there.
+
+It should be noted that sensor data should never be taken as reliable data, the sensor data by default is always miscalibrated and has noise in it that makes judgements based on the data difficult. Each sensor type also has some problem that makes complex systems development difficult, but there are solutions to this, that we will talk about in sections "sensor fusion" and "filtering".
+
+_I noticed that the STM32 did badly with an interrupt happenning while I2C communication was happenning. The i2c communication would freeze and take up 100 ms each one. For that reason all interrupts are disabled before any i2c communication. I put that in main.c but I should probably do it in each sensor driver._
+
+_I should have not used the I2c bus anymore in this project, for any of the sensors, its a bit too slow. I went above the recomended bus frequency though and reached 1.6 MHz but went down to 1.0 Mhz for stability just in case. That saved quite a of cpu time._
+
+# Gyro
+The gyro can tell how fast the drone is rotating in each axis. If you tilt the drone 90 degrees to be on its side after it was standing flat on the ground and you do it immediately in one second the gyro will tell you that it degrees per second rotation is 90 on that axis you were rotating it around. To understand this, imagine a swing set attached to a metal pipe, the way the pipe is laying is some axis, lets say x, so the pipe is in line with the x axis. When you swing in the swing set you are really just rotating around the x axis of the pipe.
+
+The gyro is the most important sensor for a drone. Depending on your requirements for the drone, it may be the only sensor you need, specifally for a mode control for the drone called acro mode. We will be implementing this mode of control but also more.
+DRIFT
+
+I am using the gyro on a sensor module called MPU6050. It is a common sensor, used on many drones. It actually has an accelerometer on it as well, but that is for later. The MPU6050 chip itself is mounted on a pcb that has voltage control stuff and power stabilization capacitors on it. This makes working with it easier, low risk of frying due to high voltage and it should be isolated from the power disturbances that can happen in an embedded system (these can just make the sensor not work very good). 
+
+The sensor itself is configured by the code to be able to sense a max of 500 dps/s of rotation, which should be plenty for our drone if we dont plan to do spinny tricks in acro mode.
+
+
 
 ### Accelerometer
+This is the first sensor 
+
+To make the drone know which way is down 
 I used the MPU6050 again, it works fine. I did add more calibration to it. I learned form the magnetometer driver development that the way the sensor feels the gravity can be distorted, it can be not a perfect circle, but something oval. For that you need to get a lot of measurements and do the same "hard-iron" and "soft-iron" calibration as for the magnetometer. I have to admit that i did not go all out with the "soft-iron" equivalent of calibrating the accelerometer, I did a half-assed job and I kept that. I did make sure to do the "hard-iron" style calibration good though.  
 
 ### Gyro
+Nothing changed. Still using MPU6050 gyro. It works good. I did not even consider using a different gyro. It is much more important to filter the data. 
 
-Nothing changed 
+### Magnetometer
 
-### Gyro
+The QMC5883L caused me so many issues. They are the worst module i have received from AliExpress, consistently. They all initialize  and give values but they are broken. One axis always does not work and it is easy to see that in calibration of it, a straight line of values or a cloud with no hard edge. There was nothing that could be done to fix this, not even taping the sensor with a strong magnet, that would shuffle the brokenness a bit but it was always one axis stuck anyway. I ended up switching to the MMC5603
 
 ## Other hardware
 
-
+BREADBOARD
 
 
 
