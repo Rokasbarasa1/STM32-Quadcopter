@@ -8,7 +8,7 @@ I am making a quadcopter from scratch (firmware including). This is the second s
 * Acro and Angle modes.
 * GPS position hold flight mode (Work in progress).
 * Altitude hold flight mode (Work in progress).
-* Controled by my custom [Pi-pico based remote control]([https://github.com/Rokasbarasa1/Logger](https://github.com/Rokasbarasa1/Pi-Pico-remote-control)). 
+* Controled by my custom [Pi-pico based remote control](https://github.com/Rokasbarasa1/Pi-Pico-remote-control). 
 
 ### Sensors and hardware used for controller:
 * Controller mcu - STM32F411
