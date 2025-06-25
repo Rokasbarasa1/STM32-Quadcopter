@@ -111,9 +111,43 @@ I am using the gyro on a sensor module called MPU6050. It is a common sensor, us
 
 The sensor itself is configured by the code to be able to sense a max of 500 dps/s of rotation, which should be plenty for our drone if we dont plan to do spinny tricks in acro mode.
 
-
+The gyro does have a problem. You may think if you keep summing the dps data over time, that you will get some data that tells you the orientation of the drone in 3D space, but that is not going to happen. The Gyro data is inherently noisy and if you sum it you will get values that drift over time. You can ease this noise issue by calibrating the gyro. Which is just reading maybe 1000 gyro values while sitting still and, finding the average gyro output value and then every time the you get the value out of the sensor you substract that average value from the data. This effectively removes some of the noise, but certainly not all of it. The next sensor will help deal with the noise issue.
 
 ### Accelerometer
+The accelerometer can tell which way down is. You can imagine it like a a plank of wood in the air with a string tied to it and at the bottom of the string is a weight. As you move the the rotate the plank the string just keeps pointing to the ground. That is one property of the accelerometer, it can tell which way the ground is by displaying the force of gravity in G's split over 3 axies, x, y and z. So if the plank is at an angle to the ground, the G force will be split among the axies. If the plank is flat to the ground, only the z axis will have the value. If you make suddent movements and move some distance with the plank the weight will react to that and start to point away from down and will instead point slightly to the side. Using this you can sense when acceleration happens. This is where the analogy falls appart as the weigt will then have momentum, where as the real accelerometer will not be succeptible to that. When the acceleration stops the accelerometer will also stop being affected by it. ![board with weight](https://github.com/user-attachments/assets/ff592a4f-7404-480f-ac9d-0533faf04fab)
+
+So now we know which way is down and we know if we are accelerating in some direction.
+
+The accelerometer also has some problems. If we want to use the data in any way on something that moves and can control itself we will always have parasitic accelerations as its just picks up every movement and creates more acceleration data. The accelerometer also needs calibration, its calibration is in part similar to the gyro, but can go further. The same average value calibration can be done when the drone is flat (extremely flat, like bubble level flat in both axies), this gives you the deviation form actual gravity. If any other axis than z has average values of more than 0.01 then that needs to be substracted from them. If the z axis is not exactly 1.0 G then it needs to also be substracted or added to to make it 1.0. This is the first level of calibration. 
+
+The second level is a bit more complicated, it can happen that when you rotate and try to isolate the axies (make the value only show on one axis) that value can be not exactly 1.0. If you were to rotate the drone around for 5 minutes straight without introducing ANY acceleration but gravity and logged all of that data and plotted it in a python 3 dimensional graph, you would see either a sphere or a ellipsoid(squished sphere). The shpere means youre accelerometer is probably good to go, but even a slight ellipsoid squish means its bad. To fix this type of problem we need to use linear algebra and use matrix multiplications to transform the data into the sphere. For this I used a software called magneto12, I give it the raw values of the accelerometer and it calculates me how the modifications to the values. These calibrations are then applied every single tiem the acceleration data is gotten.
+
+![Sphere](https://github.com/user-attachments/assets/04a7487c-2fcd-454e-af4f-a5ff75fd2d5f)
+![ellipsoid](https://github.com/user-attachments/assets/78caa9cb-d260-42d0-add7-f300ce37a8aa)
+
+
+The accelerometer combined with the gyro though solves this issue. We will talk more about this later, but gyro+accelerometer can give us accurate data on our orientation for axies x and y, but not z. This data is enough to make a drone that has a flight mode called angle mode. The next sensor will solve that problem of the z axis.
+
+The accelerometer we will be using is on the same chip as the gyro, the MPU6050. We will use the 2G range of readings for the accelerometer. Having a lower g value capture means there is more bits of data left for higher resolution value storage (higher resolution means you just have more digits after the decimal).
+
+### Magnetometer
+The magnetometer can sense something about the magnetic field of the earth and it gives the readings in micro teslas in 3 axies. That is as much as I know about how it works. It is succeptible to AC electicity wires and metal objects, that is why its best utilized outiside in nature. It is even affected by the matal that is on the drone. That is why the calibration on this is essential. The calibration of it is largely the same as the accelerometer, except that there is only the second more complicated calibration that needs to be done. It is a lot easier than the accelerometer to perform the calibration as it is not succeptible to movement. The sphere and the ellipsoid plots are also the same but there is one extra plot type that lets you know if your sensor is usable or not. In my case a a lot of my magnetometer modules were broken and the resulting plots looked more like pancakes rather than spheres or ellipsoids. This means the sensor is toast and there is not much use in it. I had this happen to me when i was using an older sensor called QMC5883L which i got from AliExpress (the only broken thing i got from AliExpress). I replaced it with a different model and it was working fine. The resulting calibration values that you get from the magneto12 software are actually 2 different types. The first one is 3 values which is for the hard-iron distortion in the data. This type of distortion is caused by magnetic materials, motor magnets for example, and is the easiest to fix. The second source of distortion is called "soft-iron", this is caused by materials that distort the magnetic field of the earth, like iron, nickel and so on. The calibration values for the "soft-iron" distortion is the same one that we used for the accelerometer, which is 3x3 grid of values in an identity matrix (linear algebra) the values of which are a bit corrected to correct our data when the calibration is applied. Calibrating the magnetometer on the drone also requires the drone to be fully assembled, that way all the distortions in the materials used in the drone are present and can be calibrated away.
+
+The magnetometer does not have any other weakness besides being affected by its surroundings. Its readings can be used to find the north direction (will talk about this later), which lets the drone sense its z axis orientation in 3d space. The magnetometer is very useful if you want to keep a constant heading when moving, but is also useful for GPS position hold functionality of the drone.
+
+### GPS
+The GPS is technically not a sensor but a receiver antena for sattalite signals, but i like to treat it like a sensor.
+
+
+
+
+### Axies
+Explain X Y and Z. 
+
+thilike a string that has something heavy tied to it, as you move 
+
+The accelerometer can be used to solve the issue with the gyro 
+To get more advanced functionality out of the drone, more sensors are needed. To get what is called angle mode
 This is the first sensor 
 
 To make the drone know which way is down 
