@@ -1,4 +1,4 @@
-# STM32-Quadcopter
+![34is30](https://github.com/user-attachments/assets/62dab07a-90ed-4dc0-a806-d9625dec30f2)# STM32-Quadcopter
 
 ![IMG_4697](https://github.com/user-attachments/assets/5bd907f9-0777-416a-9e56-f72a6bac76c3)
 
@@ -90,14 +90,38 @@ _A note about the sensor driver implementation. I continued the use of enums for
 
 _Usage of macros for constant definitions is also done now. No more magic numbers, they have names now. Some pre division of these values is also done._
 
+### Supplying power to sensors
+These sensors that we will talk about and hardware are meant to be powered some way, unless they have a battery on board them they have to have a physical connection to a power source. This is usually 2 wires, one for ground and one for most commonly 3.3V or 5V. A lot of the older snesors use 5V, these are usually the sensors made for the microcontroller called Arduino. These sensors need 5V because the old Arduino uses 5V logic(5V for a set bit and a 0V for a not set bit). If communication needs to be done to the sensor then there will always be a minimum of 2 wires or there can be more to accomodate different methods of sending or receiving information relating to the sensors. In the case where something has its own power source, and you know the power source or at least the interface that you will be using utilizes the voltage that is the same as you are using, then connecting the ground wire is enough. In fact if the device you are connecting to uses a different voltage than yours it is also safe to connect your ground to its ground. The important thing to match is the voltage lines, 5V, 12V, 15V.  
+
+
+### Communcication to sensors
+The sensors are just little microcontrollers in most cases, they have logic and interfaces that let the data be extracted from them digitally(toggling a single pin or more from 3.3v to 0V). There are sensors that are analog, but we are not using them, they are harder to work with. There are many methods of extracting the data out of sensors, these are called protocols. Each protocol has its advantages and disadvantages. Different combinations of, speed, wire count and complexity in setting it up. I will not be bothered to get into the details of how each protocol works as there are actual books for that. The best way to see how it works though is by getting thing called a "logic analyzer" and seeing for yourself how your hardware works.
+
+#### I2C
+I2C is one of the most convenient protocols to settup, it uses two wires, one for data and one for clock signal, it can also be chained to multiple sensors/device. Its fast enough and you can go above the recomended speeds if you believe in your hardware setup. I used I2C on my self-balacning robot project for sensors and it was fine. I did that again on this project and that was a mistake. You have to understand unless you are setting up something fancy to not have to do the communication to sensors synchronously, I2C can waste a lot of time by not being the fastest method.
+
+I2c is very easy to setup though, and rarely ever causes problems. On the STM32 i did find that interrupts (will talk about these later) have to be disabled for the communication to not break. When it did break it would take 100ms to error out and continue with the program, essentially breaking the whole flow of the time sensitive program.
+
+#### SPI
+SPI is a lot harder to setup than I2c. The devices that can be communicated to using this have to have a slave select pin, that when 0V is applied to it means that the device is being communicated with. It also has 3 other pins, one for clock, one for data coming to slave and one for data coming to master. When you try to setup the hardware for a SPI connection, there is always something that just does not work. Its like having to plug in a usb, you always do it wrong way first. Sometimes the slaves/sensors have an extra pin that is also names similar to the slave select pin causing additonal confusion. The benefit of SPI is the speed it can reach, if you really need to be at the peak of performance then this is what you need. There are even variations of the protocol that use double or quadruple the pins amounts for the slave-master pins to multiply the transmission speed.
+
+SPI is also a very simple protocol that you can even implement yourself. That cannot be said about I2C.
+
+#### UART 
+UART is the last protocol we actually care about and is one that is not normally used for sensors, but for transmitting text information or large amounts of data. It is also a very simple protocol, it uses 2 pins and does not use a clock pin. It  also cannot be chained like I2C and it is most importantly asynchronous by default. It is considered slower than the other protocols but it has benefits. It is reliable over long distances of wire and has recover mechanisms 
+
 ### I2C and sensors in general
-The sensors are just little microcontrollers in most cases, they have logic and interfaces that let the data be extracted from them digitally(toggling a single pin or more from 3.3v to 0V). There are sensors that are analog, but we are not using them, they are harder to work with. For this communication we will use I2C. I2c is just a recipe (protocol) for what way to toggle the pins and in what order that both the controller trying to get the data (master) and the sensor (slave) understand and adhere to. There are other protoocls as well that the sensors support, like SPI, but I chose this one because it is easier to deal with.
+For this communication we will use I2C. I2c is just a recipe (protocol) for what way to toggle the pins and in what order that both the controller trying to get the data (master) and the sensor (slave) understand and adhere to. There are other protoocls as well that the sensors support, like SPI, but I chose this one because it is easier to deal with. I2c uses only 4 wires, 2 for data. I2c is usually used for sensors or things that dont nescessarily need max speed in communication. You sacrifice speed for ease of communication.
+
+
+### UART
+Uart is another protocol for communication. It again uses 4 wires 
 
 To do things with a sensor you need to read its datasheet. The most important part of which is the register map, it tells you where everything is stored and what register addresses you need to give to the sensor to read out the data from the registers. With i2c this often looks like sending the address of the register then reading the number of bytes you expect the data to be. Sometimes these sensors dont just automatically fill up their registers with data and you need to actually send commands that trigger actions that fill up populate those registers. Sometimes these commands just activate some special ability of the sensor. Thes sensors are almost always configurable in the same way also, by sending what register you want to fill up and then sending the bytes of data you want to put in that register. Configuring the sensor can be though of as having a wall of switches (the register map). There are as many rows of switches on it and the rows correspond to registers, each row has a number of switches that correspond to how large the register is in bits (most often its 8 bits). Each switch in the row does something, each one has a long description of its functionality in the datasheet. Some of the rows of switches you cannot manipulate as they are the ones storing the measurement that the sensor does, so the analogy falls appart there.
 
 It should be noted that sensor data should never be taken as reliable data, the sensor data by default is always miscalibrated and has noise in it that makes judgements based on the data difficult. Each sensor type also has some problem that makes complex systems development difficult, but there are solutions to this, that we will talk about in sections "sensor fusion" and "filtering".
 
-_I noticed that the STM32 did badly with an interrupt happenning while I2C communication was happenning. The i2c communication would freeze and take up 100 ms each one. For that reason all interrupts are disabled before any i2c communication. I put that in main.c but I should probably do it in each sensor driver._
+
 
 _I should have not used the I2c bus anymore in this project, for any of the sensors, its a bit too slow. I went above the recomended bus frequency though and reached 1.6 MHz but went down to 1.0 Mhz for stability just in case. That saved quite a of cpu time._
 
@@ -137,31 +161,42 @@ The magnetometer has some problems though, its data can be disturbed by magnetic
 
 I originally went with the QMC5883L magnetometer, it had a lot of problems with pancake graphs, but the ocasional one worked ok. When i started making my quadcopter I ripped the only working one that i had out of my self-balancing drone and it also turned into pancake. Eventually i had to get rid of all of them and just get a new sensor. I got the AdaFruit MMC5603 to replace it, origianlly I was really afraid that something was going to be wrong with it as the sensor chip was so tiny, but it was wrong and the sensor has so many more features. It is able to test the values it puts out itself and determine if something is wrong, set a data fetching rate, it can degauss itself which is amazing. Its such a great little sensor, it solves all of the problems i had with the magnetometers.
 
+
+### UART
+
 ### GPS
 The GPS is technically not a sensor but a receiver antena for sattalite signals, but I do like to call it a sensor. It picks up signals sent by sattalites of different constelations like GPS or Gallileo. It then uses the signals it receives and math to compute where it is on earth. The more sattalites it has the more accurate the calculation is. It outputs a lot of different data, but we primarilly care about about latitude, longitude, sattalite count and fix quality. The latitude is the vertical coordinate on the globe it increases or decreases when you go north or south, like y axis on a graph. The longitude is the horizontal coordinate and changes value when you go west or east, like x axis on a graph. The longitude is a special case, it is not linear like the latitude, it increases in precision when you go further away form the equator. This makes a bit difficult to work with as the code needs to use the linearized version of longitude, but to display the data you need to see it non linearly. The sattalite count is important to know the quality of data that is being delivered, a sattalite number of 10 or above is good quality. The fix type is a lower bar for quality, if the fix type is "3D" it is good enough quality to do some really bad gps position tracking or holding.
 
 The gps can be used for a lot of things, but we are going to use it for position hold and maybe later for waypoint following.
 
+### Barometer
+The barometer can tell you how dense the air is. If you lift the drone up it will show lower pressure and if you lower it it will have higher pressure. The drone can sense the change in pressure and then convert that pressure change in to actual measurable change in altitude. This is essential for altitude hold functionality. 
+
+There are problems though, a drone has propellers and propellers can generate wind and low pressure, the barometer can pick up this pressure change and provide fake data that will make the drone think the altitude is changing quicker that expected. Dealing with this is difficult. I have not progreessed far in this area yet, but I have tried to isolate the the sensor using foam and tape so cross wind cannot blow over it and aid can only come in from one side and the result was no improvement. Still some work left to be done
+
+The sensor I chose first was the BMP280, which is a fine sensor and worked fine but I felt that it was not precise enough. I switched it out for the MS5611 which is widely used due to its accuracy. Barometers often come bundled with temperature sensors and even humidity sensors in some cases. These additional sensors aid in altitude calculations as then everything about the atmosphere that is important to altitude can can be sensed.
+
+Calibration for barometers is done in the factory they were made in. The sensors registers hold the calibration data which is read on sensor initialization and applied once data is gotten. The MS5611 sensor is one of those sensors which you have to tell to start taking a data sample of either temperature or pressure and wait a bit until the data is ready. In our case we alternate between getting the temperature and pressure to have the most accurate altitude measurement in the end.
+
+The altitude calculation can be done as an absolute altitude using formula to determine the current altitude from numbers purely. This altitude calculation is often best when setting a initial altitude by manually if it is known. This is good for devices that are intended to measure altitude in a human understandable way. The other options sampling pressure, setting that as the reference pressure and then always measuring the changes in altitude based on how far away it goes off the reference. This is effectively setting the sea level to be at the current pressure. It is useful for applications where you just want to know which way the altitude changed and that it is stable. This second option is what we use for our drone.
+
+
+## Other hardware 
+
+### A note about powering of hardware 
+When i said that the 
+
+### SPI
+We talked about I2C before and how it is a protoco for communication, there is another one called
+
+### Debug Radio
+To actually communicate to the drone you need something that can pick up wireless signals. When I was making my self-balancing robot I create a remote control that had a radio transceiver(can send and receive radio signals) on it. So i chose to use the same setup on the drone.
+
+A radio module is just like one of the sensors it communicates to the  
+
+
 ### Axies
 Explain X Y and Z. 
-
-thilike a string that has something heavy tied to it, as you move 
-
-The accelerometer can be used to solve the issue with the gyro 
-To get more advanced functionality out of the drone, more sensors are needed. To get what is called angle mode
-This is the first sensor 
-
-To make the drone know which way is down 
-I used the MPU6050 again, it works fine. I did add more calibration to it. I learned form the magnetometer driver development that the way the sensor feels the gravity can be distorted, it can be not a perfect circle, but something oval. For that you need to get a lot of measurements and do the same "hard-iron" and "soft-iron" calibration as for the magnetometer. I have to admit that i did not go all out with the "soft-iron" equivalent of calibrating the accelerometer, I did a half-assed job and I kept that. I did make sure to do the "hard-iron" style calibration good though.  
-
-### Gyro
-Nothing changed. Still using MPU6050 gyro. It works good. I did not even consider using a different gyro. It is much more important to filter the data. 
-
-### Magnetometer
-
-The QMC5883L caused me so many issues. They are the worst module i have received from AliExpress, consistently. They all initialize  and give values but they are broken. One axis always does not work and it is easy to see that in calibration of it, a straight line of values or a cloud with no hard edge. There was nothing that could be done to fix this, not even taping the sensor with a strong magnet, that would shuffle the brokenness a bit but it was always one axis stuck anyway. I ended up switching to the MMC5603
-
-## Other hardware
 
 BREADBOARD
 
