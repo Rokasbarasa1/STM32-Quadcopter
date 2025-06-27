@@ -1,5 +1,3 @@
-![34is30](https://github.com/user-attachments/assets/62dab07a-90ed-4dc0-a806-d9625dec30f2)# STM32-Quadcopter
-
 ![IMG_4697](https://github.com/user-attachments/assets/5bd907f9-0777-416a-9e56-f72a6bac76c3)
 
 I am making a quadcopter from scratch (firmware including). This is the second step after my [Self balancing robot](https://github.com/Rokasbarasa1/ESP32-self-balancing-robot) project. It is still a work in progress, but a lot of the heavy lifting has already been done.
