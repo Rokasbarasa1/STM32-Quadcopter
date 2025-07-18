@@ -48,6 +48,10 @@ static void MX_TIM4_Init(void);
 #include "../lib/utils/ned_coordinates/ned_coordinates.h"
 #include "../lib/pid/pid.h"
 #include "../lib/filtering/filtering.h"
+#include "../lib/filtering/iir_filter.h"
+#include "../lib/filtering/moving_average.h"
+#include "../lib/filtering/outlier_detection.h"
+
 #include "../lib/kalman_filter/kalman_filter.h"
 #include "../lib/utils/matrix_operations/matrix_operations.h"
 #include "../lib/bdshot600_dma/bdshot600_dma.h"
@@ -185,13 +189,18 @@ uint32_t interrupt_end = 0;
 // ------------------------------------------------------------------------------------------------------ Refresh rate
 // Nyquist: sampling frequency must be at least double that of the highest frequency of interest
 // The MPU6050 has a lowpass set to 260Hz we need to be able to manipulate all the frequencies until that. So 260 * 2 = 520
-#define REFRESH_RATE_HZ 521
+#define REFRESH_RATE_HZ 520
 
 const uint16_t precalculated_timing_miliseconds = (1000000 / REFRESH_RATE_HZ);
 // ------------------------------------------------------------------------------------------------------ handling loop timing
 // Timing
 // TODO: Change this variable to uint64 later
 uint64_t absolute_microseconds_since_start = 0;
+uint64_t loop_start_timestamp_microseconds = 0;
+uint64_t delta_time_without_waiting_from_previous_loop_microseconds = 0;
+uint64_t delta_time_total_loop_time_previous_loop_microseconds = 0;
+
+
 uint16_t loop_start_microseconds = 0; // The timer is only 16 bits
 uint16_t loop_start_miliseconds = 0; // Fallback if the microseconds overflew
 
@@ -315,19 +324,20 @@ float gyro_correction[3] = {
     -2.532809, 2.282250, 0.640916
 };
 
-float base_accelerometer_roll_offset = 0.0;
+float base_accelerometer_roll_offset = -2.0;
 float base_accelerometer_pitch_offset = 0.0;
 
 float accelerometer_roll_offset = 0;
 float accelerometer_pitch_offset = 0;
 
-float yaw_offset = 90.0 - 13.665798833009;
-
+float yaw_offset = -90.0; // -90 degrees is the default offset as this is to fix the orientation
 
 // ------------------------------------------------------------------------------------------------------ Accelerometer values to degrees conversion
 float accelerometer_roll = 0;
 float accelerometer_pitch = 0;
 float magnetometer_yaw = 0;
+float mangetometer_yaw_original = 0.0f; // For comparing
+float mangetometer_yaw_low_pass = 0.0f; // For comparing
 
 // ------------------------------------------------------------------------------------------------------ Radio config
 uint8_t tx_address[5] = {0xEE, 0xDD, 0xCC, 0xBB, 0xAA};
@@ -414,6 +424,7 @@ float added_acro_roll_pitch_gain_i = 0.0f;
 float added_acro_roll_pitch_gain_d = 0.0f;
 
 // PID for acro yaw
+const float acro_yaw_gain_master = 2.0;
 const float acro_yaw_gain_p = 0.45;
 const float acro_yaw_gain_i = 0.3;
 
@@ -452,13 +463,12 @@ float last_throttle_deadzone = 0.0;
 
 float altitude_barometer_rate_of_change_max_cm_s = 30.0f;
 float target_longitude = 0.0;
-float real_target_longitude = 0.0;
 float target_latitude = 0.0;
 
 uint8_t target_lon_lat_set = 0;
 
 // ------------------------------------------------------------------------------------------------------ Some configurations relating to PID
-const float gps_pid_angle_of_attack_max = 5.0;
+const float gps_pid_angle_of_attack_max = 5.0f;
 
 float acro_mode_rate_degrees_per_second = 100;
 float angle_mode_rate_degrees_per_second_max_integral_derivative = 3; // At max the integral can accumulate 3 degrees per second of rotation. This is to prevent overshooting
@@ -469,6 +479,11 @@ float gyro_angular[] = {0,0,0};
 float imu_orientation[] = {0,0,0};
 float magnetometer_data[] = {0,0,0};
 
+float gyro_yaw = 0; // For testing yaw
+
+float magnetometer_original[] = {0,0,0}; // For testing yaw
+float magnetometer_low_pass[] = {0,0,0}; // For testing yaw
+
 uint8_t gps_fix_type = 0;
 uint8_t gps_satalittes_count = 0;
 uint8_t got_gps = 0;
@@ -476,11 +491,6 @@ uint8_t got_gps = 0;
 uint8_t gps_can_be_used = 0;
 float gps_latitude = 0.0;
 float gps_longitude = 0.0;
-float gps_real_longitude = 0.0;
-
-float real_gps_latitude = 0.0;
-float real_gps_longitude = 0.0;
-float real_gps_real_longitude = 0.0;
 
 float lat_distance_to_target_meters = 0.0;
 float lon_distance_to_target_meters = 0.0;
@@ -530,6 +540,11 @@ float pitch_effect_on_lat = 0;
 float roll_effect_on_lon = 0;
 float pitch_effect_on_lon = 0;
 
+// new method to control gps
+float error_forward = 0.0f;
+float error_right = 0.0f;
+
+
 uint32_t last_got_gps_timestamp = 0;
 uint32_t max_allowed_time_miliseconds_between_got_gps = 1000;
 
@@ -542,6 +557,12 @@ uint32_t ms5611_loop_start_timestamp = 0;
 uint32_t ms5611_set_reference_pressure_after_microseconds_of_loop = 4000000; // The actual pressure reading is only available some time into the loo. I do not know why.
 uint8_t ms5611_reference_set = 0;
 
+// Specific for yaw of magnetometer/gyro
+uint8_t initial_yaw_set = 0;
+uint32_t yaw_loop_start_timestamp = 0;
+uint32_t yaw_set_yaw_after_microseconds_of_loop = 1000000; // The actual yaw reading is only available some time into the loop. I do not know why.
+float yaw_magnetometer_only_gate_absolute_degrees = 0.1f; // Only magnetometer used bellow this value
+float yaw_gyro_only_gate_absolute_degrees = 2.0f; // Only gyro used above this value
 
 
 uint32_t amount_to_wait_for_gps_filtering_init = 2000000; // 2 seconds
@@ -555,6 +576,15 @@ uint32_t amount_to_wait_for_gps_filtering_init = 2000000; // 2 seconds
 
 #define COMPLEMENTARY_RATIO_MULTIPLYER_FLIGHT 0.3f
 #define COMPLEMENTARY_RATIO_MULTIPLYER_OFF 7.0f
+#define COMPLEMENTARY_RATIO_MULTIPLYER_YAW_GYRO_ONLY 0.000f
+#define COMPLEMENTARY_RATIO_MULTIPLYER_YAW_MAG_ONLY 0.01f // Increase until it starts doing edges on bumps
+
+// // Good but not responsive enough in fast level yaw movement
+// #define COMPLEMENTARY_RATIO_MULTIPLYER_YAW_GYRO_ONLY 0.000f
+// #define COMPLEMENTARY_RATIO_MULTIPLYER_YAW_MAG_ONLY 0.004f // Increase until it starts doing edges on bumps
+
+// float yaw_magnetometer_only_gate_absolute_degrees = 0.5f; // Only magnetometer used bellow this value
+// float yaw_gyro_only_gate_absolute_degrees = 2.5f; // Only gyro used above this value
 
 // #define COMPLEMENTARY_RATIO_MULTIPLYER 1.0f
 
@@ -570,10 +600,33 @@ struct low_pass_pt1_filter filter_motor_1;
 struct low_pass_pt1_filter filter_motor_2;
 struct low_pass_pt1_filter filter_motor_3;
 
-float filtering_magnetometer_cutoff_frequency = 15;
+float filtering_magnetometer_cutoff_frequency = 10;
 struct low_pass_biquad_filter filter_magnetometer_x;
 struct low_pass_biquad_filter filter_magnetometer_y;
 struct low_pass_biquad_filter filter_magnetometer_z;
+
+// Cutoff 20Hz sampling 520Hz
+uint8_t magnetometer_iir_filter_order = 4;
+float magnetometer_iir_filter_feedback[] = {1.0, -3.369238, 4.29911246, -2.45817706, 0.53083649}; // A
+float magnetometer_iir_filter_feedforward[] = {0.00015837, 0.00063348, 0.00095021, 0.00063348, 0.00015837}; // B
+
+
+struct iir_filter iir_filter_magnetometer_x;
+struct iir_filter iir_filter_magnetometer_y;
+struct iir_filter iir_filter_magnetometer_z;
+
+// uint8_t moving_average_magetometer_size = 8; // Gives a cutoff of about 9
+uint8_t moving_average_magetometer_size = 32; // Gives a cutoff of about 9
+
+struct moving_average moving_average_magnetometer_x;
+struct moving_average moving_average_magnetometer_y;
+struct moving_average moving_average_magnetometer_z;
+
+float outlier_detection_magnetometer_threshold = 3.0f;
+uint8_t outlier_detection_magnetometer_window_size = 10;
+struct outlier_detection outlier_detection_magnetometer_x;
+struct outlier_detection outlier_detection_magnetometer_y;
+struct outlier_detection outlier_detection_magnetometer_z;
 
 float filtering_accelerometer_cutoff_frequency = 15;
 struct low_pass_biquad_filter biquad_filter_accelerometer_x;
@@ -627,7 +680,7 @@ struct kalman_filter altitude_and_velocity_kalman;
 const float altitude_barometer_filtering_min_cutoff = 2;
 struct low_pass_biquad_filter altitude_barometer_filtering;
 
-const float gps_filtering_min_cutoff = 4.0;
+const float gps_filtering_min_cutoff = 3.0f;
 // struct low_pass_biquad_filter biquad_filter_gps_lat;
 // struct low_pass_biquad_filter biquad_filter_gps_lon;
 struct low_pass_pt1_filter biquad_filter_gps_lat;
@@ -669,6 +722,7 @@ char log_file_base_name_gps[] = "QuadGPS.csv";
 char log_file_base_name_alt[] = "QuadALT.csv";
 char log_file_base_name_mag[] = "QuadMAG.csv";
 char log_file_base_name_yaw[] = "QuadYAW.csv";
+char log_file_base_name_timing[] = "QuadTIMING.csv";
 char log_file_blackbox_base_name[] = "Quadcopter.BBL";
 char *new_log_file_blackbox_base_name;
 uint16_t blackbox_file_index = 0;
@@ -696,6 +750,7 @@ const uint8_t use_blackbox_logging = 0;
 // 2 - vertical velocity logging
 // 3 - magentometer raw data
 // 4 - yaw data
+// 5 - timing data
 uint8_t txt_logging_mode = 1;
 
 
@@ -753,10 +808,10 @@ int main(void){
     set_flight_mode(flight_mode);
     // check_calibrations();
     calibrate_gyro(); // Recalibrate the gyro as the temperature affects the calibration
-    get_initial_position();
     setup_logging_to_sd(0); // If stopped working then re-flash the firmware of the logger and check hardware connection. Check if it works when Li-po connected
     initialize_control_abstractions();
     initialize_motor_communication();
+    get_initial_position();
 
     handle_pre_loop_start();
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;  
@@ -924,6 +979,9 @@ uint8_t init_drivers(){
     nrf24_rx_mode(tx_address, 10);
     bn357_start_uart_interrupt();
 
+    mpu6050_set_complementary_ratio(COMPLEMENTARY_RATIO_MULTIPLYER_OFF * (1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ))));
+    mpu6050_set_complementary_ratio_yaw(COMPLEMENTARY_RATIO_MULTIPLYER_YAW_MAG_ONLY * (1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ))));
+
     return 1;
 }
 
@@ -991,8 +1049,10 @@ void handle_get_and_calculate_sensor_values(){
     got_gps = bn357_get_status_up_to_date(1);
 
     if(got_gps){
-        gps_latitude = bn357_get_latitude();
-        gps_longitude = bn357_get_longitude(); 
+        float latitude_sign = 1 * (bn357_get_latitude_direction() == 'N') + (-1) * (bn357_get_latitude_direction() == 'S'); // Possible results: 0, 1 or -1
+        float longitude_sign = 1 * (bn357_get_longitude_direction() == 'E') + (-1) * (bn357_get_longitude_direction() == 'W');
+        gps_latitude = bn357_get_latitude() * latitude_sign;
+        gps_longitude = bn357_get_longitude() * longitude_sign;
         gps_fix_type = bn357_get_fix_type();
         gps_satalittes_count = bn357_get_satellites_quantity();
         // This is basically proportional error
@@ -1108,11 +1168,33 @@ void handle_get_and_calculate_sensor_values(){
     // Dynamic notch filtering
     // Not currently used
 
+    // For testing
+    if(txt_logging_mode == 4){
 
-    // Filter magnetometer data
-    magnetometer_data[0] = low_pass_filter_biquad_read(&filter_magnetometer_x, magnetometer_data[0]);
-    magnetometer_data[1] = low_pass_filter_biquad_read(&filter_magnetometer_y, magnetometer_data[1]);
-    magnetometer_data[2] = low_pass_filter_biquad_read(&filter_magnetometer_z, magnetometer_data[2]);
+        magnetometer_original[0] = magnetometer_data[0];
+        magnetometer_original[1] = magnetometer_data[1];
+        magnetometer_original[2] = magnetometer_data[2];
+
+        // Filter magnetometer data
+        magnetometer_low_pass[0] = low_pass_filter_biquad_read(&filter_magnetometer_x, magnetometer_data[0]);
+        magnetometer_low_pass[1] = low_pass_filter_biquad_read(&filter_magnetometer_y, magnetometer_data[1]);
+        magnetometer_low_pass[2] = low_pass_filter_biquad_read(&filter_magnetometer_z, magnetometer_data[2]);
+    }
+
+    magnetometer_data[0] = outlier_detection_process(&outlier_detection_magnetometer_x, magnetometer_data[0]);
+    magnetometer_data[1] = outlier_detection_process(&outlier_detection_magnetometer_y, magnetometer_data[1]);
+    magnetometer_data[2] = outlier_detection_process(&outlier_detection_magnetometer_z, magnetometer_data[2]);
+
+    magnetometer_data[0] = iir_filter_process(&iir_filter_magnetometer_x, magnetometer_data[0]);
+    magnetometer_data[1] = iir_filter_process(&iir_filter_magnetometer_y, magnetometer_data[1]);
+    magnetometer_data[2] = iir_filter_process(&iir_filter_magnetometer_z, magnetometer_data[2]);
+
+    magnetometer_data[0] = moving_average_process(&moving_average_magnetometer_x, magnetometer_data[0]);
+    magnetometer_data[1] = moving_average_process(&moving_average_magnetometer_y, magnetometer_data[1]);
+    magnetometer_data[2] = moving_average_process(&moving_average_magnetometer_z, magnetometer_data[2]);
+
+
+
 
     // Yaw Angular rotation filtering
     gyro_angular[2] = low_pass_filter_pt1_read(&filter_gyro_z, gyro_angular[2]);
@@ -1154,27 +1236,79 @@ void handle_get_and_calculate_sensor_values(){
 
     // ------------------------------------------------------------------------------------------------------ Sensor fusion
     calculate_roll_pitch_from_accelerometer_data(acceleration_data, &accelerometer_roll, &accelerometer_pitch, accelerometer_roll_offset, accelerometer_pitch_offset); // Get roll and pitch from the data. I call it x and y. Ranges -90 to 90. 
-    sensor_fusion_roll_pitch(gyro_angular, accelerometer_roll, accelerometer_pitch, get_absolute_time(), 1, imu_orientation);
+    sensor_fusion_roll_pitch(gyro_angular, accelerometer_roll, accelerometer_pitch, loop_start_timestamp_microseconds, 1, imu_orientation);
+
+    if(txt_logging_mode == 4){
+        // Sensor fusion imu degrees > accelerometer degrees
+        calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_original, &mangetometer_yaw_original, imu_orientation[0], imu_orientation[1], yaw_offset);
+
+        // Sensor fusion imu degrees > accelerometer degrees
+        calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_low_pass, &mangetometer_yaw_low_pass, imu_orientation[0], imu_orientation[1], yaw_offset);
+    }
+    
 
     // Sensor fusion imu degrees > accelerometer degrees
     calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw, imu_orientation[0], imu_orientation[1], yaw_offset);
 
+
+    // Set new yaw after some time
+    if(initial_yaw_set == 0 && get_absolute_time() - yaw_loop_start_timestamp > yaw_set_yaw_after_microseconds_of_loop){
+        initial_yaw_set = 1;
+        imu_orientation[2] = magnetometer_yaw;
+    }
+
+
+    if(fabs(imu_orientation[0]) <= yaw_magnetometer_only_gate_absolute_degrees && fabs(imu_orientation[1]) <= yaw_magnetometer_only_gate_absolute_degrees){
+        // MAG ONLY
+        mpu6050_set_complementary_ratio_yaw(COMPLEMENTARY_RATIO_MULTIPLYER_YAW_MAG_ONLY);
+    }else if(fabs(imu_orientation[0]) >= yaw_gyro_only_gate_absolute_degrees && fabs(imu_orientation[1]) >= yaw_gyro_only_gate_absolute_degrees){
+        mpu6050_set_complementary_ratio_yaw(COMPLEMENTARY_RATIO_MULTIPLYER_YAW_GYRO_ONLY);
+        // GYRO ONLY
+    }else{
+        // SCALE BETWEEN MAG AND GYRO based on highest value of roll or pitch
+        float max_deviation_from_zero = fmax(fabs(imu_orientation[0]), fabs(imu_orientation[1]));
+
+        // map_value_to_expo_range_inverted()
+        float new_alpha_value = map_value(
+            max_deviation_from_zero, 
+            yaw_magnetometer_only_gate_absolute_degrees,
+            yaw_gyro_only_gate_absolute_degrees,
+            COMPLEMENTARY_RATIO_MULTIPLYER_YAW_MAG_ONLY, 
+            COMPLEMENTARY_RATIO_MULTIPLYER_YAW_GYRO_ONLY
+        );
+
+        // Cap the value just in case
+        if(new_alpha_value < 0.0f){
+            new_alpha_value = 0.0f;
+        }else if(new_alpha_value > 1.0f){
+            new_alpha_value = 1.0f;
+        }
+
+        mpu6050_set_complementary_ratio_yaw(new_alpha_value);
+    }
+
+
+    sensor_fusion_yaw(gyro_angular, magnetometer_yaw, loop_start_timestamp_microseconds, 1, imu_orientation, &gyro_yaw);
+
     // No need for sensor fusion, it introduces delay
-    imu_orientation[2] = magnetometer_yaw;
+    // imu_orientation[2] = magnetometer_yaw;
     
     sensors9 = DWT->CYCCNT;
     // GPS STUFF
-    float latitude_sign = 1 * (bn357_get_latitude_direction() == 'N') + (-1) * (bn357_get_latitude_direction() == 'S'); // Possible results: 0, 1 or -1
-    float longitude_sign = 1 * (bn357_get_longitude_direction() == 'E') + (-1) * (bn357_get_longitude_direction() == 'W');
-
-    latitude_sign = 1;
-    longitude_sign = 1;
+    float yaw_rad = (imu_orientation[2] + 0.0f) * M_PI_DIV_BY_180;
 
     // yaw north facing is 0, east is 90, south is 180, west is 270
-    roll_effect_on_lat = sin(imu_orientation[2] * M_PI_DIV_BY_180) * latitude_sign;  // + GOOD, - GOOD  // If moving north forward positive, backwards negative
-    pitch_effect_on_lat = -cos(imu_orientation[2] * M_PI_DIV_BY_180) * latitude_sign;  // + GOOD, - GOOD  // If moving north roll right positive, roll left south negative
-    roll_effect_on_lon = -cos(imu_orientation[2] * M_PI_DIV_BY_180) * longitude_sign; // + GOOD, - GOOD 
-    pitch_effect_on_lon = -sin(imu_orientation[2] * M_PI_DIV_BY_180) * longitude_sign;  // + GOOD, - GOOD
+    // roll_effect_on_lat = sin(yaw_rad);
+    // pitch_effect_on_lat = -cos(yaw_rad);
+    // roll_effect_on_lon = -cos(yaw_rad);
+    // pitch_effect_on_lon = -sin(yaw_rad);
+
+    // This is just a rotation matrix in linear algebra rotate coordinates by degrees
+    error_forward = lat_distance_to_target_meters * cosf(yaw_rad) + lon_distance_to_target_meters * sinf(yaw_rad);
+    error_right   = -lat_distance_to_target_meters * sinf(yaw_rad) + lon_distance_to_target_meters * cosf(yaw_rad);
+
+
+    // --------------------- TODO DO SOME CROSS AXIS CORRECTION (Gyro gimbal Lock/Transfer) for roll and pitch
 
     sensors10 = DWT->CYCCNT;
     // ------------------------------------------------------------------------------------------------------ Use sensor fused data for more data
@@ -1192,7 +1326,7 @@ void handle_get_and_calculate_sensor_values(){
     // printf("IMU %f %f %f\n", imu_orientation[0], imu_orientation[1], imu_orientation[2]);
 
     // printf("Lat %f, Lon %f\n", gps_latitude, gps_longitude);
-    printf("Yaw: %.2f\n", magnetometer_yaw);
+    // printf("%f;%f;%f;\n", mangetometer_yaw_original, mangetometer_yaw_low_pass, magnetometer_yaw);
 }
 
 
@@ -1306,7 +1440,6 @@ void handle_pid_and_motor_control(){
         if(got_gps){
             target_latitude = gps_latitude;
             target_longitude = gps_longitude;
-            real_target_longitude = gps_real_longitude;
             gps_target_unset_logged = 0;
             gps_target_unset_cause = 2;
         }
@@ -1331,35 +1464,73 @@ void handle_pid_and_motor_control(){
             pid_set_desired_value(&gps_latitude_pid, 0.0);
             pid_set_desired_value(&gps_longitude_pid, 0.0);
 
-            error_latitude = pid_get_error_own_error(&gps_latitude_pid, lat_distance_to_target_meters, get_absolute_time());
-            error_longitude = pid_get_error_own_error(&gps_latitude_pid, lon_distance_to_target_meters, get_absolute_time());
+            // error_latitude = pid_get_error_own_error(&gps_latitude_pid, lat_distance_to_target_meters, loop_start_timestamp_microseconds);
+            // error_longitude = pid_get_error_own_error(&gps_longitude_pid, lon_distance_to_target_meters, loop_start_timestamp_microseconds);
+
+            // float gps_hold_roll_adjustment_calculation = roll_effect_on_lat * error_latitude + roll_effect_on_lon * error_longitude;
+            // float gps_hold_pitch_adjustment_calculation = pitch_effect_on_lat * error_latitude + pitch_effect_on_lon * error_longitude;
+
+            // if (gps_hold_roll_adjustment_calculation > gps_pid_angle_of_attack_max) gps_hold_roll_adjustment_calculation = gps_pid_angle_of_attack_max;
+            // if (gps_hold_roll_adjustment_calculation < -gps_pid_angle_of_attack_max) gps_hold_roll_adjustment_calculation = -gps_pid_angle_of_attack_max;
+            // if (gps_hold_pitch_adjustment_calculation > gps_pid_angle_of_attack_max) gps_hold_pitch_adjustment_calculation = gps_pid_angle_of_attack_max;
+            // if (gps_hold_pitch_adjustment_calculation < -gps_pid_angle_of_attack_max) gps_hold_pitch_adjustment_calculation = -gps_pid_angle_of_attack_max;
+
+            // gps_hold_roll_adjustment = gps_hold_roll_adjustment_calculation;
+            // gps_hold_pitch_adjustment = gps_hold_pitch_adjustment_calculation;
+
+
+
+
+            float roll_command = pid_get_error_own_error(&gps_longitude_pid, error_right, loop_start_timestamp_microseconds);
+            float pitch_command = pid_get_error_own_error(&gps_latitude_pid, error_forward, loop_start_timestamp_microseconds);
+
+            
+            // if (roll_command + imu_orientation[0] > gps_pid_angle_of_attack_max) roll_command = gps_pid_angle_of_attack_max - imu_orientation[0];
+            // if (roll_command + imu_orientation[0]< -gps_pid_angle_of_attack_max) roll_command = -gps_pid_angle_of_attack_max - imu_orientation[0];
+            // if (pitch_command + imu_orientation[1] > gps_pid_angle_of_attack_max) pitch_command = gps_pid_angle_of_attack_max - imu_orientation[1];
+            // if (pitch_command + imu_orientation[1] < -gps_pid_angle_of_attack_max) pitch_command = -gps_pid_angle_of_attack_max - imu_orientation[1];
+
+            if (roll_command > gps_pid_angle_of_attack_max) roll_command = gps_pid_angle_of_attack_max;
+            if (roll_command < -gps_pid_angle_of_attack_max) roll_command = -gps_pid_angle_of_attack_max;
+            if (pitch_command > gps_pid_angle_of_attack_max) pitch_command = gps_pid_angle_of_attack_max;
+            if (pitch_command < -gps_pid_angle_of_attack_max) pitch_command = -gps_pid_angle_of_attack_max;
+
+            // gps_hold_roll_adjustment = roll_command;
+            // gps_hold_pitch_adjustment = pitch_command;
+
+            // Works better inverted
+            gps_hold_roll_adjustment = -roll_command;
+            gps_hold_pitch_adjustment = -pitch_command;
+
 
             // For logging
             PID_proportional[4] = pid_get_last_proportional_error(&gps_latitude_pid);
             PID_integral[4] = pid_get_last_integral_error(&gps_latitude_pid);
             PID_derivative[4] = pid_get_last_derivative_error(&gps_latitude_pid);
 
+
+
             // Length of the lat lon error vector
-            float error_magnitude = sqrtf(error_latitude * error_latitude + error_longitude * error_longitude);
+            // float error_magnitude = sqrtf(error_latitude * error_latitude + error_longitude * error_longitude);
 
-            // Get unit vectors of error lat and lon
-            float normalized_error_latitude = 0.0f;
-            float normalized_error_longitude = 0.0f;
-            if(error_magnitude == 0.0f){
-                normalized_error_latitude = 0.0f;
-                normalized_error_longitude = 0.0f;
-            }else{
-                normalized_error_latitude = error_latitude / error_magnitude;
-                normalized_error_longitude = error_longitude / error_magnitude;
-            }
+            // // Get unit vectors of error lat and lon
+            // float normalized_error_latitude = 0.0f;
+            // float normalized_error_longitude = 0.0f;
+            // if(error_magnitude == 0.0f){
+            //     normalized_error_latitude = 0.0f;
+            //     normalized_error_longitude = 0.0f;
+            // }else{
+            //     normalized_error_latitude = error_latitude / error_magnitude;
+            //     normalized_error_longitude = error_longitude / error_magnitude;
+            // }
 
-            float gps_hold_roll_adjustment_calculation = roll_effect_on_lat * normalized_error_latitude + roll_effect_on_lon * normalized_error_longitude;
-            float gps_hold_pitch_adjustment_calculation = pitch_effect_on_lat * normalized_error_latitude + pitch_effect_on_lon * normalized_error_longitude;
+            // float gps_hold_roll_adjustment_calculation = roll_effect_on_lat * normalized_error_latitude + roll_effect_on_lon * normalized_error_longitude;
+            // float gps_hold_pitch_adjustment_calculation = pitch_effect_on_lat * normalized_error_latitude + pitch_effect_on_lon * normalized_error_longitude;
 
-            float scale_factor = fmin(error_magnitude, gps_pid_angle_of_attack_max);
+            // float scale_factor = fmin(error_magnitude, gps_pid_angle_of_attack_max);
 
-            gps_hold_roll_adjustment = gps_hold_roll_adjustment_calculation * scale_factor;
-            gps_hold_pitch_adjustment = gps_hold_pitch_adjustment_calculation * scale_factor;
+            // gps_hold_roll_adjustment = gps_hold_roll_adjustment_calculation * scale_factor;
+            // gps_hold_pitch_adjustment = gps_hold_pitch_adjustment_calculation * scale_factor;
 
 
         }else if(gps_position_hold_enabled && !gps_can_be_used){
@@ -1370,6 +1541,8 @@ void handle_pid_and_motor_control(){
             gps_target_unset_logged = 0;
             gps_target_unset_cause = 3;
         }else{
+            gps_hold_roll_adjustment = 0.0f;
+            gps_hold_pitch_adjustment = 0.0f;
             gps_target_unset_logged = 0;
             gps_target_unset_cause = 4;
         }
@@ -1380,7 +1553,7 @@ void handle_pid_and_motor_control(){
     // ---------------------------------------------------------------------------------------------- Altitude hold
     if(use_vertical_velocity_control && got_pressure){
         pid_set_desired_value(&altitude_hold_pid, target_altitude_barometer);
-        pid_calculate_error(&altitude_hold_pid, altitude_barometer, get_absolute_time());
+        pid_calculate_error(&altitude_hold_pid, altitude_barometer, loop_start_timestamp_microseconds);
 
         PID_proportional[3] = pid_get_last_proportional_error(&altitude_hold_pid);
         PID_integral[3] = pid_get_last_integral_error(&altitude_hold_pid);
@@ -1398,8 +1571,8 @@ void handle_pid_and_motor_control(){
         pid_set_desired_value(&angle_pitch_pid, angle_target_pitch + gps_hold_pitch_adjustment);
 
         // For now not logging desired angle mode
-        error_angle_roll = limit_max_value(pid_get_error(&angle_roll_pid, imu_orientation[0], get_absolute_time()), -acro_mode_rate_degrees_per_second, acro_mode_rate_degrees_per_second);
-        error_angle_pitch = limit_max_value(pid_get_error(&angle_pitch_pid, imu_orientation[1], get_absolute_time()), -acro_mode_rate_degrees_per_second, acro_mode_rate_degrees_per_second);
+        error_angle_roll = limit_max_value(pid_get_error(&angle_roll_pid, imu_orientation[0], loop_start_timestamp_microseconds), -acro_mode_rate_degrees_per_second, acro_mode_rate_degrees_per_second);
+        error_angle_pitch = limit_max_value(pid_get_error(&angle_pitch_pid, imu_orientation[1], loop_start_timestamp_microseconds), -acro_mode_rate_degrees_per_second, acro_mode_rate_degrees_per_second);
 
     }else{
         error_angle_roll = 0;
@@ -1429,17 +1602,16 @@ void handle_pid_and_motor_control(){
     
 
     // Just calculate and not get the error sum. Needed for d term filter
-    uint64_t pid_time = get_absolute_time();
-    pid_calculate_error_pi(&acro_roll_pid, gyro_angular[0], pid_time); // Calculate P and I terms
-    pid_calculate_error_d(&acro_roll_pid, gyro_angular_for_d_term[0], pid_time); // Calculate D term using a low pass filtered value
-    pid_set_previous_time(&acro_roll_pid, pid_time); // Update last timestamp
+    pid_calculate_error_pi(&acro_roll_pid, gyro_angular[0], loop_start_timestamp_microseconds); // Calculate P and I terms
+    pid_calculate_error_d(&acro_roll_pid, gyro_angular_for_d_term[0], loop_start_timestamp_microseconds); // Calculate D term using a low pass filtered value
+    pid_set_previous_time(&acro_roll_pid, loop_start_timestamp_microseconds); // Update last timestamp
 
-    pid_calculate_error_pi(&acro_pitch_pid, gyro_angular[1], pid_time);
-    pid_calculate_error_d(&acro_pitch_pid, gyro_angular_for_d_term[1], pid_time);
-    pid_set_previous_time(&acro_pitch_pid, pid_time);
+    pid_calculate_error_pi(&acro_pitch_pid, gyro_angular[1], loop_start_timestamp_microseconds);
+    pid_calculate_error_d(&acro_pitch_pid, gyro_angular_for_d_term[1], loop_start_timestamp_microseconds);
+    pid_set_previous_time(&acro_pitch_pid, loop_start_timestamp_microseconds);
 
-    pid_calculate_error(&acro_yaw_pid, gyro_angular[2], pid_time);
-    pid_set_previous_time(&acro_yaw_pid, pid_time);
+    pid_calculate_error(&acro_yaw_pid, gyro_angular[2], loop_start_timestamp_microseconds);
+    pid_set_previous_time(&acro_yaw_pid, loop_start_timestamp_microseconds);
 
     // printf("ROl g: %.3f gf: %.3f dt: %.3f \n", gyro_angular[0], gyro_angular_for_d_term[0], PID_derivative[0]);
 
@@ -1573,7 +1745,6 @@ void handle_radio_communication(){
             // Current gps position is the target now
             target_latitude = gps_latitude;
             target_longitude = gps_longitude;
-            real_target_longitude = gps_real_longitude;
             gps_target_set = 1;
         }else if (pitch != 50.0 || roll != 50.0 ){
             if(use_gps_reset_count >= use_gps_reset_count_to_deactivate){
@@ -2056,20 +2227,34 @@ void initialize_control_abstractions(){
     // PID controllers
     acro_roll_pid = pid_init(acro_roll_pitch_master_gain * acro_roll_pitch_gain_p, acro_roll_pitch_master_gain * acro_roll_pitch_gain_i, acro_roll_pitch_master_gain * acro_roll_pitch_gain_d, 0.0, get_absolute_time(), 25, -25, 1, 0);
     acro_pitch_pid = pid_init(acro_roll_pitch_master_gain * acro_roll_pitch_gain_p, acro_roll_pitch_master_gain * acro_roll_pitch_gain_i, acro_roll_pitch_master_gain * acro_roll_pitch_gain_d, 0.0, get_absolute_time(), 25, -25, 1, 0);
-    acro_yaw_pid = pid_init(acro_yaw_gain_p, acro_yaw_gain_i, 0, 0.0, get_absolute_time(), 10.0, -10.0, 1, 0);
+    acro_yaw_pid = pid_init(acro_yaw_gain_p * acro_yaw_gain_master, acro_yaw_gain_i * acro_yaw_gain_master, 0, 0.0, get_absolute_time(), 10.0, -10.0, 1, 0);
 
     angle_roll_pid = pid_init(angle_roll_pitch_master_gain * angle_roll_pitch_gain_p, angle_roll_pitch_master_gain * angle_roll_pitch_gain_i, angle_roll_pitch_master_gain * angle_roll_pitch_gain_d, 0.0, get_absolute_time(), angle_mode_rate_degrees_per_second_max_integral_derivative, -angle_mode_rate_degrees_per_second_max_integral_derivative, 1, 0);
     angle_pitch_pid = pid_init(angle_roll_pitch_master_gain * angle_roll_pitch_gain_p, angle_roll_pitch_master_gain * angle_roll_pitch_gain_i, angle_roll_pitch_master_gain * angle_roll_pitch_gain_d, 0.0, get_absolute_time(), angle_mode_rate_degrees_per_second_max_integral_derivative, -angle_mode_rate_degrees_per_second_max_integral_derivative, 1, 0);
 
     altitude_hold_pid = pid_init(altitude_hold_master_gain * altitude_hold_gain_p, altitude_hold_master_gain * altitude_hold_gain_i, altitude_hold_master_gain * altitude_hold_gain_d, 0.0, get_absolute_time(), 10.0, -0.0, 1, 0); // Min value is 0 because motors dont go lower that that
 
-    gps_longitude_pid = pid_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), 5.0, -5.0, 1, 0);
-    gps_latitude_pid = pid_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), 5.0, -5.0, 1, 0);
+    gps_longitude_pid = pid_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), 5.0, -5.0, 0, 0);
+    gps_latitude_pid = pid_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), 5.0, -5.0, 0, 0);
 
     // Filtering
     filter_magnetometer_x = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
     filter_magnetometer_y = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
     filter_magnetometer_z = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
+
+    // Magnetometer filtering
+    iir_filter_magnetometer_x = iir_filter_init(magnetometer_iir_filter_order, magnetometer_iir_filter_feedback, magnetometer_iir_filter_feedforward);
+    iir_filter_magnetometer_y = iir_filter_init(magnetometer_iir_filter_order, magnetometer_iir_filter_feedback, magnetometer_iir_filter_feedforward);
+    iir_filter_magnetometer_z = iir_filter_init(magnetometer_iir_filter_order, magnetometer_iir_filter_feedback, magnetometer_iir_filter_feedforward);
+
+    moving_average_magnetometer_x = moving_average_init(moving_average_magetometer_size);
+    moving_average_magnetometer_y = moving_average_init(moving_average_magetometer_size);
+    moving_average_magnetometer_z = moving_average_init(moving_average_magetometer_size);
+
+    outlier_detection_magnetometer_x = outlier_detection_init(outlier_detection_magnetometer_window_size, outlier_detection_magnetometer_threshold);
+    outlier_detection_magnetometer_y = outlier_detection_init(outlier_detection_magnetometer_window_size, outlier_detection_magnetometer_threshold);
+    outlier_detection_magnetometer_z = outlier_detection_init(outlier_detection_magnetometer_window_size, outlier_detection_magnetometer_threshold);
+
 
     biquad_filter_accelerometer_x = filtering_init_low_pass_filter_biquad(filtering_accelerometer_cutoff_frequency, REFRESH_RATE_HZ);
     biquad_filter_accelerometer_y = filtering_init_low_pass_filter_biquad(filtering_accelerometer_cutoff_frequency, REFRESH_RATE_HZ);
@@ -2110,6 +2295,7 @@ void initialize_control_abstractions(){
     // Initialize with the minimum frequency
     roll_d_term_filtering = filtering_init_low_pass_filter_biquad(d_term_filtering_min_cutoff, REFRESH_RATE_HZ);
     pitch_d_term_filtering = filtering_init_low_pass_filter_biquad(d_term_filtering_min_cutoff, REFRESH_RATE_HZ);
+
 
     altitude_barometer_filtering = filtering_init_low_pass_filter_biquad(
         altitude_barometer_filtering_min_cutoff, 
@@ -2397,6 +2583,7 @@ void setup_logging_to_sd(uint8_t use_updated_file_name){
         else if(txt_logging_mode == 2) sd_card_initialized = sd_special_initialize(log_file_base_name_alt);
         else if(txt_logging_mode == 3) sd_card_initialized = sd_special_initialize(log_file_base_name_mag);
         else if(txt_logging_mode == 4) sd_card_initialized = sd_special_initialize(log_file_base_name_yaw);
+        else if(txt_logging_mode == 5) sd_card_initialized = sd_special_initialize(log_file_base_name_timing);
         else sd_card_initialized = sd_special_initialize(log_file_base_name);
 
         if(!sd_card_initialized){
@@ -2447,13 +2634,14 @@ void handle_pre_loop_start(){
 
     // Timing for other functionality
     startup_time_microseconds = get_absolute_time();
-    // ms5611_conversion_start_timestamp = get_absolute_time();
     ms5611_loop_start_timestamp = get_absolute_time();
+    yaw_loop_start_timestamp = get_absolute_time();
 }
 
 void handle_loop_start(){
     loop_start_microseconds = __HAL_TIM_GET_COUNTER(&htim4);
     loop_start_miliseconds = HAL_GetTick();
+    loop_start_timestamp_microseconds = get_absolute_time();
 }
 
 uint64_t get_absolute_time(){
@@ -2472,6 +2660,25 @@ uint64_t get_absolute_time(){
 
 #define MICROSECONDS_TO_MILISECONDS (1.0f / 1000.0f)
 #define MILISECONDS_TO_MICROSECONDS (1000.0f)
+
+
+void uint64_to_str(uint64_t value, char *buf) {
+    char tmp[21];
+    int i = 0;
+    if (value == 0) {
+        buf[0] = '0';
+        buf[1] = '\0';
+        return;
+    }
+    while (value > 0) {
+        tmp[i++] = '0' + (value % 10);
+        value /= 10;
+    }
+    for (int j = 0; j < i; ++j) {
+        buf[j] = tmp[i - j - 1];
+    }
+    buf[i] = '\0';
+}
 
 void handle_logging(){
     delta_time = get_absolute_time() - startup_time_microseconds; // Microseconds
@@ -2556,23 +2763,14 @@ void handle_logging(){
                     // target lat, target lon, lat, lon, roll_adjust, pitch_adjust, roll, pitch, yaw, sats, roll_effect_on_lat, pitch_effect_on_lat, roll_effect_on_lon, pitch_effect_on_lon, error_lat, error_lon
                     if(gps_target_unset_logged == 0){
                         if(gps_target_unset_cause == 1){
-                            sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;r%.3f;\n", 
+                            sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.1f;%.1f;%.1f;%.1f;r%.3f;\n", 
                             // sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;r%.3f;\n", 
-                                real_gps_latitude * 1000000.0f,
-                                real_gps_longitude * 1000000.0f,
-                                real_gps_real_longitude * 1000000.0f,
                                 target_latitude * 1000000.0f,            // %f;
                                 target_longitude * 1000000.0f,           // %f;
-                                real_target_longitude * 1000000.0f,      // %f;
                                 gps_latitude * 1000000.0f,               // %f;
                                 gps_longitude * 1000000.0f,              // %f;
-                                gps_real_longitude * 1000000.0f,         // %f;
                                 gps_satalittes_count,       // %d;
                                 imu_orientation[2],         // %.1f;
-                                roll_effect_on_lat,         // %.2f;
-                                pitch_effect_on_lat,        // %.2f;
-                                PID_proportional[4],        // %.2f;     // Lat
-                                PID_derivative[4],          // %.2f;     // Lat
                                 gps_hold_roll_adjustment,   // %.1f;
                                 gps_hold_pitch_adjustment,  // %.1f;
                                 imu_orientation[0],         // %.1f;
@@ -2580,23 +2778,14 @@ void handle_logging(){
                                 gps_target_unset_roll_value
                             );
                         }else if(gps_target_unset_cause == 0){
-                            sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;p%.3f;\n", 
+                            sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.1f;%.1f;%.1f;%.1f;p%.3f;\n", 
                             // sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;p%.3f;\n", 
-                                real_gps_latitude * 1000000.0f,
-                                real_gps_longitude * 1000000.0f,
-                                real_gps_real_longitude * 1000000.0f,
                                 target_latitude * 1000000.0f,            // %f;
                                 target_longitude * 1000000.0f,           // %f;
-                                real_target_longitude * 1000000.0f,      // %f;
                                 gps_latitude * 1000000.0f,               // %f;
                                 gps_longitude * 1000000.0f,              // %f;
-                                gps_real_longitude * 1000000.0f,         // %f;
                                 gps_satalittes_count,       // %d;
                                 imu_orientation[2],         // %.1f;
-                                roll_effect_on_lat,         // %.2f;
-                                pitch_effect_on_lat,        // %.2f;
-                                PID_proportional[4],        // %.2f;     // Lat
-                                PID_derivative[4],          // %.2f;     // Lat
                                 gps_hold_roll_adjustment,   // %.1f;
                                 gps_hold_pitch_adjustment,  // %.1f;
                                 imu_orientation[0],         // %.1f;
@@ -2604,46 +2793,28 @@ void handle_logging(){
                                 gps_target_unset_pitch_value
                             );
                         }else if(gps_target_unset_cause == 3){
-                            sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;gps_can_be_used;\n", 
+                            sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.1f;%.1f;%.1f;%.1f;gps_can_be_used;\n", 
                             // sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;radoffgot;\n", 
-                                real_gps_latitude * 1000000.0f,
-                                real_gps_longitude * 1000000.0f,
-                                real_gps_real_longitude * 1000000.0f,
                                 target_latitude * 1000000.0f,            // %f;
                                 target_longitude * 1000000.0f,           // %f;
-                                real_target_longitude * 1000000.0f,      // %f;
                                 gps_latitude * 1000000.0f,               // %f;
                                 gps_longitude * 1000000.0f,              // %f;
-                                gps_real_longitude * 1000000.0f,         // %f;
                                 gps_satalittes_count,       // %d;
                                 imu_orientation[2],         // %.1f;
-                                roll_effect_on_lat,         // %.2f;
-                                pitch_effect_on_lat,        // %.2f;
-                                PID_proportional[4],        // %.2f;     // Lat
-                                PID_derivative[4],          // %.2f;     // Lat
                                 gps_hold_roll_adjustment,   // %.1f;
                                 gps_hold_pitch_adjustment,  // %.1f;
                                 imu_orientation[0],         // %.1f;
                                 imu_orientation[1]          // %.1f;
                             );
                         }else if(gps_target_unset_cause == 4){
-                            sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;gps_position_hold_enabled;\n", 
+                            sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.1f;%.1f;%.1f;%.1f;gps_position_hold_enabled;\n", 
                             // sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;radoffgot;\n", 
-                                real_gps_latitude * 1000000.0f,
-                                real_gps_longitude * 1000000.0f,
-                                real_gps_real_longitude * 1000000.0f,
                                 target_latitude * 1000000.0f,            // %f;
                                 target_longitude * 1000000.0f,           // %f;
-                                real_target_longitude * 1000000.0f,      // %f;
                                 gps_latitude * 1000000.0f,               // %f;
                                 gps_longitude * 1000000.0f,              // %f;
-                                gps_real_longitude * 1000000.0f,         // %f;
                                 gps_satalittes_count,       // %d;
                                 imu_orientation[2],         // %.1f;
-                                roll_effect_on_lat,         // %.2f;
-                                pitch_effect_on_lat,        // %.2f;
-                                PID_proportional[4],        // %.2f;     // Lat
-                                PID_derivative[4],          // %.2f;     // Lat
                                 gps_hold_roll_adjustment,   // %.1f;
                                 gps_hold_pitch_adjustment,  // %.1f;
                                 imu_orientation[0],         // %.1f;
@@ -2651,46 +2822,28 @@ void handle_logging(){
                             );
                         }else if(gps_target_unset_cause == 2){
                             if(got_gps){
-                                sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;radoffgot;\n", 
+                                sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.1f;%.1f;%.1f;%.1f;radoffgot;\n", 
                                 // sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;radoffgot;\n", 
-                                    real_gps_latitude * 1000000.0f,
-                                    real_gps_longitude * 1000000.0f,
-                                    real_gps_real_longitude * 1000000.0f,
                                     target_latitude * 1000000.0f,            // %f;
                                     target_longitude * 1000000.0f,           // %f;
-                                    real_target_longitude * 1000000.0f,      // %f;
                                     gps_latitude * 1000000.0f,               // %f;
                                     gps_longitude * 1000000.0f,              // %f;
-                                    gps_real_longitude * 1000000.0f,         // %f;
                                     gps_satalittes_count,       // %d;
                                     imu_orientation[2],         // %.1f;
-                                    roll_effect_on_lat,         // %.2f;
-                                    pitch_effect_on_lat,        // %.2f;
-                                    PID_proportional[4],        // %.2f;     // Lat
-                                    PID_derivative[4],          // %.2f;     // Lat
                                     gps_hold_roll_adjustment,   // %.1f;
                                     gps_hold_pitch_adjustment,  // %.1f;
                                     imu_orientation[0],         // %.1f;
                                     imu_orientation[1]          // %.1f;
                                 );
                             }else{
-                                sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;radoff;\n", 
+                                sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.1f;%.1f;%.1f;%.1f;radoff;\n", 
                                 // sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;radoff;\n", 
-                                    real_gps_latitude * 1000000.0f,
-                                    real_gps_longitude * 1000000.0f,
-                                    real_gps_real_longitude * 1000000.0f,
                                     target_latitude * 1000000.0f,            // %f;
                                     target_longitude * 1000000.0f,           // %f;
-                                    real_target_longitude * 1000000.0f,      // %f;
                                     gps_latitude * 1000000.0f,               // %f;
                                     gps_longitude * 1000000.0f,              // %f;
-                                    gps_real_longitude * 1000000.0f,         // %f;
                                     gps_satalittes_count,       // %d;
                                     imu_orientation[2],         // %.1f;
-                                    roll_effect_on_lat,         // %.2f;
-                                    pitch_effect_on_lat,        // %.2f;
-                                    PID_proportional[4],        // %.2f;     // Lat
-                                    PID_derivative[4],          // %.2f;     // Lat
                                     gps_hold_roll_adjustment,   // %.1f;
                                     gps_hold_pitch_adjustment,  // %.1f;
                                     imu_orientation[0],         // %.1f;
@@ -2701,23 +2854,14 @@ void handle_logging(){
                         
                         gps_target_unset_logged = 1;
                     }else{
-                        sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;%f;%f;\n", 
+                        sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.1f;%.1f;%.1f;%.1f;%f;%f;\n", 
                         // sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;\n", 
-                            real_gps_latitude * 1000000.0f,
-                            real_gps_longitude * 1000000.0f,
-                            real_gps_real_longitude * 1000000.0f,
                             target_latitude * 1000000.0f,            // %f;
                             target_longitude * 1000000.0f,           // %f;
-                            real_target_longitude * 1000000.0f,      // %f;
                             gps_latitude * 1000000.0f,               // %f;
                             gps_longitude * 1000000.0f,              // %f;
-                            gps_real_longitude * 1000000.0f,         // %f;
                             gps_satalittes_count,       // %d;
                             imu_orientation[2],         // %.1f;
-                            roll_effect_on_lat,         // %.2f;
-                            pitch_effect_on_lat,        // %.2f;
-                            PID_proportional[4],        // %.2f;     // Lat
-                            PID_derivative[4],          // %.2f;     // Lat
                             gps_hold_roll_adjustment,   // %.1f;
                             gps_hold_pitch_adjustment,  // %.1f;
                             imu_orientation[0],         // %.1f;
@@ -2761,8 +2905,28 @@ void handle_logging(){
                     raw_magnetometer_data[2]
                 );
             }else if (txt_logging_mode == 4){
-                sd_card_append_to_buffer(1, "%f;\n",
-                    imu_orientation[2]
+                char abs_time_str[21];
+                uint64_to_str(get_absolute_time(), abs_time_str);
+                sd_card_append_to_buffer(1, "%s;%f;%f;%f;%f;%f;%f;%f;\n",
+                    abs_time_str,
+                    mangetometer_yaw_original,
+                    mangetometer_yaw_low_pass,
+                    magnetometer_yaw,
+                    imu_orientation[2],
+                    gyro_yaw,
+                    imu_orientation[0],
+                    imu_orientation[1]
+                );
+            }else if (txt_logging_mode == 5){
+
+                char abs_time_str[21];
+                uint64_to_str(delta_time_total_loop_time_previous_loop_microseconds, abs_time_str);
+
+                char delta_loop_time_str[21];
+                uint64_to_str(delta_time_without_waiting_from_previous_loop_microseconds, delta_loop_time_str);
+                sd_card_append_to_buffer(1, "%s;%s;\n",
+                    abs_time_str,
+                    delta_loop_time_str
                 );
             }
         }
@@ -2845,6 +3009,9 @@ void handle_logging(){
 
 
 void handle_loop_end(){
+
+    delta_time_without_waiting_from_previous_loop_microseconds = get_absolute_time() - loop_start_timestamp_microseconds;
+
     loop_iteration++;
 
     // printf("b%.1f\n", (float)(__HAL_TIM_GET_COUNTER(&htim4) - loop_start_microseconds)/1000.0);
@@ -2883,6 +3050,8 @@ void handle_loop_end(){
     __HAL_TIM_CLEAR_FLAG(&htim4, TIM_FLAG_UPDATE);
     __HAL_TIM_SET_COUNTER(&htim4, 0);
     // printf("end %lu\n", absolute_microseconds_since_start);
+
+    delta_time_total_loop_time_previous_loop_microseconds = get_absolute_time() - loop_start_timestamp_microseconds;
 }
 
 void initialize_motor_communication(){
@@ -2966,16 +3135,35 @@ void get_initial_position(){
     invert_axies(gyro_angular);
     rotate_magnetometer_output_90_degrees_anti_clockwise(magnetometer_data);
 
-    magnetometer_data[0] = low_pass_filter_biquad_read(&filter_magnetometer_x, magnetometer_data[0]);
-    magnetometer_data[1] = low_pass_filter_biquad_read(&filter_magnetometer_y, magnetometer_data[1]);
-    magnetometer_data[2] = low_pass_filter_biquad_read(&filter_magnetometer_z, magnetometer_data[2]);
+    magnetometer_original[0] = magnetometer_data[0];
+    magnetometer_original[1] = magnetometer_data[1];
+    magnetometer_original[2] = magnetometer_data[2];
+
+    magnetometer_low_pass[0] = low_pass_filter_biquad_read(&filter_magnetometer_x, magnetometer_data[0]);
+    magnetometer_low_pass[1] = low_pass_filter_biquad_read(&filter_magnetometer_y, magnetometer_data[1]);
+    magnetometer_low_pass[2] = low_pass_filter_biquad_read(&filter_magnetometer_z, magnetometer_data[2]);
+
+    // magnetometer_data[0] = outlier_detection_process(&outlier_detection_magnetometer_x, magnetometer_data[0]);
+    // magnetometer_data[1] = outlier_detection_process(&outlier_detection_magnetometer_y, magnetometer_data[1]);
+    // magnetometer_data[2] = outlier_detection_process(&outlier_detection_magnetometer_z, magnetometer_data[2]);
+
+    // magnetometer_data[0] = iir_filter_process(&iir_filter_magnetometer_x, magnetometer_data[0]);
+    // magnetometer_data[1] = iir_filter_process(&iir_filter_magnetometer_y, magnetometer_data[1]);
+    // magnetometer_data[2] = iir_filter_process(&iir_filter_magnetometer_z, magnetometer_data[2]);
+
+    // magnetometer_data[0] = moving_average_process(&moving_average_magnetometer_x, magnetometer_data[0]);
+    // magnetometer_data[1] = moving_average_process(&moving_average_magnetometer_y, magnetometer_data[1]);
+    // magnetometer_data[2] = moving_average_process(&moving_average_magnetometer_z, magnetometer_data[2]);
 
     calculate_roll_pitch_from_accelerometer_data(acceleration_data, &accelerometer_roll, &accelerometer_pitch, accelerometer_roll_offset, accelerometer_pitch_offset);
-    calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw, accelerometer_roll, accelerometer_pitch, yaw_offset);
+    calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_original, &mangetometer_yaw_original, imu_orientation[0], imu_orientation[1], yaw_offset);
+    calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_low_pass, &mangetometer_yaw_low_pass, imu_orientation[0], imu_orientation[1], yaw_offset);
+    // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw, accelerometer_roll, accelerometer_pitch, yaw_offset);
 
+    
     imu_orientation[0] = accelerometer_roll;
     imu_orientation[1] = accelerometer_pitch;
-    imu_orientation[2] = magnetometer_yaw;
+    imu_orientation[2] = mangetometer_yaw_low_pass; // For some reason the more advanced filtering returns nan here so low pass is fine
     printf("Initial imu orientation x: %.2f y: %.2f, z: %.2f\n", imu_orientation[0], imu_orientation[1], imu_orientation[2]);
 }
 
@@ -3419,8 +3607,6 @@ float map_value_to_expo_range_inverted(float value, float min_expo, float max_ex
     // Some extra logic in needed to invert it.
     return min_expo + (1.0f - powf(1.0f - (value* 0.01), expo_curve)) * (max_expo - min_expo);
 }
-
-
 
 
 

@@ -131,12 +131,14 @@ void qmc5883l_magnetometer_readings_micro_teslas(float *data){
     }
 }
 
-void calculate_yaw_using_magnetometer_data(float *magnetometer_data, float *yaw_output) {
+void calculate_yaw_using_magnetometer_data(float *magnetometer_data, float *yaw_output, float yaw_offset) {
     float x = magnetometer_data[0];
     float y = magnetometer_data[1];
 
     // Rotation around the z-axis (simple yaw calculation)
     *yaw_output = atan2f(y, x) * M_RAD_TO_DEG;
+
+    *yaw_output += yaw_offset;
 
     // Convert yaw to [0, 360] range
     if (*yaw_output < 0) {
@@ -160,7 +162,7 @@ void calculate_yaw_tilt_compensated_using_magnetometer_data(float *magnetometer_
     // Corrected tilt compensation
     float Mx = mx * cos(pitch_radians) - my * sin(roll_radians) * sin(pitch_radians) + mz * cos(roll_radians) * sin(pitch_radians);
     float My = my * cos(roll_radians) + mz * sin(roll_radians);
-    *yaw_output = atan2(-My, Mx) * M_RAD_TO_DEG;
+    *yaw_output = atan2(My, Mx) * M_RAD_TO_DEG; // 'My' cannot be inverted here
 
 
     *yaw_output += yaw_offset;

@@ -43,7 +43,8 @@
         "pid_double.h": "c",
         "iir_filter.h": "c",
         "moving_average.h": "c",
-        "outlier_detection.h": "c"
+        "outlier_detection.h": "c",
+        "cmath": "c"
     },
     "cSpell.words": [
         "acro",

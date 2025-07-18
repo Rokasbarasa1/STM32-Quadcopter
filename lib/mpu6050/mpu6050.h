@@ -43,7 +43,7 @@ float mpu6050_calculate_vertical_acceleration_cm_per_second(float acceleration_d
 void calculate_roll_pitch_from_accelerometer_data(float *data, float *accelerometer_roll, float *accelerometer_pitch, float roll_offset, float pitch_offset);
 
 void sensor_fusion_roll_pitch(float* gyro_angular, float accelerometer_roll, float accelerometer_pitch, int64_t time, uint8_t set_timestamp, float* imu_orientation);
-void sensor_fusion_yaw(float* gyro_angular, float magnetometer_yaw, int64_t time, uint8_t set_timestamp, float* imu_orientation);
+void sensor_fusion_yaw(float* gyro_angular, float magnetometer_yaw, int64_t time, uint8_t set_timestamp, float* imu_orientation, float* gyro_yaw);
 
 
 
@@ -55,3 +55,4 @@ float angle_difference(float a, float b);
 void find_and_return_gyro_error(uint64_t sample_size, float *return_array);
 
 void mpu6050_set_complementary_ratio(float new_complementary_ratio);
+void mpu6050_set_complementary_ratio_yaw(float new_complementary_ratio);

@@ -18,8 +18,18 @@
 #define REG_CONFIG 0x1A
 
 
-#define GYRO_VALUE_ACCURACY (1.0f / 131.0f)
-#define ACCELEROMETER_VALUE_ACCURACY (1.0f / 16384.0f)
+#define GYRO_VALUE_ACCURACY_250_DPS (1.0f / 131.0f)
+#define GYRO_VALUE_ACCURACY_500_DPS (1.0f / 65.5f)
+#define GYRO_VALUE_ACCURACY_1000_DPS (1.0f / 32.8f)
+#define GYRO_VALUE_ACCURACY_2000_DPS (1.0f / 16.4f)
+
+#define ACCELEROMETER_VALUE_ACCURACY_2G (1.0f / 16384.0f)
+#define ACCELEROMETER_VALUE_ACCURACY_4G (1.0f / 8192.0f)
+#define ACCELEROMETER_VALUE_ACCURACY_8G (1.0f / 4096.0f)
+#define ACCELEROMETER_VALUE_ACCURACY_16G (1.0f / 2048.0f)
+
+float selected_gyro_accuracy_conversion = 0.0f;
+float selected_accelerometer_accuracy_conversion = 0.0f;
 
 enum t_mpu6050_power_management {
     PWR_RESET    = 0b10000000,
@@ -48,6 +58,7 @@ volatile float m_accelerometer_scale_factor_correction[3][3] = {
 volatile int64_t m_previous_time_roll_pitch = 0;
 volatile int64_t m_previous_time_yaw = 0;
 volatile float m_complementary_ratio = 0.0;
+volatile float m_complementary_ratio_yaw = 0.0;
 
 I2C_HandleTypeDef *i2c_handle;
 
@@ -130,6 +141,25 @@ uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, enum t_mpu6050_accel_co
 
     data = 0b00000000;
     data |= accelerometer_range;
+
+    switch (accelerometer_range){
+        case ACCEL_CONFIG_RANGE_2G:
+            selected_accelerometer_accuracy_conversion = ACCELEROMETER_VALUE_ACCURACY_2G;
+            break;
+        case ACCEL_CONFIG_RANGE_4G:
+            selected_accelerometer_accuracy_conversion = ACCELEROMETER_VALUE_ACCURACY_4G;
+            break;
+        case ACCEL_CONFIG_RANGE_8G:
+            selected_accelerometer_accuracy_conversion = ACCELEROMETER_VALUE_ACCURACY_8G;
+            break;
+        case ACCEL_CONFIG_RANGE_16G:
+            selected_accelerometer_accuracy_conversion = ACCELEROMETER_VALUE_ACCURACY_16G;
+            break;
+        default:
+            selected_accelerometer_accuracy_conversion = ACCELEROMETER_VALUE_ACCURACY_2G;
+            break;
+    }
+
     HAL_I2C_Mem_Write(
         i2c_handle, 
         MPU6050, 
@@ -142,6 +172,25 @@ uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, enum t_mpu6050_accel_co
 
     data = 0b00000000;
     data |= gyro_range;
+
+    switch (gyro_range){
+        case ACCEL_CONFIG_RANGE_2G:
+            selected_gyro_accuracy_conversion = GYRO_VALUE_ACCURACY_250_DPS;
+            break;
+        case ACCEL_CONFIG_RANGE_4G:
+            selected_gyro_accuracy_conversion = GYRO_VALUE_ACCURACY_500_DPS;
+            break;
+        case ACCEL_CONFIG_RANGE_8G:
+            selected_gyro_accuracy_conversion = GYRO_VALUE_ACCURACY_1000_DPS;
+            break;
+        case ACCEL_CONFIG_RANGE_16G:
+            selected_gyro_accuracy_conversion = GYRO_VALUE_ACCURACY_2000_DPS;
+            break;
+        default:
+            selected_gyro_accuracy_conversion = GYRO_VALUE_ACCURACY_250_DPS;
+            break;
+    }
+
     HAL_I2C_Mem_Write(
         i2c_handle, 
         MPU6050, 
@@ -190,9 +239,9 @@ void mpu6050_get_accelerometer_readings_gravity(float *data){
     int16_t Y = ((int16_t)retrieved_data[2] << 8) | (int16_t)retrieved_data[3];
     int16_t Z = ((int16_t)retrieved_data[4] << 8) | (int16_t)retrieved_data[5];
 
-    float X_out = (float)X * ACCELEROMETER_VALUE_ACCURACY;
-    float Y_out = (float)Y * ACCELEROMETER_VALUE_ACCURACY;
-    float Z_out = (float)Z * ACCELEROMETER_VALUE_ACCURACY;
+    float X_out = (float)X * selected_accelerometer_accuracy_conversion;
+    float Y_out = (float)Y * selected_accelerometer_accuracy_conversion;
+    float Z_out = (float)Z * selected_accelerometer_accuracy_conversion;
 
     data[0] = X_out - (m_accelerometer_correction[0]);
     data[1] = Y_out - (m_accelerometer_correction[1]);
@@ -222,9 +271,9 @@ void mpu6050_get_gyro_readings_dps(float *data){
     int16_t Y = ((int16_t)retrieved_data[2] << 8) | (int16_t)retrieved_data[3];
     int16_t Z = ((int16_t)retrieved_data[4] << 8) | (int16_t)retrieved_data[5];
 
-    float X_out = (float)X * GYRO_VALUE_ACCURACY;
-    float Y_out = (float)Y * GYRO_VALUE_ACCURACY;
-    float Z_out = (float)Z * GYRO_VALUE_ACCURACY;
+    float X_out = (float)X * GYRO_VALUE_ACCURACY_250_DPS; // This is an old fuckup that i dont have time to fix at the moment
+    float Y_out = (float)Y * GYRO_VALUE_ACCURACY_250_DPS;
+    float Z_out = (float)Z * selected_gyro_accuracy_conversion;
 
     data[0] = X_out - (m_gyro_correction[0]);
     data[1] = Y_out - (m_gyro_correction[1]);
@@ -452,7 +501,7 @@ void sensor_fusion_roll_pitch(float* gyro_angular, float accelerometer_roll, flo
     while (imu_orientation[1] < -180.0) imu_orientation[1] += 360.0;
 }
 
-void sensor_fusion_yaw(float* gyro_angular, float magnetometer_yaw, int64_t time, uint8_t set_timestamp, float* imu_orientation){
+void sensor_fusion_yaw(float* gyro_angular, float magnetometer_yaw, int64_t time, uint8_t set_timestamp, float* imu_orientation, float* gyro_yaw){
 
     if(m_previous_time_yaw == 0){
         m_previous_time_yaw = time;
@@ -462,11 +511,16 @@ void sensor_fusion_yaw(float* gyro_angular, float magnetometer_yaw, int64_t time
     float elapsed_time_sec= (((float)time*CONVERT_MICROSECONDS_TO_SECONDS)-((float)m_previous_time_yaw*CONVERT_MICROSECONDS_TO_SECONDS));
     if(set_timestamp == 1) m_previous_time_yaw = time;
 
+    float gyro_yaw_rate_dps = -gyro_angular[2];  // Flip sign to match compass/heading convention. Otherwise the gyro going positive counter clock wise
+
     imu_orientation[2] = complementary_filter_calculate(
-        m_complementary_ratio, 
-        imu_orientation[2] + gyro_angular[2] * elapsed_time_sec, 
+        m_complementary_ratio_yaw, 
+        imu_orientation[2] + gyro_yaw_rate_dps * elapsed_time_sec, // Gyro increases counter clock wise but it has to increas clockwise, that is why substract
         magnetometer_yaw
     );
+
+    // TEMP
+    *gyro_yaw += gyro_yaw_rate_dps * elapsed_time_sec;
 
     while (imu_orientation[2] >= 360.0) imu_orientation[2] -= 360.0;
     while (imu_orientation[2] < 0.0) imu_orientation[2] += 360.0;
@@ -581,4 +635,8 @@ float mpu6050_calculate_vertical_acceleration_cm_per_second(float acceleration_d
 
 void mpu6050_set_complementary_ratio(float new_complementary_ratio){
     m_complementary_ratio = new_complementary_ratio;
+}
+
+void mpu6050_set_complementary_ratio_yaw(float new_complementary_ratio){
+    m_complementary_ratio_yaw = new_complementary_ratio;
 }
