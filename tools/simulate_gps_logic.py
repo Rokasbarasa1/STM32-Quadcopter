@@ -4,7 +4,7 @@ import math
 # Constants from the provided macros
 M_PI = 3.1415927
 M_PI_2 = 6.2831853
-M_PI_DIV_BY_180 = 0.0174533
+M_DEG_TO_RAD = 0.0174533
 OPTIMIZE_COEFFICIENT_A0_DIVISION = 1.0 / (2.0 * 0.707)
 
 # Simulation state
@@ -168,7 +168,7 @@ def bn357_get_longitude_decimal_format():
     return sim_gps_longitude * 1_000_000
 
 def bn357_get_linear_longitude_decimal_format():
-    linear_longitude = (sim_gps_longitude * math.cos(sim_gps_latitude * M_PI_DIV_BY_180))
+    linear_longitude = (sim_gps_longitude * math.cos(sim_gps_latitude * M_DEG_TO_RAD))
     return linear_longitude * 1_000_000
 
 def bn357_get_fix_type():

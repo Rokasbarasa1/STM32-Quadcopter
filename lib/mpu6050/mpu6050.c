@@ -63,8 +63,20 @@ volatile float m_complementary_ratio_yaw = 0.0;
 I2C_HandleTypeDef *i2c_handle;
 
 // enum t_mpu6050_accel_config accelerometer_range, enum t_mpu6050_gyro_config gyro_range, enum t_mpu6050_low_pass_filter low_pass_setting
-uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, enum t_mpu6050_accel_config accelerometer_range, enum t_mpu6050_gyro_config gyro_range, enum t_mpu6050_low_pass_filter low_pass_setting, uint8_t apply_calibration, float accelerometer_scale_factor_correction[3][3], float accelerometer_correction[3], float gyro_correction[3], float refresh_rate_hz, float complementary_ratio, float complementary_beta){
+uint8_t init_mpu6050(
+    I2C_HandleTypeDef *i2c_handle_temp, 
+    enum t_mpu6050_accel_config accelerometer_range, 
+    enum t_mpu6050_gyro_config gyro_range, 
+    enum t_mpu6050_low_pass_filter low_pass_setting, 
+    uint8_t apply_calibration, 
+    float accelerometer_scale_factor_correction[3][3], 
+    float accelerometer_correction[3], 
+    float gyro_correction[3], 
+    float refresh_rate_hz, 
+    float complementary_ratio
+){
     i2c_handle = i2c_handle_temp;
+    m_complementary_ratio = complementary_ratio;
 
     if (apply_calibration){
         // assign the correction for gyro
@@ -213,7 +225,6 @@ uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, enum t_mpu6050_accel_co
         5
     );
 
-    m_complementary_ratio = complementary_ratio;
     // pitch_2_complementary = init_second_order_coplementary_filter(complementary_ratio, complementary_beta);
     // roll_2_complementary = init_second_order_coplementary_filter(complementary_ratio, complementary_beta);
     // yaw_2_complementary = init_second_order_coplementary_filter(0.05, complementary_beta);
@@ -271,8 +282,8 @@ void mpu6050_get_gyro_readings_dps(float *data){
     int16_t Y = ((int16_t)retrieved_data[2] << 8) | (int16_t)retrieved_data[3];
     int16_t Z = ((int16_t)retrieved_data[4] << 8) | (int16_t)retrieved_data[5];
 
-    float X_out = (float)X * GYRO_VALUE_ACCURACY_250_DPS; // This is an old fuckup that i dont have time to fix at the moment
-    float Y_out = (float)Y * GYRO_VALUE_ACCURACY_250_DPS;
+    float X_out = (float)X * selected_gyro_accuracy_conversion; // This is an old fuckup that i dont have time to fix at the moment
+    float Y_out = (float)Y * selected_gyro_accuracy_conversion;
     float Z_out = (float)Z * selected_gyro_accuracy_conversion;
 
     data[0] = X_out - (m_gyro_correction[0]);
@@ -513,17 +524,27 @@ void sensor_fusion_yaw(float* gyro_angular, float magnetometer_yaw, int64_t time
 
     float gyro_yaw_rate_dps = -gyro_angular[2];  // Flip sign to match compass/heading convention. Otherwise the gyro going positive counter clock wise
 
-    imu_orientation[2] = complementary_filter_calculate(
-        m_complementary_ratio_yaw, 
-        imu_orientation[2] + gyro_yaw_rate_dps * elapsed_time_sec, // Gyro increases counter clock wise but it has to increas clockwise, that is why substract
-        magnetometer_yaw
-    );
+    float gyro_yaw_new = imu_orientation[2] + gyro_yaw_rate_dps * elapsed_time_sec; // Gyro increases counter clock wise but it has to increas clockwise, that is why substract
 
-    // TEMP
-    *gyro_yaw += gyro_yaw_rate_dps * elapsed_time_sec;
+    while (gyro_yaw_new >= 360.0f) gyro_yaw_new -= 360.0f;
+    while (gyro_yaw_new < 0.0f) gyro_yaw_new += 360.0f;
+
+    imu_orientation[2] = complementary_filter_angle_calculate(
+        m_complementary_ratio_yaw, 
+        gyro_yaw_new, 
+        magnetometer_yaw,
+        0.0f,
+        360.0f
+    );
 
     while (imu_orientation[2] >= 360.0) imu_orientation[2] -= 360.0;
     while (imu_orientation[2] < 0.0) imu_orientation[2] += 360.0;
+
+    // TEMP
+    *gyro_yaw += gyro_yaw_rate_dps * elapsed_time_sec;
+ 
+    while (*gyro_yaw >= 360.0) *gyro_yaw -= 360.0;
+    while (*gyro_yaw < 0.0) *gyro_yaw += 360.0;
 }
 
 // Find the shortest value between two angles. Range -180 to 180
@@ -563,8 +584,8 @@ float mpu6050_calculate_vertical_speed(float last_vertical_speed, float accelera
     // printf("degrees: %f, %f, %f\n", gyro_degrees[0], gyro_degrees[1], gyro_degrees[2]);
 
     // Convert pitch and roll angles to radians
-    float pitch_rad = gyro_degrees[0] * M_PI_DIV_BY_180;
-    float roll_rad = gyro_degrees[1] * M_PI_DIV_BY_180;
+    float pitch_rad = gyro_degrees[0] * M_DEG_TO_RAD;
+    float roll_rad = gyro_degrees[1] * M_DEG_TO_RAD;
 
     // Calculate the vertical component of the acceleration
     float a_x = acceleration_data[0] * G;
@@ -590,8 +611,8 @@ float mpu6050_calculate_vertical_speed(float last_vertical_speed, float accelera
 float old_mpu6050_calculate_vertical_acceleration_cm_per_second(float acceleration_data[3], float gyro_degrees[3]){
 
     // Convert pitch and roll angles to radians
-    float pitch_rad = gyro_degrees[0] * M_PI_DIV_BY_180;
-    float roll_rad = gyro_degrees[1] * M_PI_DIV_BY_180;
+    float pitch_rad = gyro_degrees[0] * M_DEG_TO_RAD;
+    float roll_rad = gyro_degrees[1] * M_DEG_TO_RAD;
 
     // Calculate the vertical component of the acceleration
     float a_x = acceleration_data[0] * G;
@@ -610,8 +631,8 @@ float old_mpu6050_calculate_vertical_acceleration_cm_per_second(float accelerati
 float mpu6050_calculate_vertical_acceleration_cm_per_second(float acceleration_data[3], float gyro_degrees[3]){
 
     // Convert pitch and roll angles to radians
-    float pitch_rad = gyro_degrees[0] * M_PI_DIV_BY_180;
-    float roll_rad = gyro_degrees[1] * M_PI_DIV_BY_180;
+    float pitch_rad = gyro_degrees[0] * M_DEG_TO_RAD;
+    float roll_rad = gyro_degrees[1] * M_DEG_TO_RAD;
 
     // Calculate the vertical component of the acceleration
     float a_x = acceleration_data[0] * G;

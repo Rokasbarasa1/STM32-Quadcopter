@@ -116,3 +116,25 @@ void print_char(char *data){
     }
     printf("\n");
 }
+
+void print_binary(uint8_t value) {
+    printf("0b");
+    for (int i = 7; i >= 0; i--) {
+        printf("%d", (value >> i) & 1); // Check each bit from MSB to LSB
+    }
+}
+// Print uint16_t in binary
+void print_binary16(uint16_t value) {
+    printf("0b");
+    for (int i = 15; i >= 0; i--) {
+        printf("%d", (value >> i) & 1);
+    }
+}
+
+// Print uint32_t in binary
+void print_binary32(uint32_t value) {
+    printf("0b");
+    for (int i = 31; i >= 0; i--) {
+        printf("%d", (value >> i) & 1);
+    }
+}

@@ -1,5 +1,6 @@
 {
     "files.associations": {
+        "*.dbclient-js": "javascript",
         "main.h": "c",
         "mpu6050.h": "c",
         "retarget.h": "c",
@@ -44,7 +45,8 @@
         "iir_filter.h": "c",
         "moving_average.h": "c",
         "outlier_detection.h": "c",
-        "cmath": "c"
+        "cmath": "c",
+        "bmm350.h": "c"
     },
     "cSpell.words": [
         "acro",

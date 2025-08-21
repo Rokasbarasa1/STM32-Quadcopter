@@ -30,7 +30,19 @@ enum t_mpu6050_low_pass_filter {
     LOW_PASS_FILTER_FREQUENCY_CUTOFF_GYRO_5HZ_ACCEL_5HZ     = 0b00000110, // 19ms delay
 };
 
-uint8_t init_mpu6050(I2C_HandleTypeDef *i2c_handle_temp, enum t_mpu6050_accel_config accelerometer_range, enum t_mpu6050_gyro_config gyro_range, enum t_mpu6050_low_pass_filter low_pass_setting, uint8_t apply_calibration, float accelerometer_scale_factor_correction[3][3], float accelerometer_correction[3], float gyro_correction[3], float refresh_rate_hz, float complementary_ratio, float complementary_beta);
+uint8_t init_mpu6050(
+    I2C_HandleTypeDef *i2c_handle_temp, 
+    enum t_mpu6050_accel_config accelerometer_range, 
+    enum t_mpu6050_gyro_config gyro_range, 
+    enum t_mpu6050_low_pass_filter low_pass_setting, 
+    uint8_t apply_calibration, 
+    float accelerometer_scale_factor_correction[3][3], 
+    float accelerometer_correction[3], 
+    float gyro_correction[3], 
+    float refresh_rate_hz, 
+    float complementary_ratio
+);
+
 void mpu6050_get_accelerometer_readings_gravity(float *data);
 void mpu6050_get_gyro_readings_dps(float *data);
 void mpu6050_apply_calibrations(float accelerometer_correction[3], float gyro_correction[3]);
