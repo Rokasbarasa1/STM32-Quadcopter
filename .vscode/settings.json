@@ -46,7 +46,8 @@
         "moving_average.h": "c",
         "outlier_detection.h": "c",
         "cmath": "c",
-        "bmm350.h": "c"
+        "bmm350.h": "c",
+        "ist8310.h": "c"
     },
     "cSpell.words": [
         "acro",

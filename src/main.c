@@ -41,6 +41,7 @@ static void MX_TIM4_Init(void);
 #include "../lib/qmc5883l/qmc5883l.h"
 #include "../lib/hmc5883l/hmc5883l.h"
 #include "../lib/bmm350/bmm350.h"
+#include "../lib/ist8310/ist8310.h"
 
 #include "../lib/mmc5603/mmc5603.h"
 #include "../lib/ms5611/ms5611.h"
@@ -335,6 +336,17 @@ float magnetometer_soft_iron_correction[3][3] = {
     {0.031696, -0.012211, 1.235721}
 };
 
+float magnetometer_ist8310_hard_iron_correction[3] = {
+    -5.223590, -15.744763, -6.265561
+};
+
+float magnetometer_ist8310_soft_iron_correction[3][3] = {
+    {1.163575, -0.013193, 0.051720},
+    {-0.013193, 1.160624, 0.014889},
+    {0.051720, 0.014889, 0.940670}
+};
+
+
 
 // Accelerometer
 float accelerometer_correction[3] = {
@@ -369,6 +381,8 @@ float accelerometer_pitch = 0;
 float magnetometer_yaw = 0;
 float magnetometer_yaw_no_tilt = 0.0;
 float magnetometer_yaw_old = 0;
+float magnetometer_yaw_ist8310 = 0;
+
 
 float mangetometer_yaw_unfiltered = 0.0f; // For comparing
 float mangetometer_yaw_low_pass = 0.0f; // For comparing
@@ -519,6 +533,7 @@ float altitude_barometer_raw = 0.0f;
 float acceleration_data_previous[] = {0,0,0};
 float magnetometer_data_simple_rotation[] = {0,0,0};
 float magnetometer_data_unrotated[] = {0,0,0};
+float magnetometer_data_ist8310[] = {0,0,0};
  
 // In use versions of data
 float acceleration_data[] = {0,0,0};
@@ -546,8 +561,9 @@ float lon_distance_to_target_meters = 0.0;
 
 
 
-
-
+uint8_t got_ist8310_reading = 0;
+uint32_t magnetometer_reading_timestamp_time_microseconds = 5000;
+uint32_t last_magnetometer_reading_timestamp_microseconds = 0;
 
 
 
@@ -663,6 +679,10 @@ struct low_pass_biquad_filter filter_magnetometer_old_z;
 struct low_pass_biquad_filter filter_magnetometer_old_old_x;
 struct low_pass_biquad_filter filter_magnetometer_old_old_y;
 struct low_pass_biquad_filter filter_magnetometer_old_old_z;
+
+struct low_pass_biquad_filter filter_magnetometer_ist8310_x;
+struct low_pass_biquad_filter filter_magnetometer_ist8310_y;
+struct low_pass_biquad_filter filter_magnetometer_ist8310_z;
 
 // Cutoff 20Hz sampling 520Hz
 uint8_t magnetometer_iir_filter_order = 4;
@@ -995,7 +1015,15 @@ uint8_t init_drivers(){
     // uint8_t mmc5603 = mmc5603_init(&hi2c1, 1, magnetometer_hard_iron_correction, magnetometer_soft_iron_correction, 1, 200, 1);
     // uint8_t qmc5883 = init_qmc5883l(&hi2c1, 1, magnetometer_hard_iron_correction, magnetometer_soft_iron_correction);
     // uint8_t hmc5883 = init_hmc5883l(&hi2c1, 1, magnetometer_hard_iron_correction, magnetometer_soft_iron_correction);
-    uint8_t bmm350 = bmm350_init(&hi2c1, 1, magnetometer_hard_iron_correction, magnetometer_soft_iron_correction);
+    uint8_t bmm350 = bmm350_init(
+        &hi2c1, 
+        1, 
+        magnetometer_hard_iron_correction, 
+        magnetometer_soft_iron_correction,
+        BMM350_PAD_CTRL_ODR_400_HZ,
+        BMM350_PAD_CTRL_AVG_NO_AVG
+    );
+    uint8_t ist8310 = ist8310_init(&hi2c1, 1, magnetometer_ist8310_hard_iron_correction, magnetometer_ist8310_soft_iron_correction);
 
     uint8_t mpu6050 = init_mpu6050(
         &hi2c1, 
@@ -1106,6 +1134,15 @@ void handle_get_and_calculate_sensor_values(){
         }
         ms5611_conversion_start_timestamp = get_absolute_time();
     }
+    
+    if(get_absolute_time() - last_magnetometer_reading_timestamp_microseconds > magnetometer_reading_timestamp_time_microseconds){
+        last_magnetometer_reading_timestamp_microseconds = get_absolute_time();
+        ist8310_magnetometer_readings_micro_teslas(magnetometer_data_ist8310, 1);
+        ist8310_magnetometer_initiate_reading();
+        got_ist8310_reading = 1;
+    }else{
+        got_ist8310_reading = 0;
+    }
     bmm350_magnetometer_readings_micro_teslas(magnetometer_data, 1);
     // mmc5603_magnetometer_readings_micro_teslas(magnetometer_data); // Call other sensor to let mpu6050 to rest
     // qmc5883l_magnetometer_readings_micro_teslas(magnetometer_data);
@@ -1169,6 +1206,11 @@ void handle_get_and_calculate_sensor_values(){
     // Specifically for bmm350
     magnetometer_data[1] = magnetometer_data[1] * -1;
 
+    // IST8310
+    if(got_ist8310_reading){
+        rotate_magnetometer_output_90_degrees_anti_clockwise(magnetometer_data_ist8310);
+    }
+
     // Pitch (+)forwards - front of device nose goes down
     // Roll (+)right - the device banks to the right side while pointing forward
     // After yaw calculation yaw has to be 0/360 when facing north in the pitch+ axis
@@ -1191,7 +1233,6 @@ void handle_get_and_calculate_sensor_values(){
     rotate_magnetometer_vector(magnetometer_data, -16.8f, 16.8f, -90.0f); /// GOOD
 
     rotate_magnetometer_output_90_degrees_anti_clockwise(magnetometer_data_simple_rotation);
-
 
     if(txt_logging_mode == 6 || txt_logging_mode == 7){
         gyro_angular_raw[0] = gyro_angular[0];
@@ -1298,6 +1339,11 @@ void handle_get_and_calculate_sensor_values(){
         magnetometer_data_unrotated[1] = low_pass_filter_biquad_read(&filter_magnetometer_old_old_y, magnetometer_data_unrotated[1]);
         magnetometer_data_unrotated[2] = low_pass_filter_biquad_read(&filter_magnetometer_old_old_z, magnetometer_data_unrotated[2]);
         
+        if(got_ist8310_reading){
+            magnetometer_data_ist8310[0] = low_pass_filter_biquad_read(&filter_magnetometer_ist8310_x, magnetometer_data_ist8310[0]);
+            magnetometer_data_ist8310[1] = low_pass_filter_biquad_read(&filter_magnetometer_ist8310_y, magnetometer_data_ist8310[1]);
+            magnetometer_data_ist8310[2] = low_pass_filter_biquad_read(&filter_magnetometer_ist8310_z, magnetometer_data_ist8310[2]);
+        }
     }
 
     magnetometer_data[0] = outlier_detection_process(&outlier_detection_magnetometer_x, magnetometer_data[0]);
@@ -1363,6 +1409,12 @@ void handle_get_and_calculate_sensor_values(){
 
     // Without tilt
     calculate_yaw_using_magnetometer_data(magnetometer_data, &magnetometer_yaw_no_tilt, yaw_offset);
+
+    if(got_ist8310_reading){
+        calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_ist8310, &magnetometer_yaw_ist8310, imu_orientation[0], imu_orientation[1], yaw_offset);
+        // calculate_yaw_using_magnetometer_data(magnetometer_data_ist8310, &magnetometer_yaw_ist8310, yaw_offset);
+    }
+
 
     if(txt_logging_mode == 4){
         // Same just different filtering
@@ -2444,6 +2496,9 @@ void initialize_control_abstractions(){
     filter_magnetometer_old_old_y = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
     filter_magnetometer_old_old_z = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
 
+    filter_magnetometer_ist8310_x = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, 200);
+    filter_magnetometer_ist8310_y = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, 200);
+    filter_magnetometer_ist8310_z = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, 200);
 
     // Magnetometer filtering
     iir_filter_magnetometer_x = iir_filter_init(magnetometer_iir_filter_order, magnetometer_iir_filter_feedback, magnetometer_iir_filter_feedforward);
@@ -3052,11 +3107,11 @@ void handle_logging(){
                 }
             }else if(txt_logging_mode == 3){
                 float raw_magnetometer_data[] = {0, 0, 0};
-                bmm350_previous_raw_magetometer_readings(raw_magnetometer_data);
+                // bmm350_previous_raw_magetometer_readings(raw_magnetometer_data);
                 // mmc5603_previous_raw_magetometer_readings(raw_magnetometer_data);
                 // qmc5883l_previous_raw_magetometer_readings(raw_magnetometer_data);
                 // hmc5883l_previous_raw_magetometer_readings(raw_magnetometer_data);
-
+                ist8310_previous_raw_magetometer_readings(raw_magnetometer_data);
 
                 sd_card_append_to_buffer(1, "%f\t%f\t%f\t\n", 
                     raw_magnetometer_data[0],
@@ -3065,12 +3120,12 @@ void handle_logging(){
                 );
             }else if (txt_logging_mode == 4){
                 if(txt_logged_header == 0){
-                    sd_card_append_to_buffer(1, "time microseconds;mag x;mag y;mag z;mag yaw unfiltered;mag yaw low pass;yaw final;gyro yaw;mag yaw;mag yaw no tilt;alpha;roll;pitch;mag yaw simple rotation;yaw unrotated only offset;\n");
+                    sd_card_append_to_buffer(1, "time microseconds;mag x;mag y;mag z;mag yaw unfiltered;mag yaw low pass;yaw final;gyro yaw;mag yaw;mag yaw no tilt;alpha;roll;pitch;mag yaw simple rotation;yaw unrotated only offset;ist8310 yaw;\n");
                     txt_logged_header = 1;
                 }
                 char abs_time_str[21];
                 uint64_to_str(get_absolute_time(), abs_time_str);
-                sd_card_append_to_buffer(1, "%s;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%f;%.2f;%.2f;%.2f;%.2f;\n",
+                sd_card_append_to_buffer(1, "%s;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;\n",
                     abs_time_str,
                     magnetometer_data[0],
                     magnetometer_data[1],
@@ -3085,7 +3140,8 @@ void handle_logging(){
                     imu_orientation[0],
                     imu_orientation[1],
                     mangetometer_yaw_simple_rotation,
-                    mangetometer_yaw_unrotated_simple
+                    mangetometer_yaw_unrotated_simple,
+                    magnetometer_yaw_ist8310
                 );
             }else if (txt_logging_mode == 5){
 

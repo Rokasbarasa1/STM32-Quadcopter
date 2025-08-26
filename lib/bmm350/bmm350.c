@@ -88,21 +88,7 @@
 #define BMM350_AMOUNT_OF_OTP_DATA 32
 
 
-enum bmm350_PAD_CTRL {
-    BMM350_PAD_CTRL_ODR_400_HZ                               = 0b00000010,
-    BMM350_PAD_CTRL_ODR_200_HZ                               = 0b00000011,
-    BMM350_PAD_CTRL_ODR_100_HZ                               = 0b00000100,
-    BMM350_PAD_CTRL_ODR_50_HZ                                = 0b00000101,
-    BMM350_PAD_CTRL_ODR_25_HZ                                = 0b00000110,
-    BMM350_PAD_CTRL_ODR_12_5_HZ                              = 0b00000111,
-    BMM350_PAD_CTRL_ODR_6_25_HZ                              = 0b00001000,
-    BMM350_PAD_CTRL_ODR_3_125_HZ                             = 0b00001001,
-    BMM350_PAD_CTRL_ODR_1_5625_HZ                            = 0b00001010,
-    BMM350_PAD_CTRL_AVG_NO_AVG                               = 0b00000000,
-    BMM350_PAD_CTRL_AVG_2                                    = 0b00010000,
-    BMM350_PAD_CTRL_AVG_4                                    = 0b00100000,
-    BMM350_PAD_CTRL_AVG_8                                    = 0b00110000,
-};
+
 
 // CHIP_ID value 0x33
 enum bmm350_PMU_CMD_AXIS_EN {
@@ -227,7 +213,9 @@ uint8_t bmm350_init(
     I2C_HandleTypeDef *i2c_handle_temp, 
     uint8_t apply_calibration, 
     const float hard_iron[3], 
-    const float soft_iron[3][3]
+    const float soft_iron[3][3],
+    enum bmm350_PAD_CTRL_odr odr_setting,
+    enum bmm350_PAD_CTRL_avg average_setting
 ){
     bmm350_i2c_handle = i2c_handle_temp;
 
@@ -479,6 +467,9 @@ uint8_t bmm350_init(
 
     // Set the ODR/Refresh rate and the averaging
     data = 0b00000000;
+    data |= odr_setting;
+    data |= average_setting;
+
     data |= BMM350_PAD_CTRL_ODR_400_HZ;
     data |= BMM350_PAD_CTRL_AVG_NO_AVG;
     result = HAL_I2C_Mem_Write(
