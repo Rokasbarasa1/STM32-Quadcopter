@@ -76,7 +76,6 @@
 
 
 
-
 #define BMM350_OTP_STATUS_REG_GET_OTP_CMD_DONE(value) ((value) & 0b00000001)
 #define BMM350_OTP_STATUS_REG_GET_CUR_PAGE_ADDR(value) (((value) & 0b00011110) >> 1)
 #define BMM350_OTP_STATUS_REG_GET_ERROR(value) (((value) & 0b11100000) >> 5)
@@ -470,8 +469,6 @@ uint8_t bmm350_init(
     data |= odr_setting;
     data |= average_setting;
 
-    data |= BMM350_PAD_CTRL_ODR_400_HZ;
-    data |= BMM350_PAD_CTRL_AVG_NO_AVG;
     result = HAL_I2C_Mem_Write(
         bmm350_i2c_handle,
         BMM350_I2C_ID,
@@ -526,6 +523,8 @@ uint8_t bmm350_init(
         printf("BMM350 init failed: i2c read res %d for axis enabling\n", result);
         return 0;
     }
+
+    printf("BMM350 initialized\n");
 
     return 1;
 }

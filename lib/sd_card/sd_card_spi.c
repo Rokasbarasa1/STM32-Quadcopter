@@ -1013,8 +1013,17 @@ uint8_t sd_special_write_chunk_of_string_data_async(const char *data){
         uint16_t file_length = strlen(data);
         uint16_t total_length = file_length;
 
-        sd_special_wait_until_async_write_done();
-        while (dma_transfer_call_status == 1);
+        uint8_t wait_status = sd_special_wait_until_async_write_done(); // PROBLEM
+        if(wait_status == 0) return 0;
+
+        volatile uint32_t wait_amount_max = 200000;
+        volatile uint32_t wait_amount = 0;
+        while (dma_transfer_call_status == 1 && wait_amount_max > wait_amount) wait_amount++;
+        if(wait_amount_max < wait_amount){
+            printf("Stopped waiting for dma_transfer_call_status as too many iterations\n");
+            return 0;
+        }
+        
         slave_select(); 
 
         // Use DMA to not block 
@@ -1037,7 +1046,8 @@ uint8_t sd_special_write_chunk_of_byte_data_async(const char *data, uint16_t len
     if(m_device_handle){
 
         // Wait until DMA transfer complete if there was a previous call
-        sd_special_wait_until_async_write_done();
+        uint8_t wait_status = sd_special_wait_until_async_write_done(); // PROBLEM
+        if(wait_status == 0)return 0;
         while (dma_transfer_call_status == 1);
         slave_select(); 
 
@@ -1061,12 +1071,18 @@ uint8_t sd_special_write_chunk_of_byte_data_async(const char *data, uint16_t len
 
     //   9 073
 
-void sd_special_wait_until_async_write_done(){
+uint8_t sd_special_wait_until_async_write_done(){
+    uint32_t wait_count_max = 200000;
     uint32_t wait_count = 0;
-    while (HAL_SPI_GetState(m_device_handle) != HAL_SPI_STATE_READY){
+    while (HAL_SPI_GetState(m_device_handle) != HAL_SPI_STATE_READY && wait_count > wait_count_max){
         wait_count++;
     };
-    // printf("%d\n", wait_count);
+
+    if(wait_count > wait_count_max){
+        printf("Stopped waiting. Count over limit\n");
+        return 0;
+    }
+    return 1;
 }
 
 void sd_buffer_swap(){

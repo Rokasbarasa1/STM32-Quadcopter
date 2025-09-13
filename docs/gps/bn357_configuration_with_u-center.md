@@ -26,7 +26,7 @@ To disable or enable some of these:<br/>
 View -> Messages View -> UBX -> CFG - > MSG
 ![alt text](bn357_configuration2.png)
 
-Now disable all the ones you have but don't want, compare to what you have in the message view.
+Now disable all the ones you have but don't want, compare to what you have in the message view. I want GNGGA and GNGSA to be left on.
 ![alt text](bn357_configuration3.png)
 
 

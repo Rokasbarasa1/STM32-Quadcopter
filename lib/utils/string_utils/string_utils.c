@@ -1,4 +1,5 @@
 #include "./string_utils.h"
+#include <string.h>
 
 // Find if string exists in char array, starting from the end of the string
 uint8_t find_substring_from_end(uint8_t *buffer, uint16_t start_index, uint16_t buffer_size, char *string, uint16_t *found_index){

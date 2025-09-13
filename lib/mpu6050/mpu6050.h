@@ -57,6 +57,7 @@ void calculate_roll_pitch_from_accelerometer_data(float *data, float *accelerome
 void sensor_fusion_roll_pitch(float* gyro_angular, float accelerometer_roll, float accelerometer_pitch, int64_t time, uint8_t set_timestamp, float* imu_orientation);
 void sensor_fusion_yaw(float* gyro_angular, float magnetometer_yaw, int64_t time, uint8_t set_timestamp, float* imu_orientation, float* gyro_yaw);
 
+void get_gyro_yaw(float* gyro_angular, int64_t time, uint8_t set_timestamp, float* gyro_yaw);
 
 
 void find_accelerometer_error(uint64_t sample_size);

@@ -1,5 +1,6 @@
 #include "./qmc5883l.h"
 #include "../utils/math_constants.h"
+#include "math.h"
 
 #define QMC5883L_I2C_ID (0x0D << 1)
 
@@ -211,6 +212,71 @@ void calculate_yaw_tilt_compensated_using_magnetometer_data(float *magnetometer_
     while (*yaw_output < 0) *yaw_output += 360;
 }
 
+void calculate_yaw_tilt_compensated_using_magnetometer_data_virtual(
+    float *magnetometer_data, 
+    float *yaw_output, 
+    float roll, 
+    float pitch, 
+    float yaw_offset_degrees,      // final yaw offset to apply
+    float virtual_yaw_rotation_degrees // virtual yaw rotation applied before calculation
+) {
+    // Convert degrees to radians
+    float roll_radians = roll * M_DEG_TO_RAD;
+    float pitch_radians = pitch * M_DEG_TO_RAD;
+    float virtual_yaw_rotation = virtual_yaw_rotation_degrees * M_DEG_TO_RAD;
+
+    float mx = magnetometer_data[0];
+    float my = magnetometer_data[1];
+    float mz = magnetometer_data[2];
+
+    // Apply virtual yaw rotation (+virtual_yaw_rotation) to magnetometer data
+    float cos_yaw = cosf(virtual_yaw_rotation);
+    float sin_yaw = sinf(virtual_yaw_rotation);
+    float mx_rot = mx * cos_yaw - my * sin_yaw;
+    float my_rot = mx * sin_yaw + my * cos_yaw;
+    float mz_rot = mz;
+
+    // Tilt compensation calculation
+    float Xh = mx_rot * cosf(pitch_radians) + mz_rot * sinf(pitch_radians);
+    float Yh = mx_rot * sinf(roll_radians) * sinf(pitch_radians)
+             + my_rot * cosf(roll_radians)
+             - mz_rot * sinf(roll_radians) * cosf(pitch_radians);
+
+    // Calculate yaw in degrees
+    float yaw = atan2f(Yh, Xh) * M_RAD_TO_DEG;
+
+    // Subtract virtual yaw rotation to "rotate back"
+    yaw -= virtual_yaw_rotation_degrees;
+
+    // Add the final yaw offset calibration
+    yaw += yaw_offset_degrees;
+
+    // Normalize yaw to [0, 360)
+    while (yaw < 0) yaw += 360;
+    while (yaw >= 360) yaw -= 360;
+
+    *yaw_output = yaw;
+}
+
+void rotate_magnetometer_data_yaw(float *mag_data, float yaw_degrees) {
+    float yaw_radians = yaw_degrees * (M_PI / 180.0f);
+    float cos_yaw = cosf(yaw_radians);
+    float sin_yaw = sinf(yaw_radians);
+
+    float mx = mag_data[0];
+    float my = mag_data[1];
+    // mz remains unchanged when rotating about Z axis
+    float mz = mag_data[2];
+
+    float mx_rot = mx * cos_yaw - my * sin_yaw;
+    float my_rot = mx * sin_yaw + my * cos_yaw;
+
+    mag_data[0] = mx_rot;
+    mag_data[1] = my_rot;
+    mag_data[2] = mz;
+}
+
+
 void rotate_magnetometer_output_90_degrees_anti_clockwise(float *magnetometer_data){
     float Mx = magnetometer_data[0];  // Original x-axis reading
     float My = magnetometer_data[1];  // Original y-axis reading
@@ -233,6 +299,44 @@ void rotate_magnetometer_output(float *mag_data, float angle_deg) {
     mag_data[0] = mx * cosf(angle_rad) - my * sinf(angle_rad); // new x
     mag_data[1] = mx * sinf(angle_rad) + my * cosf(angle_rad); // new y
     mag_data[2] = mz; // unchanged
+}
+
+// Build rotation matrix from roll, pitch, yaw (degrees)
+void build_rotation_matrix(float roll_deg, float pitch_deg, float yaw_deg, float R[3][3]) {
+    float roll = roll_deg * M_PI / 180.0f;
+    float pitch = pitch_deg * M_PI / 180.0f;
+    float yaw = yaw_deg * M_PI / 180.0f;
+
+    float cr = cosf(roll), sr = sinf(roll);
+    float cp = cosf(pitch), sp = sinf(pitch);
+    float cy = cosf(yaw), sy = sinf(yaw);
+
+    R[0][0] = cp * cy;
+    R[0][1] = cp * sy;
+    R[0][2] = -sp;
+
+    R[1][0] = sr * sp * cy - cr * sy;
+    R[1][1] = sr * sp * sy + cr * cy;
+    R[1][2] = sr * cp;
+
+    R[2][0] = cr * sp * cy + sr * sy;
+    R[2][1] = cr * sp * sy - sr * cy;
+    R[2][2] = cr * cp;
+}
+
+// Rotate a magnetometer vector by rotation matrix R
+void rotate_magnetometer_inplace(const float R[3][3], float mag[3]) {
+    float temp[3] = {0.0f, 0.0f, 0.0f};
+    for (int i = 0; i < 3; i++) {
+        temp[i] = 0.0f;
+        for (int j = 0; j < 3; j++) {
+            temp[i] += R[i][j] * mag[j];
+        }
+    }
+    // Copy back rotated values to original array
+    for (int i = 0; i < 3; i++) {
+        mag[i] = temp[i];
+    }
 }
 
 
@@ -270,4 +374,73 @@ void qmc5883l_previous_raw_magetometer_readings(float *data){
     data[0] = qmc5883l_old_magenetometer_readings[0];
     data[1] = qmc5883l_old_magenetometer_readings[1];
     data[2] = qmc5883l_old_magenetometer_readings[2];
+}
+
+// Function to rotate magnetometer data by 90 degrees anti-clockwise
+void rotate_magnetometer_data_90(float data[3]) {
+    float Mx = data[0]; // Original x-axis reading
+    float My = data[1]; // Original y-axis reading
+    float Mz = data[2]; // Original z-axis reading
+
+    // Rotate axes to align x with the forward direction (pitch)
+    data[0] = My;  // New x-axis (forward) is the original y-axis
+    data[1] = -Mx; // New y-axis (right side) is the negative of the original x-axis
+    data[2] = Mz;  // z-axis remains the same
+}
+
+// 180° rotation (about Z axis)
+// x' = -x; y' = -y; z' = z
+void rotate_magnetometer_data_180(float data[3]) {
+    float Mx = data[0];
+    float My = data[1];
+    float Mz = data[2];
+
+    data[0] = -Mx;
+    data[1] = -My;
+    data[2] = Mz;
+}
+
+// 270° counter-clockwise rotation (about Z axis)
+// x' = -y; y' = x; z' = z
+void rotate_magnetometer_data_270(float data[3]) {
+    float Mx = data[0];
+    float My = data[1];
+    float Mz = data[2];
+
+    data[0] = -My;
+    data[1] = Mx;
+    data[2] = Mz;
+}
+
+float calculate_mag_offset_using_compass_rpm(float average_rpm, const float* rpm_values, const float* offset_values, uint8_t length) {
+    if (length == 0 || rpm_values == NULL || offset_values == NULL) {
+        return 0.0f; // safety check
+    }
+
+    // Below lowest RPM sample threshold: return zero offset
+    if (average_rpm <= rpm_values[0]) {
+        return 0.0f;
+    }
+
+    // Above highest RPM sample: return max offset
+    if (average_rpm >= rpm_values[length - 1]) {
+        return offset_values[length - 1];
+    }
+
+    // Linear search for interval where average_rpm fits
+    for (size_t i = 1; i < length; i++) {
+        if (average_rpm < rpm_values[i]) {
+            // Interpolate between i-1 and i
+            float x0 = rpm_values[i - 1];
+            float x1 = rpm_values[i];
+            float y0 = offset_values[i - 1];
+            float y1 = offset_values[i];
+
+            float t = (average_rpm - x0) / (x1 - x0);
+            return y0 + t * (y1 - y0);
+        }
+    }
+
+    // Should not reach here, but return last offset just in case
+    return offset_values[length - 1];
 }

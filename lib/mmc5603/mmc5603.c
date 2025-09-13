@@ -1,6 +1,8 @@
 #include "./mmc5603.h"
 
 #define MMC5603_I2C_ID 0b01100000
+// #define MMC5603_I2C_ID (0x30 < 1)
+
 
 #define ID_VALUE 0b00010000
 
@@ -26,7 +28,7 @@
 I2C_HandleTypeDef *i2c_handle;
 
 
-float mmc5603_old_magenetometer_readings[3] = {0, 0, 0};
+float mmc5603_old_magnetometer_readings[3] = {0, 0, 0};
 
 // Storage of hard iron correction, values should be replaced by what is passed
 volatile float m_mmc5603_hard_iron[3] = {
@@ -114,6 +116,7 @@ uint8_t mmc5603_init(
 ){
     m_use_automatic_set_reset = use_automatic_set_reset;
     m_use_continuos_mode = use_continuos_mode;
+    i2c_handle = i2c_handle_temp;
 
     uint16_t enable_high_performance = 0;
     uint8_t desired_refresh_rate;
@@ -130,7 +133,6 @@ uint8_t mmc5603_init(
         desired_refresh_rate = refresh_rate;
     }
 
-    i2c_handle = i2c_handle_temp;
 
     // assign the correction for irons
     if (apply_calibration){
@@ -179,7 +181,6 @@ uint8_t mmc5603_init(
         1,
         5
     );
-    HAL_Delay(100);
 
     // Set bandwidth to the fastest possible
     data =  mmc5603_get_register_value(REG_CONTROL1);;
@@ -193,7 +194,6 @@ uint8_t mmc5603_init(
         1,
         5
     );
-    HAL_Delay(100);
 
 
     if(m_use_continuos_mode){
@@ -203,7 +203,7 @@ uint8_t mmc5603_init(
             data |= desired_refresh_rate;
         }else{
             // If set/reset is not done then it can be faster easily.
-            // That is why divde by 2 to get actual frequency that it will perform at
+            // That is why divide by 2 to get actual frequency that it will perform at
             data |= desired_refresh_rate / 2; 
         }
         HAL_I2C_Mem_Write(
@@ -215,7 +215,6 @@ uint8_t mmc5603_init(
             1,
             5
         );
-        HAL_Delay(100);
 
         // If the desired frequency is 1000Hz then have to enable high performance
         if(enable_high_performance){
@@ -230,7 +229,6 @@ uint8_t mmc5603_init(
                 1,
                 5
             );
-            HAL_Delay(100);
 
         }
 
@@ -246,7 +244,6 @@ uint8_t mmc5603_init(
             1,
             5
         );
-        HAL_Delay(100);
 
         // Enable the automatic set/reset
         if(m_use_automatic_set_reset){
@@ -262,7 +259,6 @@ uint8_t mmc5603_init(
                 5
             );
         }
-        HAL_Delay(100);
 
         // Enable the actual continuos mode
         data = mmc5603_get_register_value(REG_CONTROL2);
@@ -276,8 +272,6 @@ uint8_t mmc5603_init(
             1,
             5
         );
-        HAL_Delay(100);
-
     }
 
     printf("MMC5603 initialized\n");
@@ -332,9 +326,9 @@ void mmc5603_magnetometer_readings_micro_teslas(float *data){
     data[1] = (float)Y * DECIMAL_TO_MICRO_TESLA_RATIO;
     data[2] = (float)Z * DECIMAL_TO_MICRO_TESLA_RATIO;
 
-    mmc5603_old_magenetometer_readings[0] = data[0];
-    mmc5603_old_magenetometer_readings[1] = data[1];
-    mmc5603_old_magenetometer_readings[2] = data[2];
+    mmc5603_old_magnetometer_readings[0] = data[0];
+    mmc5603_old_magnetometer_readings[1] = data[1];
+    mmc5603_old_magnetometer_readings[2] = data[2];
 
     // Fix the micro tesla value with calibrations
     for (uint8_t i = 0; i < 3; i++){
@@ -524,7 +518,7 @@ void mmc5603_magnetometer_readings_micro_teslas_bridge_offset_removed(float *dat
 }
 
 void mmc5603_previous_raw_magetometer_readings(float *data){
-    data[0] = mmc5603_old_magenetometer_readings[0];
-    data[1] = mmc5603_old_magenetometer_readings[1];
-    data[2] = mmc5603_old_magenetometer_readings[2];
+    data[0] = mmc5603_old_magnetometer_readings[0];
+    data[1] = mmc5603_old_magnetometer_readings[1];
+    data[2] = mmc5603_old_magnetometer_readings[2];
 }

@@ -235,6 +235,7 @@ void bdshot600_send_command(uint8_t motor_index){
         BDSHOT600_CAPTURE_COMPARE_CYCLES_SIZE * sizeof(uint16_t)
     );
 
+    // This is just putting out the throttle data
     // Inspired by: https://github.com/gueei/DShot-Arduino
     __asm__ volatile (
         // Setup registers

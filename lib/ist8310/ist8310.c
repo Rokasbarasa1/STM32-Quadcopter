@@ -83,6 +83,7 @@ volatile float ist8310_soft_iron[3][3] = {
 
 float ist8310_old_magnetometer_readings[3] = {0, 0, 0};
 
+uint8_t ist8310_initialized = 0;
 
 HAL_StatusTypeDef ist8310_i2c_read(uint16_t register_address, uint8_t *pointer_to_data, uint16_t size){
     return HAL_I2C_Mem_Read(
@@ -172,6 +173,8 @@ uint8_t ist8310_init(
 
     result = ist8310_i2c_write(IST8310_AVERAGE_CONTROL_REG, &data, 1);
 
+    ist8310_initialized = 1;
+    
     printf("starting self test\n");
     // Self test
     float initial_values[] = {0, 0, 0};
@@ -210,12 +213,14 @@ uint8_t ist8310_init(
     retrieved_data[0] = 0;
 
     result = ist8310_i2c_read(0x40, retrieved_data, 1);
-
+    printf("IST8310 initialized\n");
 
     return 1;
 }
 
 void ist8310_magnetometer_readings_micro_teslas(float *data, uint8_t perfrom_temperature_correction){
+    if(!ist8310_initialized) return;
+
     uint8_t retrieved_data[] = {0, 0, 0, 0, 0, 0};
 
     ist8310_i2c_read(IST8310_OUTPUT_VALUE_X_L_REG, retrieved_data, 6);
@@ -249,11 +254,14 @@ void ist8310_magnetometer_readings_micro_teslas(float *data, uint8_t perfrom_tem
 }
 
 void ist8310_magnetometer_initiate_reading(){
+    if(!ist8310_initialized) return;
+
     uint8_t data = IST8310_CONTROL_REGISTER_1_MODE_SINGLE_MEASUREMENT;
     ist8310_i2c_write(IST8310_CONTROL_REGISTER_1_REG, &data, 1);
 }
 
 void ist8310_magnetometer_readings_micro_teslas_poll(float *data, uint8_t perfrom_temperature_correction){
+
     ist8310_magnetometer_initiate_reading();
     // Wait 5 ms minimum
     HAL_Delay(5);

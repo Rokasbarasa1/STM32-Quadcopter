@@ -21,19 +21,20 @@ volatile uint8_t m_time_utc_seconds = 0;
 volatile uint8_t m_up_to_date_date = 0;
 volatile uint32_t m_time_raw = 0;
 volatile uint8_t m_fix_type = 0;
+volatile float m_course_over_ground = 0;
 
 #define BN357_DEBUG 0
 #define BN357_TRACK_TIMING 0
 
 volatile uint8_t continue_with_gps_data = 0;
 
-#define GPS_RECEIVE_BUFFER_SIZE 500
+#define GPS_RECEIVE_BUFFER_SIZE 700
 
 uint8_t receive_buffer_1[GPS_RECEIVE_BUFFER_SIZE];
-uint16_t receive_buffer_1_size;
+volatile uint16_t receive_buffer_1_size;
 uint8_t receive_buffer_2[GPS_RECEIVE_BUFFER_SIZE];
-uint16_t receive_buffer_2_size;
-uint8_t buffer_for_dma = 0; // 0 is buf 1, 1 is buf 2
+volatile uint16_t receive_buffer_2_size;
+volatile uint8_t buffer_for_dma = 0; // 0 is buf 1, 1 is buf 2
 
 volatile uint8_t got_data = 0;
 
@@ -164,8 +165,14 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
     uint32_t start_time = HAL_GetTick();
 #endif
 
-    // Skip UBX binary protocol bytes
-    uint8_t string_match[] = {'$','G','N','G','G','A'};
+    // reset the state of successful gps parse
+    m_up_to_date_date = 0;
+
+    // ===============================================================================================Skip UBX binary protocol bytes
+    // Messages should come in this order: $GNRMC -> $GNGGA -> $GNGSA
+
+    // $GNRMC goes first then find it first
+    uint8_t string_match[] = {'$','G','N','R','M','C'};
     uint8_t string_match_length = 6;
     uint8_t string_match_index = 0;
     for (uint16_t i = 0; i < size_of_buffer; i++){
@@ -191,26 +198,89 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
     printf("'\n");
 #endif
 
-    // reset the state of successful gps parse
-    m_up_to_date_date = 0;
-    // find the starting position of the substring
-    char* start = strstr(gps_output_buffer, "$GNGGA");
-    // Check if the start exists
-    if(start == NULL){
+
+
+    // =============================================================================================== Start parsing the string to find data
+    
+    // ------------------------------------------------------------- $GNRMC
+    // $GNRMC,164334.70,A,5539.10716,N,01234.50271,E,0.025,,080925,,,A,V*1B
+
+    char* start = strstr(gps_output_buffer, "$GNRMC");  
+    if(start == NULL){ // Check if the start exists
+#if(BN357_DEBUG)
+        printf("GNRMC: Failed at Check if the start exists\n");
+#endif
+        return 0;
+    }
+    char* end = strchr(start, '\n');  // find the position of the first new line character after the substring
+    if (end == NULL){ // check if the end of it exists
+#if(BN357_DEBUG)
+        printf("GNRMC: Failed at check if the end of it exists\n");
+#endif
+        return 0;
+    }
+    uint8_t length = end - start;  // calculate the length of the substring
+    if(length !=0){
+        char sub_string_gnrmc[length + 1];  // create a new string to store the substring, plus one for null terminator
+        strncpy(sub_string_gnrmc, start, length);  // copy the substring to the new string
+        sub_string_gnrmc[length] = '\0';  // add a null terminator to the new string
+    #if(BN357_DEBUG)
+        printf("GNRMC Substring: %s\n", sub_string_gnrmc);  // print the substring
+    #endif
+    }else{
+        return 0;
+    }
+
+
+
+    // Skip the first 7 commas after $GNRMC
+    start = strchr(start, ','); // Skip first one
+    if (!start) return 0;
+    start++; // move past the comma
+
+    // Skip 6 more commas to get to the 8th field (course over ground)
+    for (int i = 0; i < 7; i++) {
+        start = strchr(start, ',');
+        if (!start) return 0;
+        start++;
+    }
+
+    end = strchr(start, ','); 
+    length = end - start;
+    if (length != 0){
+        char course_over_ground_str[length + 1];
+        strncpy(course_over_ground_str, start, length);
+        course_over_ground_str[length] = '\0';
+        m_course_over_ground = atof(course_over_ground_str);
+
+        // #if(BN357_DEBUG)
+            // printf("GNRMC course over ground: %s\n", course_over_ground_str);
+        // #endif
+    }else{
+        // printf("len 0\n");
+    }
+
+
+
+
+    // ------------------------------------------------------------- $GNRMC
+    // $GNGGA,165022.50,5539.10780,N,01234.50218,E,2,12,0.48,5.0,M,39.5,M,,*4D
+
+    start = strstr(gps_output_buffer, "$GNGGA"); // find the starting position of the substring
+    if(start == NULL){ // Check if the start exists
 #if(BN357_DEBUG)
         printf("GNGGA: Failed at Check if the start exists\n");
 #endif
         return 0;
     }
-    char* end = strchr(start, '\n');  // find the position of the first new line character after the substring
-    // check if the end of it exists
-    if (end == NULL){
+    end = strchr(start, '\n');  // find the position of the first new line character after the substring
+    if (end == NULL){ // check if the end of it exists
 #if(BN357_DEBUG)
         printf("GNGGA: Failed at check if the end of it exists\n");
 #endif
         return 0;
     }
-    int length = end - start;  // calculate the length of the substring
+    length = end - start;  // calculate the length of the substring
     char sub_string_gngga[length + 1];  // create a new string to store the substring, plus one for null terminator
     strncpy(sub_string_gngga, start, length);  // copy the substring to the new string
     sub_string_gngga[length] = '\0';  // add a null terminator to the new string
@@ -318,8 +388,6 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
     #endif
     }
 
-
-
     // ----------------------------------------------------------------------------------------- find satellites quantity
     start = end+1;
     if(start[0] == ','){
@@ -345,7 +413,6 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
     printf("GNGGA Satellites quantity: %d\n", m_satellites_quantity);
 #endif
 
-
     // ----------------------------------------------------------------------------------------- find accuracy
     start = end+1;
     if(start[0] == ','){
@@ -366,7 +433,6 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
         printf("GNGGA Accuracy: %f\n", m_accuracy);
     #endif
     }
-
 
     // ----------------------------------------------------------------------------------------- find altitude above sea levels
     start = end+1;
@@ -411,7 +477,6 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
     #endif
     }
 
-    m_up_to_date_date = 1;
 
 
 
@@ -428,20 +493,21 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
 
 
 
-
-
+    // ------------------------------------------------------------- $GNGSA
+    // $GNGSA,A,3,02,10,13,14,15,17,19,22,23,24,30,,0.90,0.48,0.76,1*0F THIS ONE ONLY
+    // $GNGSA,A,3,31,24,13,04,05,06,09,15,03,23,,,0.90,0.48,0.76,3*09
+    // $GNGSA,A,3,07,10,14,24,26,29,33,40,41,42,35,,0.90,0.48,0.76,4*0B
+    // $GNGSA,A,3,,,,,,,,,,,,,0.90,0.48,0.76,5*01
 
     start = strstr(gps_output_buffer, "$GNGSA");  
-    // Check if the start exists
-    if(start == NULL){
+    if(start == NULL){ // Check if the start exists
 #if(BN357_DEBUG)
         printf("GNGSA: Failed at Check if the start exists\n");
 #endif
         return 0;
     }
     end = strchr(start, '\n');  // find the position of the first new line character after the substring
-    // check if the end of it exists
-    if (end == NULL){
+    if (end == NULL){ // check if the end of it exists
 #if(BN357_DEBUG)
         printf("GNGSA: Failed at check if the end of it exists\n");
 #endif
@@ -456,7 +522,7 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
 #endif
 
 
-
+    //--------------------------------- skip one piece of data
     start = strchr(sub_string_gngsa, ',') + 1;
     if(start[0] == ','){
 #if(BN357_DEBUG)
@@ -469,6 +535,7 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
 
 
 
+    // ----------------------------------------------------------------------------------------- find fix type
     start = end+1;
     if(start[0] == ','){
 #if(BN357_DEBUG)
@@ -476,7 +543,6 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
 #endif
         return 0;
     }
-    end = strchr(start, ',');
     end = strchr(start, ',');
     length = end - start;
     char fix_type_string[length + 1];
@@ -489,6 +555,18 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
 
 
 
+
+
+
+
+
+
+
+
+
+
+    // ====================================== END
+    m_up_to_date_date = 1;
 
 #if(BN357_DEBUG)
     printf("GPS data read successful\n");
@@ -578,4 +656,8 @@ uint8_t bn357_get_utc_time_raw(){
 
 uint8_t bn357_get_fix_type(){
     return m_fix_type;
+}
+
+float bn357_get_course_over_ground(){
+    return m_course_over_ground;
 }

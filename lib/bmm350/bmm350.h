@@ -13,7 +13,6 @@ enum bmm350_PAD_CTRL_odr {
     BMM350_PAD_CTRL_ODR_6_25_HZ                              = 0b00001000,
     BMM350_PAD_CTRL_ODR_3_125_HZ                             = 0b00001001,
     BMM350_PAD_CTRL_ODR_1_5625_HZ                            = 0b00001010,
-    BMM350_PAD_CTRL_AVG_NO_AVG                               = 0b00000000
 };
 
 enum bmm350_PAD_CTRL_avg {

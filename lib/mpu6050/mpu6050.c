@@ -318,7 +318,6 @@ void find_accelerometer_error(uint64_t sample_size){
     }
     m_accelerometer_correction[2] = 1;
 
-
     for (uint64_t i = 0; i < sample_size; i++){
         __disable_irq();
         mpu6050_get_accelerometer_readings_gravity(data);
@@ -519,7 +518,7 @@ void sensor_fusion_yaw(float* gyro_angular, float magnetometer_yaw, int64_t time
         return;
     }
 
-    float elapsed_time_sec= (((float)time*CONVERT_MICROSECONDS_TO_SECONDS)-((float)m_previous_time_yaw*CONVERT_MICROSECONDS_TO_SECONDS));
+    float elapsed_time_sec = (((float)time*CONVERT_MICROSECONDS_TO_SECONDS)-((float)m_previous_time_yaw*CONVERT_MICROSECONDS_TO_SECONDS));
     if(set_timestamp == 1) m_previous_time_yaw = time;
 
     float gyro_yaw_rate_dps = -gyro_angular[2];  // Flip sign to match compass/heading convention. Otherwise the gyro going positive counter clock wise
@@ -540,12 +539,29 @@ void sensor_fusion_yaw(float* gyro_angular, float magnetometer_yaw, int64_t time
     while (imu_orientation[2] >= 360.0) imu_orientation[2] -= 360.0;
     while (imu_orientation[2] < 0.0) imu_orientation[2] += 360.0;
 
+
+}
+
+
+void get_gyro_yaw(float* gyro_angular, int64_t time, uint8_t set_timestamp, float* gyro_yaw){
+    
+    if(m_previous_time_yaw == 0){
+        m_previous_time_yaw = time;
+        return;
+    }
+
+    float elapsed_time_sec = (((float)time*CONVERT_MICROSECONDS_TO_SECONDS)-((float)m_previous_time_yaw*CONVERT_MICROSECONDS_TO_SECONDS));
+    if(set_timestamp == 1) m_previous_time_yaw = time;
+
+    float gyro_yaw_rate_dps = -gyro_angular[2];  // Flip sign to match compass/heading convention. Otherwise the gyro going positive counter clock wise
+
     // TEMP
     *gyro_yaw += gyro_yaw_rate_dps * elapsed_time_sec;
  
     while (*gyro_yaw >= 360.0) *gyro_yaw -= 360.0;
     while (*gyro_yaw < 0.0) *gyro_yaw += 360.0;
 }
+
 
 // Find the shortest value between two angles. Range -180 to 180
 float angle_difference(float a, float b) {
