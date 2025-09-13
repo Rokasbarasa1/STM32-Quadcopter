@@ -64,30 +64,34 @@ I went with a ST microcontroller as it was one I had not used before. The chip o
 
 Each microcontroller manufacturer has their own "library" that abstracts the difficullt hardware drivers (HAL), on top of which the coding of the microcontroller can be done. In the case of the STM32 it is STM32Cube which lets you use C or C++ to write code for it. You can use Rust or anything else to write the code but then you are not using the manufacturers libraries and have to relly on open source. In my case I went with C as it is very simple and I can get great performance out of it. 
 
+<!-- 
 _The STM32F411 has a lot more GPIO than ESP32, which maybe has half of its pins unavailable and a bit more than the Pi-Pico on which a lot of the pins are grounds. Its also easier to mount on a breadboard than the ESP32._
 
 _I hate the CubeMX code generation, feels like there is just junk in my repo. The alternative is really badly documented, to the point of needing to go into the library code to figure out how to use it. Feels like they skimped out on actual documentation to make you use the shitty code gen. Using the library code to figure something out is not easy either as there are multiple functions with similar names or functions that are depreceated. It always confusing to set anything up from scratch, like spi or i2c, there are so many functions that are supposed to do the exact same thing. By far the worst experiance of developing embededd software. Even fucking atmelavr felt like butter compared to this, though that might be a high bar in the embedded world. You cannot have development velocity in this ecosystem if you touch even a bit of the ST library. ESP32, Pi-pico and atmega are a lot better at this._
 
 _Flashing the firmware on it is a lot easier though, in cases. If i was working on a breadboard, the Pi-pico would be a lot easier. When i made a protective cover for the controller part of the drone it was easy to press the pins of the programmer agains unsoldered holes of the pcb for programming. I did not have to fish for the 4 pins to attach too. This meant that sometimes the programming would not work, but overall it was a good experiance._
 
-_For performance the STM32 is deffinetely not as fast as the ESP32, but it is fast enough, most of the performance is lost on sensor communication anyway.*
+_For performance the STM32 is deffinetely not as fast as the ESP32, but it is fast enough, most of the performance is lost on sensor communication anyway._
+-->
 
+<!--
 ### Code design decisions
 
 _The code looks not as a usual developers code looks like. I like having full names of the variables, no such bullshit as dT for delta time or whatever one letter variable. The same is for functions, full verbose names. I like to come back to old features and understand what is happenning. Lots of comments also._ 
 
-_If there was a prettier implementation for C (C code formaters are garbage, all of them) I would use it to enforce the same syntax everywhere, but there is not so there are gaps. I would love to enforce breaking of function variables if the developer has broken at least one, curly braces in line with for loops and if statments and functions.
+_If there was a "Prettier" implementation for C (C code formaters are garbage, all of them) I would use it to enforce the same syntax everywhere, but there is not so there are gaps. I would love to enforce breaking of function variables if the developer has broken at least one, curly braces in line with for loops and if statments and functions.
 
 _I tried to seperate the code into modules, of radio, data getting, motor control/pid and logging. They need to be moved to different files like controller/services/models architecture on backends, but at the moment it is just so much easier to have everything logic related in one file. In the future will be, main.c/business logic/drivers, with main.c only being able to reach drivers if it goes trough business logic. I come from full-stack development and we have much better understanding of code organization than embedded developers. The code will be seperated into seperate files once I am done with the project. I dont care about clean code, the functions will not be made 5 lines long._
+-->
 
 ## Sensors drivers
 To make our drone sense the world around it we need sensors. Based on the output of these sensors the code that i wrote in the microcontroller will make decisions and perform further actions to manipulate the environment it is in.
 
-
+<!--
 _A note about the sensor driver implementation. I continued the use of enums for defining the registers of the sensor and so on. Makes reading of the sensor code and even configuration of it a lot easier._
 
 _Usage of macros for constant definitions is also done now. No more magic numbers, they have names now. Some pre division of these values is also done._
-
+-->
 ### Supplying power to sensors
 These sensors that we will talk about and hardware are meant to be powered some way, unless they have a battery on board them they have to have a physical connection to a power source. This is usually 2 wires, one for ground and one for most commonly 3.3V or 5V. A lot of the older snesors use 5V, these are usually the sensors made for the microcontroller called Arduino. These sensors need 5V because the old Arduino uses 5V logic(5V for a set bit and a 0V for a not set bit). If communication needs to be done to the sensor then there will always be a minimum of 2 wires or there can be more to accomodate different methods of sending or receiving information relating to the sensors. In the case where something has its own power source, and you know the power source or at least the interface that you will be using utilizes the voltage that is the same as you are using, then connecting the ground wire is enough. In fact if the device you are connecting to uses a different voltage than yours it is also safe to connect your ground to its ground. The important thing to match is the voltage lines, 5V, 12V, 15V.  
 
@@ -120,9 +124,9 @@ To do things with a sensor you need to read its datasheet. The most important pa
 It should be noted that sensor data should never be taken as reliable data, the sensor data by default is always miscalibrated and has noise in it that makes judgements based on the data difficult. Each sensor type also has some problem that makes complex systems development difficult, but there are solutions to this, that we will talk about in sections "sensor fusion" and "filtering".
 
 
-
+<!--
 _I should have not used the I2c bus anymore in this project, for any of the sensors, its a bit too slow. I went above the recomended bus frequency though and reached 1.6 MHz but went down to 1.0 Mhz for stability just in case. That saved quite a of cpu time._
-
+-->
 # Gyro
 The gyro can tell how fast the drone is rotating in each axis. If you tilt the drone 90 degrees to be on its side after it was standing flat on the ground and you do it immediately in one second the gyro will tell you that it degrees per second rotation is 90 on that axis you were rotating it around. To understand this, imagine a swing set attached to a metal pipe, the way the pipe is laying is some axis, lets say x, so the pipe is in line with the x axis. When you swing in the swing set you are really just rotating around the x axis of the pipe.
 
