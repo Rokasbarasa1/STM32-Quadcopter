@@ -22,6 +22,10 @@ volatile uint8_t m_up_to_date_date = 0;
 volatile uint32_t m_time_raw = 0;
 volatile uint8_t m_fix_type = 0;
 volatile float m_course_over_ground = 0;
+volatile uint8_t m_date_day = 0;
+volatile uint8_t m_date_month = 0;
+volatile uint8_t m_date_year = 0;
+
 
 #define BN357_DEBUG 0
 #define BN357_TRACK_TIMING 0
@@ -260,6 +264,26 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
         // printf("len 0\n");
     }
 
+    start = strchr(end, ',');
+    length = end - start;
+    if (length != 0 && length != 6){
+        char date_day[2 + 1];
+        char date_month[2 + 1];
+        char date_year[2 + 1];
+        strncpy(date_day, start, 2);
+        strncpy(date_month, start+2, 2);
+        strncpy(date_year, start+4, 2);
+        date_day[2] = '\0';
+        date_month[2] = '\0';
+        date_year[2] = '\0';
+
+        m_date_day = atoi(date_day);
+        m_date_month = atoi(date_month);
+        m_date_year = atoi(date_year);
+
+    }else{
+        print("Date not found\n");
+    }
 
 
 
@@ -660,4 +684,16 @@ uint8_t bn357_get_fix_type(){
 
 float bn357_get_course_over_ground(){
     return m_course_over_ground;
+}
+
+uint8_t bn357_get_date_day(){
+    return m_date_day;
+}
+
+uint8_t bn357_get_date_month(){
+    return m_date_month;
+}
+
+uint8_t bn357_get_date_year(){
+    return m_date_year;
 }

@@ -371,6 +371,9 @@ float accelerometer_roll_offset = 0;
 float accelerometer_pitch_offset = 0;
 
 float yaw_offset = -180.0;
+float yaw_declination = 5.1;
+// float yaw_declination = 15.1;
+
 float magnetometer_roll_offset = 0.0f;
 float magnetometer_pitch_offset = 2.0f;
 
@@ -532,7 +535,7 @@ float target_latitude = 0.0;
 uint8_t target_lon_lat_set = 0;
 
 // ------------------------------------------------------------------------------------------------------ Some configurations relating to PID
-const float gps_pid_angle_of_attack_max = 7.5f;
+const float gps_pid_angle_of_attack_max = 9.0f;
 
 float acro_mode_rate_degrees_per_second = 100;
 float angle_mode_rate_degrees_per_second_max_integral_derivative = 3; // At max the integral can accumulate 3 degrees per second of rotation. This is to prevent overshooting
@@ -876,7 +879,7 @@ const uint8_t use_blackbox_logging = 0;
 // 6 - imu data
 // 7 - magnetometer calibrated data
 // 8 - compassRPM (like compassMOT but with rpm)
-uint8_t txt_logging_mode = 3;
+uint8_t txt_logging_mode = 1;
 uint8_t txt_logged_header = 0;
 
 void DMA1_Stream7_IRQHandler(void){
@@ -919,7 +922,7 @@ uint32_t motor_off_index = 0;
 
 float yaw_alpha = 0.0f;
 
-uint8_t use_compass_rpm = 0;
+uint8_t use_compass_rpm = 1;
 
 double compass_rpm_mag_1_a = -163842.067952876677737;
 double compass_rpm_mag_1_b = 0.000000252619974;
@@ -1674,6 +1677,8 @@ float mag2_x_offset = 0.0f;
 float mag2_y_offset = 0.0f;
 float mag2_z_offset = 0.0f;
 
+
+
 // float magnetometer_rotation_matrix[3][3] = {
 //     {1.0, 0.0, 0.0},
 //     {0.0, 1.0, 0.0},
@@ -2325,8 +2330,8 @@ void handle_get_and_calculate_sensor_values(){
 
 
     // X bmm350 yaw rotated tilt
-    calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw, imu_orientation[0], imu_orientation[1], yaw_offset);
-    calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_secondary, &magnetometer_yaw_secondary, -imu_orientation[1], imu_orientation[0], yaw_offset + 90.0);
+    calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw, imu_orientation[0], imu_orientation[1], yaw_offset + yaw_declination);
+    calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_secondary, &magnetometer_yaw_secondary, -imu_orientation[1], imu_orientation[0], yaw_offset + 90.0  + yaw_declination);
 
 
     if(txt_logging_mode == 4){
@@ -2361,25 +2366,25 @@ void handle_get_and_calculate_sensor_values(){
         calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw_unrotated_tilt, imu_orientation[0], imu_orientation[1], 0.0f);
 
         // bmm350 yaw rotated no tilt
-        calculate_yaw_using_magnetometer_data(magnetometer_data, &magnetometer_yaw_no_tilt, yaw_offset);
+        calculate_yaw_using_magnetometer_data(magnetometer_data, &magnetometer_yaw_no_tilt, yaw_offset + yaw_declination);
 
         
         // Roll and pitch rotated 90 degrees
-        // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_matrix_rotate, &magnetometer_yaw_90, imu_orientation[0], imu_orientation[1], yaw_offset);
-        // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_matrix_rotate1, &magnetometer_yaw_180, imu_orientation[0], imu_orientation[1], yaw_offset);
-        // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_matrix_rotate2, &magnetometer_yaw_270, imu_orientation[0], imu_orientation[1], yaw_offset);
+        // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_matrix_rotate, &magnetometer_yaw_90, imu_orientation[0], imu_orientation[1], yaw_offset + yaw_declination);
+        // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_matrix_rotate1, &magnetometer_yaw_180, imu_orientation[0], imu_orientation[1], yaw_offset + yaw_declination);
+        // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_matrix_rotate2, &magnetometer_yaw_270, imu_orientation[0], imu_orientation[1], yaw_offset + yaw_declination);
 
-        calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw_90, -imu_orientation[1], imu_orientation[0], yaw_offset);
-        calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw_180, -imu_orientation[0], -imu_orientation[1], yaw_offset);
-        calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw_270, imu_orientation[1], -imu_orientation[0], yaw_offset);
+        calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw_90, -imu_orientation[1], imu_orientation[0], yaw_offset + yaw_declination);
+        calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw_180, -imu_orientation[0], -imu_orientation[1], yaw_offset + yaw_declination);
+        calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw_270, imu_orientation[1], -imu_orientation[0], yaw_offset + yaw_declination);
         
-        // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_matrix_rotate, &magnetometer_yaw_90, -imu_orientation[1], imu_orientation[0], yaw_offset + 90.0);
-        // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_matrix_rotate1, &magnetometer_yaw_180, -imu_orientation[1], imu_orientation[0], yaw_offset + 90.0);
-        // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_matrix_rotate2, &magnetometer_yaw_270, -imu_orientation[1], imu_orientation[0], yaw_offset + 90.0);
+        // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_matrix_rotate, &magnetometer_yaw_90, -imu_orientation[1], imu_orientation[0], yaw_offset + 90.0 + yaw_declination);
+        // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_matrix_rotate1, &magnetometer_yaw_180, -imu_orientation[1], imu_orientation[0], yaw_offset + 90.0 + yaw_declination);
+        // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_matrix_rotate2, &magnetometer_yaw_270, -imu_orientation[1], imu_orientation[0], yaw_offset + 90.0 + yaw_declination);
 
         
         // bmm350 yaw rotated unfiltered no tilt
-        calculate_yaw_using_magnetometer_data(magnetometer_data_unfiltered, &magnetometer_yaw_unfiltered_no_tilt, yaw_offset);
+        calculate_yaw_using_magnetometer_data(magnetometer_data_unfiltered, &magnetometer_yaw_unfiltered_no_tilt, yaw_offset + yaw_declination);
 
 
         // ist8310 yaw unrotated no tilt
@@ -2389,13 +2394,13 @@ void handle_get_and_calculate_sensor_values(){
         calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_ist8310, &magnetometer_ist8310_yaw_unrotated_tilt, imu_orientation[0], imu_orientation[1], 0.0f);
 
         // ist8310 yaw rotated no tilt
-        calculate_yaw_using_magnetometer_data(magnetometer_data_ist8310, &magnetometer_ist8310_yaw_no_tilt, yaw_offset);
+        calculate_yaw_using_magnetometer_data(magnetometer_data_ist8310, &magnetometer_ist8310_yaw_no_tilt, yaw_offset + yaw_declination);
 
         // ist8310 yaw rotated tilt
-        calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_ist8310, &magnetometer_ist8310_yaw, imu_orientation[0], imu_orientation[1], yaw_offset);
+        calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_ist8310, &magnetometer_ist8310_yaw, imu_orientation[0], imu_orientation[1], yaw_offset + yaw_declination);
 
         // ist8310 yaw rotated unfiltered no tilt
-        calculate_yaw_using_magnetometer_data(magnetometer_data_ist8310_unfiltered, &magnetometer_ist8310_yaw_unfiltered_no_tilt, yaw_offset);
+        calculate_yaw_using_magnetometer_data(magnetometer_data_ist8310_unfiltered, &magnetometer_ist8310_yaw_unfiltered_no_tilt, yaw_offset + yaw_declination);
     }
 
 
@@ -2495,7 +2500,7 @@ void handle_get_and_calculate_sensor_values(){
     // }
 
     // No need for sensor fusion, it introduces delay
-    imu_orientation[2] = magnetometer_yaw;
+    imu_orientation[2] = magnetometer_yaw_secondary;
     
     sensors9 = DWT->CYCCNT;
     // GPS STUFF
@@ -2666,39 +2671,13 @@ void handle_pid_and_motor_control(){
             pid_set_desired_value(&gps_latitude_pid, 0.0);
             pid_set_desired_value(&gps_longitude_pid, 0.0);
 
-            // error_latitude = pid_get_error_own_error(&gps_latitude_pid, lat_distance_to_target_meters, loop_start_timestamp_microseconds);
-            // error_longitude = pid_get_error_own_error(&gps_longitude_pid, lon_distance_to_target_meters, loop_start_timestamp_microseconds);
-
-            // float gps_hold_roll_adjustment_calculation = roll_effect_on_lat * error_latitude + roll_effect_on_lon * error_longitude;
-            // float gps_hold_pitch_adjustment_calculation = pitch_effect_on_lat * error_latitude + pitch_effect_on_lon * error_longitude;
-
-            // if (gps_hold_roll_adjustment_calculation > gps_pid_angle_of_attack_max) gps_hold_roll_adjustment_calculation = gps_pid_angle_of_attack_max;
-            // if (gps_hold_roll_adjustment_calculation < -gps_pid_angle_of_attack_max) gps_hold_roll_adjustment_calculation = -gps_pid_angle_of_attack_max;
-            // if (gps_hold_pitch_adjustment_calculation > gps_pid_angle_of_attack_max) gps_hold_pitch_adjustment_calculation = gps_pid_angle_of_attack_max;
-            // if (gps_hold_pitch_adjustment_calculation < -gps_pid_angle_of_attack_max) gps_hold_pitch_adjustment_calculation = -gps_pid_angle_of_attack_max;
-
-            // gps_hold_roll_adjustment = gps_hold_roll_adjustment_calculation;
-            // gps_hold_pitch_adjustment = gps_hold_pitch_adjustment_calculation;
-
-
-
-
             float roll_command = pid_get_error_own_error(&gps_longitude_pid, error_right, loop_start_timestamp_microseconds);
             float pitch_command = pid_get_error_own_error(&gps_latitude_pid, error_forward, loop_start_timestamp_microseconds);
-
-            
-            // if (roll_command + imu_orientation[0] > gps_pid_angle_of_attack_max) roll_command = gps_pid_angle_of_attack_max - imu_orientation[0];
-            // if (roll_command + imu_orientation[0]< -gps_pid_angle_of_attack_max) roll_command = -gps_pid_angle_of_attack_max - imu_orientation[0];
-            // if (pitch_command + imu_orientation[1] > gps_pid_angle_of_attack_max) pitch_command = gps_pid_angle_of_attack_max - imu_orientation[1];
-            // if (pitch_command + imu_orientation[1] < -gps_pid_angle_of_attack_max) pitch_command = -gps_pid_angle_of_attack_max - imu_orientation[1];
 
             if (roll_command > gps_pid_angle_of_attack_max) roll_command = gps_pid_angle_of_attack_max;
             if (roll_command < -gps_pid_angle_of_attack_max) roll_command = -gps_pid_angle_of_attack_max;
             if (pitch_command > gps_pid_angle_of_attack_max) pitch_command = gps_pid_angle_of_attack_max;
             if (pitch_command < -gps_pid_angle_of_attack_max) pitch_command = -gps_pid_angle_of_attack_max;
-
-            // gps_hold_roll_adjustment = roll_command;
-            // gps_hold_pitch_adjustment = pitch_command;
 
             // Works better inverted
             gps_hold_roll_adjustment = -roll_command;
@@ -2709,8 +2688,6 @@ void handle_pid_and_motor_control(){
             PID_proportional[4] = pid_get_last_proportional_error(&gps_latitude_pid);
             PID_integral[4] = pid_get_last_integral_error(&gps_latitude_pid);
             PID_derivative[4] = pid_get_last_derivative_error(&gps_latitude_pid);
-
-
 
             // Length of the lat lon error vector
             // float error_magnitude = sqrtf(error_latitude * error_latitude + error_longitude * error_longitude);
@@ -3447,8 +3424,8 @@ void initialize_control_abstractions(){
 
     altitude_hold_pid = pid_init(altitude_hold_master_gain * altitude_hold_gain_p, altitude_hold_master_gain * altitude_hold_gain_i, altitude_hold_master_gain * altitude_hold_gain_d, 0.0, get_absolute_time(), 10.0, -0.0, 1, 0); // Min value is 0 because motors dont go lower that that
 
-    gps_longitude_pid = pid_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), 5.0, -5.0, 0, 0);
-    gps_latitude_pid = pid_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), 5.0, -5.0, 0, 0);
+    gps_longitude_pid = pid_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), 2.0, -2.0, 1, 0);
+    gps_latitude_pid = pid_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), 2.0, -2.0, 1, 0);
 
     // Filtering
     filter_magnetometer_x = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);// TODO bmm350 has refresh rate of 400
@@ -4494,9 +4471,9 @@ void get_initial_position(){
     // magnetometer_data[2] = moving_average_process(&moving_average_magnetometer_z, magnetometer_data[2]);
 
     calculate_roll_pitch_from_accelerometer_data(acceleration_data, &accelerometer_roll, &accelerometer_pitch, accelerometer_roll_offset, accelerometer_pitch_offset);
-    // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_current_unfiltered, &mangetometer_yaw_unfiltered, imu_orientation[0], imu_orientation[1], yaw_offset);
-    // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_low_pass, &mangetometer_yaw_low_pass, imu_orientation[0], imu_orientation[1], yaw_offset);
-    // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw, accelerometer_roll, accelerometer_pitch, yaw_offset);
+    // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_current_unfiltered, &mangetometer_yaw_unfiltered, imu_orientation[0], imu_orientation[1], yaw_offset + yaw_declination);
+    // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_low_pass, &mangetometer_yaw_low_pass, imu_orientation[0], imu_orientation[1], yaw_offset + yaw_declination);
+    // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw, accelerometer_roll, accelerometer_pitch, yaw_offset + yaw_declination);
 
     
     imu_orientation[0] = accelerometer_roll;
