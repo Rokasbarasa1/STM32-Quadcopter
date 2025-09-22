@@ -91,7 +91,7 @@ int8_t bdshot600_dma_add_motor(GPIO_TypeDef* motor_port, uint16_t motor_pin, TIM
     memset(
         timings, 
         0, 
-        20 * sizeof(uint8_t)
+        20 * sizeof(uint32_t)
     );
 
     // Check if the motor limit is reached

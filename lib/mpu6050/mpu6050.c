@@ -225,10 +225,6 @@ uint8_t init_mpu6050(
         5
     );
 
-    // pitch_2_complementary = init_second_order_coplementary_filter(complementary_ratio, complementary_beta);
-    // roll_2_complementary = init_second_order_coplementary_filter(complementary_ratio, complementary_beta);
-    // yaw_2_complementary = init_second_order_coplementary_filter(0.05, complementary_beta);
-
     printf("MPU6050 initialized\n");
     return 1;
 }
@@ -286,6 +282,7 @@ void mpu6050_get_gyro_readings_dps(float *data){
     float Y_out = (float)Y * selected_gyro_accuracy_conversion;
     float Z_out = (float)Z * selected_gyro_accuracy_conversion;
 
+    (void)status;
     data[0] = X_out - (m_gyro_correction[0]);
     data[1] = Y_out - (m_gyro_correction[1]);
     data[2] = Z_out - (m_gyro_correction[2]);
@@ -585,7 +582,6 @@ float angle_difference(float a, float b) {
 }
 
 uint64_t last_vertical_sample_time = 0;
-#define G 9.81
 
 float mpu6050_calculate_vertical_speed(float last_vertical_speed, float acceleration_data[3], float gyro_degrees[3], int64_t time) {
     if (last_vertical_sample_time == 0) {
@@ -664,6 +660,9 @@ float mpu6050_calculate_vertical_acceleration_cm_per_second(float acceleration_d
     float corrected_a_x = a_x - g_x;
     float corrected_a_y = a_y - g_y;
     float corrected_a_z = a_z - g_z;
+
+    (void)corrected_a_x;
+    (void)corrected_a_y;
 
     float vertical_acceleration = corrected_a_z * 100; // Convert to cm/s²
 

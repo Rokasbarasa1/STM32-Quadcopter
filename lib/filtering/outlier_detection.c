@@ -1,4 +1,7 @@
 #include "./outlier_detection.h"
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 
 struct outlier_detection outlier_detection_init(uint8_t window_size, float outlier_threshold){
     struct outlier_detection new_filter;

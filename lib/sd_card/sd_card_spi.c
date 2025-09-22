@@ -88,13 +88,15 @@ uint16_t sd_buffer_size(uint8_t local){
         uint8_t command = LOGGER_SD_BUFFER_SIZE;
         uint8_t response[2];
 
-        HAL_StatusTypeDef status;
+        volatile HAL_StatusTypeDef status;
         slave_select();
         start_waiting_for_slave_ready();
         status = HAL_SPI_Transmit(m_device_handle, &command, 1, 5000);
         if(!wait_for_slave_ready(1000)) goto error;
         status = HAL_SPI_Receive(m_device_handle, response, 2, 5000);
         slave_deselect();
+
+        (void)status; // Make compiler think it was used
         return (response[0] << 8) | response[1];
     }else{
         return 0;
@@ -117,6 +119,7 @@ uint8_t sd_buffer_clear_index(uint8_t local){
     }
 
     // Non local one is to be implemented
+    return 1;
 }
 
 uint8_t sd_buffer_clear(uint8_t local){
@@ -142,13 +145,15 @@ uint8_t sd_buffer_clear(uint8_t local){
         uint8_t command = LOGGER_SD_BUFFER_CLEAR;
         uint8_t response[1];
 
-        HAL_StatusTypeDef status;
+        volatile HAL_StatusTypeDef status;
         slave_select();
         start_waiting_for_slave_ready();
         status = HAL_SPI_Transmit(m_device_handle, &command, 1, 5000);
         if(!wait_for_slave_ready(1000)) goto error;
         status = HAL_SPI_Receive(m_device_handle, response, 1, 5000);
         slave_deselect();
+
+        (void)status; // Make compiler think it was used
         return 1;
     }
     return 0;
@@ -163,18 +168,18 @@ uint8_t sd_card_initialize(){
         uint8_t command = LOGGER_SD_CARD_INITIALIZE;
         uint8_t response[1];
 
-        HAL_StatusTypeDef status;
-                slave_select();
+        volatile HAL_StatusTypeDef status;
+        slave_select();
         start_waiting_for_slave_ready();
         status = HAL_SPI_Transmit(m_device_handle, &command, 1, 5000);
         if(!wait_for_slave_ready(1000)) goto error;
         status = HAL_SPI_Receive(m_device_handle, response, 1, 5000);
         slave_deselect();
 
+        (void)status; // Make compiler think it was used
         if(!response[0]){
             goto error;
         }
-
 #if(SD_CARD_DEBUG)
         printf("SD card mounted\n");
 #endif
@@ -191,11 +196,11 @@ uint8_t sd_card_initialize(){
         return 0;
 }
 
-uint8_t sd_open_file(const char *file_name, uint8_t instruction){
+uint8_t sd_open_file(uint8_t *file_name, uint8_t instruction){
     if(m_device_handle){
         uint8_t response[1];
         uint8_t command = LOGGER_SD_OPEN_FILE;
-        uint16_t file_length = strlen(file_name)+1;
+        uint16_t file_length = strlen((char *)file_name)+1;
         uint16_t total_length = file_length+1;
         uint8_t transmit_length[] = {(total_length >> 8) & 0xFF, total_length & 0xFF};
         uint8_t transmit_buffer[total_length]; // string length, \0 and command
@@ -204,7 +209,7 @@ uint8_t sd_open_file(const char *file_name, uint8_t instruction){
 
         printf("open file: data '%s' instruction %d length %d\n", (char*)transmit_buffer, instruction, total_length);
         volatile HAL_StatusTypeDef status;
-                slave_select();
+        slave_select();
         start_waiting_for_slave_ready();
         status = HAL_SPI_Transmit(m_device_handle, &command, 1, 5000); // send command
         if(!wait_for_slave_ready(1000)) goto error;
@@ -221,9 +226,12 @@ uint8_t sd_open_file(const char *file_name, uint8_t instruction){
         // status = HAL_SPI_Receive(m_device_handle, data, total_length, 1000);
         slave_deselect();
 
+        (void)status; // Make compiler think it was used
+
         if(!response[0]){
             goto error;
         }
+
 #if(SD_CARD_DEBUG)
         printf("SD card: opened file and got info\n");
 #endif
@@ -240,18 +248,18 @@ uint8_t sd_open_file(const char *file_name, uint8_t instruction){
         return 0;
 }
 
-uint8_t sd_write_data_to_file(const char *data){
+uint8_t sd_write_data_to_file(uint8_t *data){
     if(m_device_handle){
         uint8_t response[1];
         uint8_t command = LOGGER_SD_WRITE_DATA_TO_FILE;
 
-        uint16_t total_length = strlen(data) + 1; // string, \0
+        uint16_t total_length = strlen((char *)data) + 1; // string, \0
         uint8_t transmit_length[] = {(total_length >> 8) & 0xFF, total_length & 0xFF};
         uint8_t transmit_buffer[total_length]; // prob dont need to put this into a new array
         memcpy(&transmit_buffer[0], data, total_length); // include string terminator
 
         HAL_StatusTypeDef status;
-                slave_select();
+        slave_select();
         start_waiting_for_slave_ready();
         status = HAL_SPI_Transmit(m_device_handle, &command, 1, 5000); // send command
         if(!wait_for_slave_ready(1000)) goto error;
@@ -264,6 +272,7 @@ uint8_t sd_write_data_to_file(const char *data){
         status = HAL_SPI_Receive(m_device_handle, response, 1, 5000);
         slave_deselect();
 
+        (void)status; // Make compiler think it was used
         if(!response[0]){
             goto error;
         }
@@ -289,12 +298,14 @@ uint8_t sd_read_data_from_file(){
         uint8_t response[1];
 
         HAL_StatusTypeDef status;
-                slave_select();
+        slave_select();
         start_waiting_for_slave_ready();
         status = HAL_SPI_Transmit(m_device_handle, &command, 1, 5000);
         if(!wait_for_slave_ready(1000)) goto error;
         status = HAL_SPI_Receive(m_device_handle, response, 1, 5000);
         slave_deselect();
+
+        (void)status; // Make compiler think it was used
 
 #if(SD_CARD_DEBUG)
         printf("SD card: read data\n");
@@ -333,6 +344,8 @@ uint8_t sd_set_file_cursor_offset(uint32_t cursor){
         if(!wait_for_slave_ready(1000)) goto error;
         status = HAL_SPI_Receive(m_device_handle, response, 1, 5000);
         slave_deselect();
+
+        (void)status; // Make compiler think it was used
         if(!response[0]){
             goto error;
         }
@@ -365,6 +378,7 @@ uint8_t sd_close_file(){
         status = HAL_SPI_Receive(m_device_handle, response, 1, 5000);
         slave_deselect();
 
+        (void)status; // Make compiler think it was used
         if(!response[0]){
             goto error;
             return 0;
@@ -398,6 +412,7 @@ uint8_t sd_card_deinitialize(){
         status = HAL_SPI_Receive(m_device_handle, response, 1, 5000);
         slave_deselect();
 
+        (void)status; // Make compiler think it was used
         if(!response[0]){
             goto error;
             return 0;
@@ -424,7 +439,7 @@ uint8_t sd_card_append_to_buffer(uint8_t local, const char *string_format, ...){
             va_list args;
             va_start(args, string_format);
             // Ensure we don't write beyond the buffer
-            int written = vsnprintf(&sd_buffer0[sd_buffer0_index], SD_BUFFER_SIZE - sd_buffer0_index, string_format, args);
+            int written = vsnprintf((char *)&sd_buffer0[sd_buffer0_index], SD_BUFFER_SIZE - sd_buffer0_index, string_format, args);
             if (written > 0) {
                 sd_buffer0_index += written < (SD_BUFFER_SIZE - sd_buffer0_index) ? written : (SD_BUFFER_SIZE - sd_buffer0_index - 1);
             }
@@ -434,7 +449,7 @@ uint8_t sd_card_append_to_buffer(uint8_t local, const char *string_format, ...){
             va_list args;
             va_start(args, string_format);
             // Ensure we don't write beyond the buffer
-            int written = vsnprintf(&sd_buffer1[sd_buffer1_index], SD_BUFFER_SIZE - sd_buffer1_index, string_format, args);
+            int written = vsnprintf((char *)&sd_buffer1[sd_buffer1_index], SD_BUFFER_SIZE - sd_buffer1_index, string_format, args);
             if (written > 0) {
                 sd_buffer1_index += written < (SD_BUFFER_SIZE - sd_buffer1_index) ? written : (SD_BUFFER_SIZE - sd_buffer1_index - 1);
             }
@@ -451,7 +466,7 @@ uint8_t sd_card_append_to_buffer(uint8_t local, const char *string_format, ...){
         va_start(args, string_format);
 
         uint16_t total_length = vsnprintf(
-            string_buffer,
+            (char *)string_buffer,
             SD_BUFFER_SIZE, 
             string_format, 
             args
@@ -477,6 +492,7 @@ uint8_t sd_card_append_to_buffer(uint8_t local, const char *string_format, ...){
             string_buffer[0] = 0;
         }
 
+        (void)status; // Make compiler think it was used
         if(!response[0]){
             goto error;
         }
@@ -495,7 +511,7 @@ uint8_t sd_card_append_to_buffer(uint8_t local, const char *string_format, ...){
 }
 
 // Check for null results from this
-char* sd_card_get_buffer_pointer(uint8_t local){
+uint8_t* sd_card_get_buffer_pointer(uint8_t local){
     if(local){
         if(selected_buffer == 0) return sd_buffer0;
         else if(selected_buffer == 1) return sd_buffer1;
@@ -513,16 +529,18 @@ char* sd_card_get_buffer_pointer(uint8_t local){
         start_waiting_for_slave_ready();
         status = HAL_SPI_Receive(m_device_handle, receive_size_buffer, 2, 5000);
 
-
+        
         uint16_t buffer_size = receive_size_buffer[0] << 8 | receive_size_buffer[1];
         if(buffer_size == 0 ) goto error; // not error but error response is the correct one
 
-        char* receive_buffer = (char*)malloc(buffer_size);
+        uint8_t* receive_buffer = (uint8_t*)malloc(buffer_size);
         receive_buffer[0] = '\0'; // Terminate just in case
 
         if(!wait_for_slave_ready(1000)) goto error;
         status = HAL_SPI_Receive(m_device_handle, (uint8_t*)receive_buffer, buffer_size, 5000);
         slave_deselect();
+
+        (void)status; // Make compiler think it was used
 
         return receive_buffer;
     }else{
@@ -560,6 +578,7 @@ uint32_t sd_card_get_selected_file_size(){
         status = HAL_SPI_Receive(m_device_handle, response, 4, 5000);
         slave_deselect();
 
+        (void)status; // Make compiler think it was used
         uint32_t file_size = response[0] << 24 | response[1] << 16 | response[2] << 8 | response[3];
         return file_size;
     }else{
@@ -592,6 +611,7 @@ uint8_t sd_write_buffer_to_file(){
         status = HAL_SPI_Receive(m_device_handle, response, 1, 5000);
         slave_deselect();
 
+        (void)status; // Make compiler think it was used
         if(!response[0]){
             goto error;
         }
@@ -611,11 +631,11 @@ uint8_t sd_write_buffer_to_file(){
         return 0;
 }
 
-uint8_t sd_file_exists(const char *file_name){
+uint8_t sd_file_exists(uint8_t *file_name){
     if(m_device_handle){
         uint8_t response[1];
         uint8_t command = LOGGER_SD_FILE_EXISTS;
-        uint16_t total_length = strlen(file_name)+1; // string length, \0
+        uint16_t total_length = strlen((char *)file_name)+1; // string length, \0
         uint8_t transmit_length[] = {(total_length >> 8) & 0xFF, total_length & 0xFF};
         uint8_t transmit_buffer[total_length]; 
 
@@ -635,6 +655,7 @@ uint8_t sd_file_exists(const char *file_name){
         status = HAL_SPI_Receive(m_device_handle, response, 1, 5000);
         slave_deselect();
 
+        (void)status; // Make compiler think it was used
         if(!response[0]){
             goto error;
             return 0;
@@ -667,6 +688,8 @@ uint8_t sd_save_file(){
         if(!wait_for_slave_ready(1000)) goto error;
         status = HAL_SPI_Receive(m_device_handle, response, 1, 5000);
         slave_deselect();
+
+        (void)status; // Make compiler think it was used
         if(!response[0]){
             goto error;
             return 0;
@@ -699,6 +722,7 @@ uint8_t sd_test_interface(){
         status = HAL_SPI_Receive(m_device_handle, response, 1, 60000);
         slave_deselect();
 
+        (void)status; // Make compiler think it was used
         if(response[0] == LOGGER_INTERFACE_TEST_VALUE){
             return 1;
         }else{
@@ -714,12 +738,12 @@ uint8_t sd_test_interface(){
 }
 
 
-uint8_t sd_special_initialize(const char *file_base_name){
+uint8_t sd_special_initialize(uint8_t* file_base_name){
     if(m_device_handle){
         uint8_t response[1];
         uint8_t command = LOGGER_INITIALIZE;
 
-        uint16_t file_length = strlen(file_base_name)+1; // \0 character as well
+        uint16_t file_length = strlen((char *)file_base_name)+1; // \0 character as well
         uint16_t total_length = file_length;
 
         uint8_t transmit_length[] = {(total_length >> 8) & 0xFF, total_length & 0xFF};
@@ -732,7 +756,7 @@ uint8_t sd_special_initialize(const char *file_base_name){
         HAL_SPI_Transmit(m_device_handle, transmit_length, 2, 60000); // send how many bytes the dat will be
         if(!wait_for_slave_ready(60000)) goto error;
         start_waiting_for_slave_ready();
-        HAL_SPI_Transmit(m_device_handle, file_base_name, total_length, 60000); // send how many bytes the dat will be
+        HAL_SPI_Transmit(m_device_handle, (uint8_t *)file_base_name, total_length, 60000); // send how many bytes the dat will be
         if(!wait_for_slave_ready(60000)) goto error;
         HAL_SPI_Receive(m_device_handle, response, 1, 60000);
         slave_deselect();
@@ -806,12 +830,12 @@ uint8_t sd_special_reset(){
         return 0;
 }
 
-uint8_t sd_special_write_chunk_of_string_data(const char *data){
+uint8_t sd_special_write_chunk_of_string_data(uint8_t *data){
     if(m_device_handle){
         uint8_t response[1];
         uint8_t command = LOGGER_WRITE_CHUNK_OF_STRING_DATA;
 
-        uint16_t file_length = strlen(data)+1; // \0 character as well
+        uint16_t file_length = strlen((char *)data)+1; // \0 character as well
         uint16_t total_length = file_length;
 
         uint8_t transmit_length[] = {(total_length >> 8) & 0xFF, total_length & 0xFF};
@@ -844,7 +868,7 @@ uint8_t sd_special_write_chunk_of_string_data(const char *data){
 }
 
 
-uint8_t sd_special_write_chunk_of_byte_data(const char *data, uint16_t length){
+uint8_t sd_special_write_chunk_of_byte_data(uint8_t *data, uint16_t length){
     if(m_device_handle){
         uint8_t response[1];
         uint8_t command = LOGGER_WRITE_CHUNK_OF_BYTE_DATA;
@@ -968,10 +992,10 @@ uint8_t sd_special_leave_async_mode(){
         return 0;
 }
 
-uint8_t sd_special_write_chunk_of_string_data_no_slave_response(const char *data){
+uint8_t sd_special_write_chunk_of_string_data_no_slave_response(uint8_t *data){
     if(m_device_handle){
 
-        uint16_t file_length = strlen(data)+1; // \0 character as well
+        uint16_t file_length = strlen((char *)data)+1; // \0 character as well
         uint16_t total_length = file_length;
 
         slave_select();
@@ -984,11 +1008,11 @@ uint8_t sd_special_write_chunk_of_string_data_no_slave_response(const char *data
     }
 }
 
-uint8_t sd_special_write_chunk_of_byte_data_no_slave_response(const char *data, uint16_t length){
+uint8_t sd_special_write_chunk_of_byte_data_no_slave_response(uint8_t *data, uint16_t length){
     if(m_device_handle){
 
         slave_select();
-        HAL_SPI_Transmit(m_device_handle, data, length, 5000); // send how many bytes the dat will be
+        HAL_SPI_Transmit(m_device_handle, (uint8_t *)data, length, 5000); // send how many bytes the dat will be
         slave_deselect();
 
         return 1;
@@ -1006,11 +1030,11 @@ void delay_us(uint32_t microseconds) {
     }
 }
 
-uint8_t sd_special_write_chunk_of_string_data_async(const char *data){
+uint8_t sd_special_write_chunk_of_string_data_async(uint8_t *data){
     if(m_device_handle){
 
         // \0 character not needed anymore as the SD card interface now accepts non \0 terminated strings (arrays of uint8)
-        uint16_t file_length = strlen(data);
+        uint16_t file_length = strlen((char *)data);
         uint16_t total_length = file_length;
 
         uint8_t wait_status = sd_special_wait_until_async_write_done(); // PROBLEM
@@ -1042,7 +1066,7 @@ uint8_t sd_special_write_chunk_of_string_data_async(const char *data){
     }
 }
 
-uint8_t sd_special_write_chunk_of_byte_data_async(const char *data, uint16_t length){
+uint8_t sd_special_write_chunk_of_byte_data_async(uint8_t *data, uint16_t length){
     if(m_device_handle){
 
         // Wait until DMA transfer complete if there was a previous call

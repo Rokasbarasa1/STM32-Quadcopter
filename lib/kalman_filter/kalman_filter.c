@@ -1,7 +1,7 @@
 #include "./kalman_filter.h"
 #include "../utils/matrix_operations/matrix_operations.h"
 
-// Based on: https://www.bzarg.com/p/how-a-kalman-filter-works-in-pictures/
+// Formulas based on: https://www.bzarg.com/p/how-a-kalman-filter-works-in-pictures/
 
 #define KALMAN_FILTER_DEBUG 0
 

@@ -18,7 +18,7 @@
 #define STDOUT_FILENO 1
 #define STDERR_FILENO 2
 
-volatile UART_HandleTypeDef *gHuart;
+UART_HandleTypeDef *gHuart;
 
 void RetargetInit(UART_HandleTypeDef *huart)
 {

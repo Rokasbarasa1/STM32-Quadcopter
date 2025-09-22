@@ -103,7 +103,7 @@ char *get_substring(uint8_t *buffer, uint16_t buffer_size, uint16_t start_index,
 }
 
 // Print char array pointer
-void print_char(char *data){
+void print_char(uint8_t *data){
     for (uint16_t i = 0; i < 1000; i++)
     {
         if (data[i] == '\0')
@@ -112,7 +112,7 @@ void print_char(char *data){
         }
         else
         {
-            printf("%c", (char *)data[i]);
+            printf("%c", data[i]);
         }
     }
     printf("\n");
@@ -136,6 +136,6 @@ void print_binary16(uint16_t value) {
 void print_binary32(uint32_t value) {
     printf("0b");
     for (int i = 31; i >= 0; i--) {
-        printf("%d", (value >> i) & 1);
+        printf("%d", (uint8_t)((value >> i) & 1));
     }
 }

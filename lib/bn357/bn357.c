@@ -266,7 +266,7 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
 
     start = strchr(end, ',');
     length = end - start;
-    if (length != 0 && length != 6){
+    if (length != 0 && length == 6){
         char date_day[2 + 1];
         char date_month[2 + 1];
         char date_year[2 + 1];
@@ -281,13 +281,17 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
         m_date_month = atoi(date_month);
         m_date_year = atoi(date_year);
 
+        
+        // #if(BN357_DEBUG)
+            printf("GNRMC date: %d/%d/%d\n", m_date_day, m_date_month, m_date_year + 2000);
+        // #endif
     }else{
-        print("Date not found\n");
+        // printf("Date not found\n");
     }
 
 
 
-    // ------------------------------------------------------------- $GNRMC
+    // ------------------------------------------------------------- $GNGGA
     // $GNGGA,165022.50,5539.10780,N,01234.50218,E,2,12,0.48,5.0,M,39.5,M,,*4D
 
     start = strstr(gps_output_buffer, "$GNGGA"); // find the starting position of the substring

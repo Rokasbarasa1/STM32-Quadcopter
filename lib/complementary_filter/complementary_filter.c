@@ -1,5 +1,7 @@
 #include "./complementary_filter.h"
 
+#include "math.h"
+
 float angle_difference_range(float a, float b, float min_angle, float max_angle) {
     float range = max_angle - min_angle;
     float diff = fmodf(fmodf((b - a), range) + range, range);  // wrap to [0, range)

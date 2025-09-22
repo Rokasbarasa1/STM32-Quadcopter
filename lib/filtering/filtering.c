@@ -1,10 +1,12 @@
 #include "./filtering.h"
 #include <math.h>
 #include "../utils/math_constants.h"
+#include <stdio.h>
+#include <string.h>
 
 struct low_pass_pt1_filter filtering_init_low_pass_filter_pt1(float cutoff_frequency, float sample_rate){
     struct low_pass_pt1_filter new_filter;
-    new_filter.alpha = 1.0 / (1.0 + (M_PI_2 * cutoff_frequency / sample_rate));
+    new_filter.alpha = 1.0 / (1.0 + (M_PI_TWO * cutoff_frequency / sample_rate));
     new_filter.previous_filter_output = 0;
 
     return new_filter;
@@ -27,8 +29,8 @@ float low_pass_filter_pt1_read(struct low_pass_pt1_filter* filter, float current
 }
 
 float calculate_low_pass_phase_delay_seconds(float cutoff_frequency, float sample_rate){
-    float phase_shift = atan((M_PI_2 * cutoff_frequency) / sample_rate);
-    return phase_shift / (M_PI_2 * cutoff_frequency);
+    float phase_shift = atan((M_PI_TWO * cutoff_frequency) / sample_rate);
+    return phase_shift / (M_PI_TWO * cutoff_frequency);
 }
 
 #define OPTIMIZE_COEFFICIENT_A0_DIVISION (1.0f / (2.0f * 0.707f))
@@ -37,7 +39,7 @@ struct low_pass_biquad_filter filtering_init_low_pass_filter_biquad(float cutoff
 
     new_filter.sample_rate_division = 1.0f/sample_rate; // Optimize out the division operation
 
-    float omega = M_PI_2 * cutoff_frequency * new_filter.sample_rate_division;
+    float omega = M_PI_TWO * cutoff_frequency * new_filter.sample_rate_division;
     float sin_omega = sinf(omega);
     float cos_omega = cosf(omega);
     float coefficient_a0 = sin_omega * OPTIMIZE_COEFFICIENT_A0_DIVISION;
@@ -91,7 +93,7 @@ float low_pass_filter_biquad_read(struct low_pass_biquad_filter* filter, float c
 }
 
 void low_pass_filter_biquad_set_cutoff_frequency(struct low_pass_biquad_filter* filter, float cutoff_frequency){
-    float omega = M_PI_2 * cutoff_frequency * filter->sample_rate_division;
+    float omega = M_PI_TWO * cutoff_frequency * filter->sample_rate_division;
     float sin_omega = sinf(omega);
     float cos_omega = cosf(omega);
     float coefficient_a0 = sin_omega * OPTIMIZE_COEFFICIENT_A0_DIVISION;
@@ -124,7 +126,7 @@ void low_pass_filter_biquad_set_cutoff_frequency_using_reference_filter(struct l
 
 struct high_pass_filter filtering_init_high_pass_filter(float cutoff_frequency, float sample_rate){
     struct high_pass_filter new_filter;
-    new_filter.alpha = 1.0 / (1.0 + (sample_rate / (M_PI_2 * cutoff_frequency)));
+    new_filter.alpha = 1.0 / (1.0 + (sample_rate / (M_PI_TWO * cutoff_frequency)));
     new_filter.previous_filter_output = 0;
     new_filter.previous_input_value = 0;
 
@@ -141,8 +143,8 @@ float high_pass_filter_read(struct high_pass_filter* filter, float current_value
 }
 
 float high_pass_calculate_phase_delay_seconds(float cutoff_frequency, float sample_rate){
-    float phase_shift = atan((M_PI_2 * cutoff_frequency) / sample_rate);
-    return phase_shift / (M_PI_2 * cutoff_frequency); 
+    float phase_shift = atan((M_PI_TWO * cutoff_frequency) / sample_rate);
+    return phase_shift / (M_PI_TWO * cutoff_frequency); 
 }
 
 
@@ -152,8 +154,8 @@ float high_pass_calculate_phase_delay_seconds(float cutoff_frequency, float samp
 struct notch_filter notch_filter_init(float center_frequency, float notch_width_hz, float refresh_rate){
     struct notch_filter new_filter;
 
-    new_filter.center_frequency_radians = M_PI_2 * center_frequency;
-    new_filter.notch_width_hz_radians = M_PI_2 * notch_width_hz;
+    new_filter.center_frequency_radians = M_PI_TWO * center_frequency;
+    new_filter.notch_width_hz_radians = M_PI_TWO * notch_width_hz;
 
 
     new_filter.sample_time_seconds = 1.0/(float)refresh_rate;
@@ -207,7 +209,7 @@ void notch_filter_set_Q(struct notch_filter* filter, float q_value){
 void notch_filter_set_center_frequency(struct notch_filter* filter, float new_center_frequency){
 
     // Same calculation as the init
-    filter->center_frequency_radians = M_PI_2 * new_center_frequency;
+    filter->center_frequency_radians = M_PI_TWO * new_center_frequency;
 
     float pre_wrap_radians = filter->pre_wrap_calculation_1 * tanf(0.5f * filter->center_frequency_radians * filter->sample_time_seconds);
 
@@ -283,8 +285,8 @@ float notch_filter2_read(struct notch_filter2* filter, float input){
 }
 
 void notch_filter2_set_center_frequency(struct notch_filter2* filter, float new_center_frequency){
-    float omega = M_PI_2 * new_center_frequency * filter->precalculated_refresh_rate_division;
-    float bandwidth = M_PI_2 * new_center_frequency * filter->precalculated_refresh_rate_division;
+    float omega = M_PI_TWO * new_center_frequency * filter->precalculated_refresh_rate_division;
+    float bandwidth = M_PI_TWO * new_center_frequency * filter->precalculated_refresh_rate_division;
     float r = 1 - bandwidth * 0.5;
 
     filter->a1 = -2 * r * cosf(omega);
@@ -299,7 +301,7 @@ void notch_filter2_set_center_frequency(struct notch_filter2* filter, float new_
 struct notch_filter_q notch_filter_q_init(float center_frequency, float q, float refresh_rate){
     float new_q = q / 100.0f;
 
-    float omega = M_PI_2 * center_frequency / refresh_rate;
+    float omega = M_PI_TWO * center_frequency / refresh_rate;
     float cos_omega = cosf(omega);
     float sin_omega = sinf(omega);
     float alpha = sin_omega / (2 * new_q);
@@ -336,7 +338,7 @@ struct notch_filter_q notch_filter_q_init(float center_frequency, float q, float
 
 void notch_filter_q_set_center_frequency(struct notch_filter_q* filter, float new_center_frequency){
 
-    float omega = M_PI_2 * new_center_frequency * filter->precalculated_refresh_rate_division;
+    float omega = M_PI_TWO * new_center_frequency * filter->precalculated_refresh_rate_division;
     float cos_omega = cosf(omega);
     float sin_omega = sinf(omega);
     float alpha = sin_omega * filter->precalculated_q_division;

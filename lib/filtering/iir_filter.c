@@ -1,4 +1,5 @@
 #include "./iir_filter.h"
+#include "stdlib.h"
 
 struct iir_filter iir_filter_init(float filter_order, float *feedback_coefficients, float *feedfoward_coefficients){
 

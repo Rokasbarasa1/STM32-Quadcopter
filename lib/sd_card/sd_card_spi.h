@@ -60,37 +60,37 @@ uint16_t sd_buffer_size(uint8_t local);
 uint8_t sd_buffer_clear_index(uint8_t local);
 uint8_t sd_buffer_clear(uint8_t local);
 uint8_t sd_card_initialize();
-uint8_t sd_open_file(const char *file_name, uint8_t instruction);
-uint8_t sd_write_data_to_file(const char *data);
+uint8_t sd_open_file(uint8_t *file_name, uint8_t instruction);
+uint8_t sd_write_data_to_file(uint8_t *data);
 uint8_t sd_read_data_from_file();
 uint8_t sd_set_file_cursor_offset(uint32_t cursor);
 uint8_t sd_close_file();
 uint8_t sd_card_deinitialize();
 uint8_t sd_card_append_to_buffer(uint8_t local, const char *string_format, ...);
-char* sd_card_get_buffer_pointer(uint8_t local);
+uint8_t* sd_card_get_buffer_pointer(uint8_t local);
 void sd_card_buffer_increment_index();
 void sd_card_buffer_increment_index_by_amount(uint16_t index_increment_amount);
 
 uint32_t sd_card_get_selected_file_size();
 uint8_t sd_write_buffer_to_file();
-uint8_t sd_file_exists(const char *file_name);
+uint8_t sd_file_exists(uint8_t *file_name);
 uint8_t sd_save_file();
 uint8_t sd_test_interface();
 
-uint8_t sd_special_initialize(const char *file_base_name);
+uint8_t sd_special_initialize(uint8_t *file_base_name);
 uint16_t sd_special_get_file_index();
 uint8_t sd_special_reset();
-uint8_t sd_special_write_chunk_of_string_data(const char *data);
-uint8_t sd_special_write_chunk_of_byte_data(const char *data, uint16_t length);
+uint8_t sd_special_write_chunk_of_string_data(uint8_t *data);
+uint8_t sd_special_write_chunk_of_byte_data(uint8_t *data, uint16_t length);
 uint8_t sd_special_enter_async_string_mode(uint8_t reset_sd_initialization_when_async_stops);
 uint8_t sd_special_enter_async_byte_mode(uint8_t reset_sd_initialization_when_async_stops);
 
 uint8_t sd_special_leave_async_mode();
-uint8_t sd_special_write_chunk_of_string_data_no_slave_response(const char *data);
-uint8_t sd_special_write_chunk_of_byte_data_no_slave_response(const char *data, uint16_t length);
+uint8_t sd_special_write_chunk_of_string_data_no_slave_response(uint8_t *data);
+uint8_t sd_special_write_chunk_of_byte_data_no_slave_response(uint8_t *data, uint16_t length);
 
-uint8_t sd_special_write_chunk_of_string_data_async(const char *data);
-uint8_t sd_special_write_chunk_of_byte_data_async(const char *data, uint16_t length);
+uint8_t sd_special_write_chunk_of_string_data_async(uint8_t *data);
+uint8_t sd_special_write_chunk_of_byte_data_async(uint8_t *data, uint16_t length);
 
 uint8_t sd_special_wait_until_async_write_done();
 void sd_buffer_swap();

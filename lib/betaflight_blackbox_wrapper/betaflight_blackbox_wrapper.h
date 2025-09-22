@@ -68,7 +68,7 @@ void betaflight_blackbox_get_encoded_data_string(
     uint8_t mode
 );
 
-char* betaflight_blackbox_get_end_of_log(uint16_t* string_length_return);
+uint8_t* betaflight_blackbox_get_end_of_log(uint16_t* string_length_return);
 
 void betaflight_blackbox_get_encoded_gps_string(
     uint32_t time_raw,

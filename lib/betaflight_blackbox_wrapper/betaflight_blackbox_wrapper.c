@@ -465,7 +465,7 @@ void betaflight_blackbox_get_encoded_data_string(
         (uint16_t)motor_power[1],
     };
 
-    int32_t mag_int[3] = {(int32_t)(mag[0]*scaling_factor), (int32_t)(mag[1]*scaling_factor), (int32_t)(mag[2]*scaling_factor)};
+    // int32_t mag_int[3] = {(int32_t)(mag[0]*scaling_factor), (int32_t)(mag[1]*scaling_factor), (int32_t)(mag[2]*scaling_factor)};
 
     int32_t debug_int[4];
     if(mode == 0){
@@ -531,9 +531,9 @@ void betaflight_blackbox_get_encoded_data_string(
     *string_length_return += string_index;
 }
 
-char* betaflight_blackbox_get_end_of_log(uint16_t* string_length_return){
+uint8_t* betaflight_blackbox_get_end_of_log(uint16_t* string_length_return){
     uint16_t string_length_total = 11;
-    char* new_string = malloc(string_length_total+1);
+    uint8_t* new_string = malloc(string_length_total+1);
     buffer_append(new_string, string_length_total, 0, "End of log\n");
     *string_length_return = string_length_total;
 

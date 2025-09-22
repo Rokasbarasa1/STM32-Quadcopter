@@ -1,4 +1,5 @@
 #include "./moving_average.h"
+#include "stdlib.h"
 
 struct moving_average moving_average_init(uint8_t window_size){
     struct moving_average new_filter;

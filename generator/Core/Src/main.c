@@ -72,58 +72,6 @@ static void MX_TIM3_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-uint8_t UART2_rxBuffer[26] = {0};
-
-//void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-//{
-//    HAL_UART_Transmit(&huart2, UART2_rxBuffer, 26, 100);
-//    USART_ITConfig(USARTx, USART_IT_RXNE)
-//    USART_ClearITPendingBit(USART2, USART_IT_RXNE);
-//    HAL_UART_Receive_IT(&huart2, UART2_rxBuffer, 26);
-//}
-
-#define RxBuf_SIZE 10
-#define MainBuf_SIZE 20
-
-
-uint8_t MainBuf[MainBuf_SIZE];
-uint8_t RxBuf[RxBuf_SIZE];
-
-void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
-{
-	if (huart->Instance == USART2)
-	{
-
-		memcpy ((uint8_t *) MainBuf, RxBuf, Size);
-
-		/* start the DMA again */
-		HAL_UARTEx_ReceiveToIdle_DMA(&huart2, (uint8_t *) RxBuf, RxBuf_SIZE);
-		__HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
-
-	}
-}
-
-
-void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
-{
-    printf("ERROR\n");
-
-    if (huart->Instance == USART2)
-    {
-        printf("ERROR 2\n");
-        HAL_UART_DeInit(&huart);
-        HAL_UART_Init(&huart);
-
-        HAL_UARTEx_ReceiveToIdle_DMA(&huart2, RxBuf, RxBuf_SIZE);
-        __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
-        // MX_USART2_UART_Init();
-        // HAL_UART_DeInit(&huart);
-        printf("Er 3\n");
-
-    }
-
-    // Code to handle the UART error
-}
 
 /* USER CODE END 0 */
 
@@ -163,23 +111,7 @@ int main(void)
   MX_SPI3_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
-  HAL_UARTEx_ReceiveToIdle_DMA(&huart2, RxBuf, RxBuf_SIZE);
-  __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
-//  HAL_UART_Receive_IT(&huart2, UART2_rxBuffer, 26);
-  HAL_StatusTypeDef ret;
 
-  uint8_t data = 20;
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
-  ret = HAL_SPI_Transmit(&hspi1, &data, 1, 5000);
-
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
-
-  uint8_t sdasd = 0;
-  if(ret == HAL_ERROR){
-      sdasd = 23123;
-  }else{
-	  sdasd = 1;
-  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -189,8 +121,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-//      strcpy((char*)buffer, "Hello!\r\n");
-//      HAL_UART_Transmit(&huart1, buffer, strlen((char*)buffer), 1000);
   }
   /* USER CODE END 3 */
 }
