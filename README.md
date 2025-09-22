@@ -53,6 +53,10 @@ I am making a quadcopter from scratch (firmware including). This is the second s
 
 # Design documentation (work in progress)
 
+## Code diagram
+
+![Code diagram](./docs//code/code-diagram.png)
+
 
 ## Controller 
 
