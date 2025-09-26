@@ -1,6 +1,7 @@
 #pragma once
 #include "../common.h"
 #include "../time_keeping/time_keeping.h"
+#include "../../wmm/wmm.h"
 
 void handle_get_and_calculate_sensor_values();
 float map_value_to_expo_range(float value, float min_expo, float max_expo, uint8_t expo_curve);

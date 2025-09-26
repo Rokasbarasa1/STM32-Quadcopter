@@ -32,3 +32,7 @@ uint8_t bn357_get_utc_time_raw();
 uint8_t bn357_get_fix_type();
 uint8_t bn357_parse_data();
 float bn357_get_course_over_ground();
+uint8_t bn357_get_date_day();
+uint8_t bn357_get_date_month();
+uint8_t bn357_get_date_two_digits_year();
+uint8_t bn357_get_date_full_year();

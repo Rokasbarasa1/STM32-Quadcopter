@@ -366,6 +366,11 @@ extern uint8_t got_gps;
 extern uint8_t gps_can_be_used;
 extern float gps_latitude;
 extern float gps_longitude;
+extern float gps_height_above_geoid_kilometers;
+
+extern uint8_t gps_date_day;
+extern uint8_t gps_date_month;
+extern uint8_t gps_date_year;
 
 extern float lat_distance_to_target_meters;
 extern float lon_distance_to_target_meters;
@@ -393,6 +398,10 @@ extern float vertical_velocity;
 extern uint8_t gps_position_hold_enabled;
 extern uint8_t gps_target_set;
 extern uint8_t gps_target_unset_logged;
+
+extern uint8_t use_wmm;
+extern uint8_t wmm_perform_elements_compute;
+extern uint8_t wmm_elements_computed;
 
 extern uint8_t gps_target_unset_cause;
 extern float gps_target_unset_roll_value;

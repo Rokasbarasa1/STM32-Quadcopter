@@ -84,6 +84,11 @@ void handle_get_and_calculate_sensor_values(){
         //Add turn the lat and lon positive based on the sign
         gps_latitude = bn357_get_latitude() * latitude_sign;
         gps_longitude = bn357_get_longitude() * longitude_sign;
+        gps_height_above_geoid_kilometers = bn357_get_geoid_altitude_meters() / 1000.0f;
+
+        gps_date_day = bn357_get_date_day();
+        gps_date_month = bn357_get_date_month();
+        gps_date_year = bn357_get_date_full_year();
 
         gps_fix_type = bn357_get_fix_type();
         gps_satellites_count = bn357_get_satellites_quantity();
@@ -113,6 +118,14 @@ void handle_get_and_calculate_sensor_values(){
 
             lat_distance_to_target_meters = low_pass_filter_pt1_read(&biquad_filter_gps_lat, lat_distance_to_target_meters);
             lon_distance_to_target_meters = low_pass_filter_pt1_read(&biquad_filter_gps_lon, lon_distance_to_target_meters);
+        }
+
+        // Based on gps data get the declination 
+        if(!wmm_elements_computed && wmm_perform_elements_compute){
+            wmm_compute_elements(gps_latitude, gps_longitude, gps_height_above_geoid_kilometers, gps_date_year, gps_date_month, gps_date_day);
+            yaw_declination = wmm_get_declination_degrees();
+            wmm_elements_computed = 1;
+            // TODO add logic that checks how far away last declination point was and recompute the declination
         }
 
         HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);

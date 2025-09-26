@@ -417,6 +417,12 @@ uint8_t got_gps = 0;
 uint8_t gps_can_be_used = 0;
 float gps_latitude = 0.0;
 float gps_longitude = 0.0;
+float gps_height_above_geoid_kilometers = 0.0;
+
+uint8_t gps_date_day = 0;
+uint8_t gps_date_month = 0;
+uint8_t gps_date_year = 0;
+
 
 float lat_distance_to_target_meters = 0.0;
 float lon_distance_to_target_meters = 0.0;
@@ -424,6 +430,13 @@ float lon_distance_to_target_meters = 0.0;
 uint8_t gps_position_hold_enabled = 0;
 uint8_t gps_target_set = 0;
 uint8_t gps_target_unset_logged = 1;
+
+uint8_t use_wmm = 1;
+uint8_t wmm_perform_elements_compute = 0;
+uint8_t wmm_elements_computed = 0;
+
+
+
 
 // 0 - pitch
 // 1 - roll 

@@ -698,6 +698,10 @@ uint8_t bn357_get_date_month(){
     return m_date_month;
 }
 
-uint8_t bn357_get_date_year(){
+uint8_t bn357_get_date_two_digits_year(){
     return m_date_year;
+}
+
+uint8_t bn357_get_date_full_year(){
+    return m_date_year + 2000;
 }

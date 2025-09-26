@@ -46,6 +46,9 @@ void handle_radio_communication(){
         // If pitch and roll are neutral then try holding position with gps
         if(pitch == 50.0 && roll == 50.0 && gps_fix_type == 3 && use_gps_hold == 1 && gps_target_set == 0){
             gps_position_hold_enabled = 1;
+            if(use_wmm){
+                wmm_perform_elements_compute = 1;
+            }
             // Current gps position is the target now
             target_latitude = gps_latitude;
             target_longitude = gps_longitude;
