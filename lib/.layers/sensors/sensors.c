@@ -109,15 +109,15 @@ void handle_get_and_calculate_sensor_values(){
             // low_pass_filter_biquad_set_initial_values(&biquad_filter_gps_lon, lon_distance_to_target_meters);
 
             
-            low_pass_filter_pt1_set_initial_values(&biquad_filter_gps_lat, lat_distance_to_target_meters);
-            low_pass_filter_pt1_set_initial_values(&biquad_filter_gps_lon, lon_distance_to_target_meters);
+            low_pass_filter_pt1_set_initial_values(&lowpass_filter_gps_lat, lat_distance_to_target_meters);
+            low_pass_filter_pt1_set_initial_values(&lowpass_filter_gps_lon, lon_distance_to_target_meters);
 
         }else{
             // lat_distance_to_target_meters = low_pass_filter_biquad_read(&biquad_filter_gps_lat, lat_distance_to_target_meters);
             // lon_distance_to_target_meters = low_pass_filter_biquad_read(&biquad_filter_gps_lon, lon_distance_to_target_meters);
 
-            lat_distance_to_target_meters = low_pass_filter_pt1_read(&biquad_filter_gps_lat, lat_distance_to_target_meters);
-            lon_distance_to_target_meters = low_pass_filter_pt1_read(&biquad_filter_gps_lon, lon_distance_to_target_meters);
+            lat_distance_to_target_meters = low_pass_filter_pt1_read(&lowpass_filter_gps_lat, lat_distance_to_target_meters);
+            lon_distance_to_target_meters = low_pass_filter_pt1_read(&lowpass_filter_gps_lon, lon_distance_to_target_meters);
         }
 
         // Based on gps data get the declination 
@@ -549,12 +549,16 @@ void handle_get_and_calculate_sensor_values(){
     
     sensors9 = DWT->CYCCNT;
     // GPS STUFF
-    float yaw_rad = (imu_orientation[2] + 0.0f) * M_DEG_TO_RAD;
 
+    float yaw_rad = imu_orientation[2] * M_DEG_TO_RAD;
     // This is just a rotation matrix in linear algebra rotate coordinates by degrees
     error_forward = lat_distance_to_target_meters * cosf(yaw_rad) + lon_distance_to_target_meters * sinf(yaw_rad);
     error_right   = -lat_distance_to_target_meters * sinf(yaw_rad) + lon_distance_to_target_meters * cosf(yaw_rad);
 
+    // Filter this data
+
+    error_forward = low_pass_filter_pt1_read(&lowpass_filter_gps_forward, error_forward);
+    error_right = low_pass_filter_pt1_read(&lowpass_filter_gps_right, error_right);
 
     // --------------------- TODO DO SOME CROSS AXIS CORRECTION (Gyro gimbal Lock/Transfer) for roll and pitch
 

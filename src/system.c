@@ -621,8 +621,13 @@ struct low_pass_biquad_filter altitude_barometer_filtering;
 const float gps_filtering_min_cutoff = 3.0f;
 // struct low_pass_biquad_filter biquad_filter_gps_lat;
 // struct low_pass_biquad_filter biquad_filter_gps_lon;
-struct low_pass_pt1_filter biquad_filter_gps_lat;
-struct low_pass_pt1_filter biquad_filter_gps_lon;
+struct low_pass_pt1_filter lowpass_filter_gps_lat;
+struct low_pass_pt1_filter lowpass_filter_gps_lon;
+
+const float gps_forward_right_filtering_min_cutoff = 10.0f;
+struct low_pass_pt1_filter lowpass_filter_gps_forward;
+struct low_pass_pt1_filter lowpass_filter_gps_right;
+
 
 // ------------------------------------------------------------------------------------------------------ Remote control settings
 float max_yaw_attack = 80.0;
@@ -1494,7 +1499,9 @@ float mag2_z_offset = 0.0f;
 // ------------------------------------------------------------------------------------------------------ MAIN
 int system_main(void){
 
-    startup_procedure();
+    if(startup_procedure() == 1){
+        return 1;
+    }
 
     handle_pre_loop_start();
     while (1){

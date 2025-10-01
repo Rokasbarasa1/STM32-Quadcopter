@@ -2,8 +2,10 @@
 #include "../common.h"
 #include "../sensors/sensors.h"
 #include "../time_keeping/time_keeping.h"
+#include "../logging/logging.h"
+#include "../motors/motors.h"
 
-void startup_procedure();
+int startup_procedure();
 uint8_t init_drivers();
 void initialize_control_abstractions();
 void check_calibrations();

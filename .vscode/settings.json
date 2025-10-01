@@ -57,7 +57,8 @@
         "time_keeping.h": "c",
         "motors.h": "c",
         "system.h": "c",
-        "i2c_scanner.h": "c"
+        "i2c_scanner.h": "c",
+        "shared.h": "c"
     },
     "cSpell.words": [
         "acro",
@@ -92,6 +93,7 @@
         "GPIO",
         "GPIOA",
         "GPIOB",
+        "GPIOC",
         "HCLK",
         "hdma",
         "HISR",

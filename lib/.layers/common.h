@@ -575,8 +575,13 @@ extern const float altitude_barometer_filtering_min_cutoff;
 extern struct low_pass_biquad_filter altitude_barometer_filtering;
 
 extern const float gps_filtering_min_cutoff;
-extern struct low_pass_pt1_filter biquad_filter_gps_lat;
-extern struct low_pass_pt1_filter biquad_filter_gps_lon;
+extern struct low_pass_pt1_filter lowpass_filter_gps_lat;
+extern struct low_pass_pt1_filter lowpass_filter_gps_lon;
+
+extern const float gps_forward_right_filtering_min_cutoff;
+
+extern struct low_pass_pt1_filter lowpass_filter_gps_forward;
+extern struct low_pass_pt1_filter lowpass_filter_gps_right;
 
 extern float max_yaw_attack;
 extern float max_roll_attack;

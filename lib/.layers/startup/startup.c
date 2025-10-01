@@ -1,6 +1,6 @@
 #include "./startup.h"
 
-void startup_procedure(){
+int startup_procedure(){
     accelerometer_roll_offset = base_accelerometer_roll_offset;
     accelerometer_pitch_offset = base_accelerometer_pitch_offset;
     // Turn off the blue led. Will show the status of sd logging later
@@ -9,7 +9,7 @@ void startup_procedure(){
     
     HAL_Delay(500);
     
-    if(init_drivers() == 0) return 0; // exit if initialization failed
+    if(init_drivers() == 0) return 1; // exit if initialization failed
 
     HAL_Delay(2000); // Dont want to interfere in calibration
 
@@ -20,6 +20,8 @@ void startup_procedure(){
     initialize_control_abstractions();
     initialize_motor_communication();
     get_initial_position();
+    
+    return 0;
 }
 
 uint8_t init_drivers(){
@@ -247,8 +249,11 @@ void initialize_control_abstractions(){
     // biquad_filter_gps_lon = filtering_init_low_pass_filter_biquad(gps_filtering_min_cutoff, 10);
 
     
-    biquad_filter_gps_lat = filtering_init_low_pass_filter_pt1(gps_filtering_min_cutoff, 10);
-    biquad_filter_gps_lon = filtering_init_low_pass_filter_pt1(gps_filtering_min_cutoff, 10);
+    lowpass_filter_gps_lat = filtering_init_low_pass_filter_pt1(gps_filtering_min_cutoff, 10);
+    lowpass_filter_gps_lon = filtering_init_low_pass_filter_pt1(gps_filtering_min_cutoff, 10);
+
+    lowpass_filter_gps_forward = filtering_init_low_pass_filter_pt1(gps_forward_right_filtering_min_cutoff, REFRESH_RATE_HZ);
+    lowpass_filter_gps_right = filtering_init_low_pass_filter_pt1(gps_forward_right_filtering_min_cutoff, REFRESH_RATE_HZ);
 
 
     // Kalman  sensor fusion for vertical velocity

@@ -190,49 +190,42 @@ void handle_pid_and_motor_control(){
             float roll_command = pid_get_error_own_error(&gps_longitude_pid, error_right, loop_start_timestamp_microseconds);
             float pitch_command = pid_get_error_own_error(&gps_latitude_pid, error_forward, loop_start_timestamp_microseconds);
 
-            if (roll_command > gps_pid_angle_of_attack_max) roll_command = gps_pid_angle_of_attack_max;
-            if (roll_command < -gps_pid_angle_of_attack_max) roll_command = -gps_pid_angle_of_attack_max;
-            if (pitch_command > gps_pid_angle_of_attack_max) pitch_command = gps_pid_angle_of_attack_max;
-            if (pitch_command < -gps_pid_angle_of_attack_max) pitch_command = -gps_pid_angle_of_attack_max;
-
-            // Works better inverted
-            gps_hold_roll_adjustment = -roll_command;
-            gps_hold_pitch_adjustment = -pitch_command;
-
-
             // For logging
             PID_proportional[4] = pid_get_last_proportional_error(&gps_latitude_pid);
             PID_integral[4] = pid_get_last_integral_error(&gps_latitude_pid);
             PID_derivative[4] = pid_get_last_derivative_error(&gps_latitude_pid);
 
-            // Length of the lat lon error vector
-            // float error_magnitude = sqrtf(error_latitude * error_latitude + error_longitude * error_longitude);
+            // Convert the roll and pitch adjustment to a vector
+            // This makes the target position more clear to the drone
+            // Roll and pitch is adjusted to go STRAIGHT to the target
+            float gps_hold_vector_magnitude = sqrtf(roll_command * roll_command + pitch_command * pitch_command);
 
-            // // Get unit vectors of error lat and lon
-            // float normalized_error_latitude = 0.0f;
-            // float normalized_error_longitude = 0.0f;
-            // if(error_magnitude == 0.0f){
-            //     normalized_error_latitude = 0.0f;
-            //     normalized_error_longitude = 0.0f;
-            // }else{
-            //     normalized_error_latitude = error_latitude / error_magnitude;
-            //     normalized_error_longitude = error_longitude / error_magnitude;
-            // }
+            // Get unit vectors of error lat and lon
+            float unit_vector_roll_command = 0.0f;
+            float unit_vector_pitch_command = 0.0f;
+            if(gps_hold_vector_magnitude != 0.0f){
+                unit_vector_roll_command = roll_command / gps_hold_vector_magnitude;
+                unit_vector_pitch_command = pitch_command / gps_hold_vector_magnitude;
+            }
 
-            // float gps_hold_roll_adjustment_calculation = roll_effect_on_lat * normalized_error_latitude + roll_effect_on_lon * normalized_error_longitude;
-            // float gps_hold_pitch_adjustment_calculation = pitch_effect_on_lat * normalized_error_latitude + pitch_effect_on_lon * normalized_error_longitude;
+            float scale_factor = fmin(gps_hold_vector_magnitude, gps_pid_angle_of_attack_max);
 
-            // float scale_factor = fmin(error_magnitude, gps_pid_angle_of_attack_max);
+            unit_vector_roll_command = unit_vector_roll_command * scale_factor;
+            unit_vector_pitch_command = unit_vector_pitch_command * scale_factor;
 
-            // gps_hold_roll_adjustment = gps_hold_roll_adjustment_calculation * scale_factor;
-            // gps_hold_pitch_adjustment = gps_hold_pitch_adjustment_calculation * scale_factor;
-
+            // Works better inverted
+            gps_hold_roll_adjustment = -unit_vector_roll_command;
+            gps_hold_pitch_adjustment = -unit_vector_pitch_command;
 
         }else if(gps_position_hold_enabled && !gps_can_be_used){
             // Put in the same values'
             gps_hold_roll_adjustment = 0.0f;
             gps_hold_pitch_adjustment = 0.0f;
-            // Rason for gps off
+
+            pid_reset_integral_sum(&gps_latitude_pid);
+            pid_reset_integral_sum(&gps_longitude_pid);
+
+            // Reason for gps off
             if(gps_target_unset_logged != 0){
                 gps_target_unset_logged = 0;
                 gps_target_unset_cause = 3;
@@ -240,6 +233,10 @@ void handle_pid_and_motor_control(){
         }else{
             gps_hold_roll_adjustment = 0.0f;
             gps_hold_pitch_adjustment = 0.0f;
+
+            pid_reset_integral_sum(&gps_latitude_pid);
+            pid_reset_integral_sum(&gps_longitude_pid);
+
             if(gps_target_unset_logged != 0){
                 gps_target_unset_logged = 0;
                 gps_target_unset_cause = 4;
