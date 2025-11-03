@@ -184,7 +184,7 @@ void calculate_yaw_using_magnetometer_data(float *magnetometer_data, float *yaw_
 }
 
 
-void calculate_yaw_tilt_compensated_using_magnetometer_data(float *magnetometer_data, float *yaw_output, float roll, float pitch, float yaw_offset){
+void calculate_yaw_tilt_compensated_using_magnetometer_data(float *magnetometer_data, float *yaw_output, float roll, float pitch, float yaw_offset, uint8_t flip_clockwise_direction){
 
     // You better make sure yur roll and pitch are in good shape as well as the magnetometer being aligned with device front when north facing
     // Otherwise the data you will get will be trash.
@@ -204,6 +204,10 @@ void calculate_yaw_tilt_compensated_using_magnetometer_data(float *magnetometer_
     float Xh = mx * cos(pitch_radians) + mz * sin(pitch_radians);
     float Yh = mx * sin(roll_radians) * sin(pitch_radians) + my * cos(roll_radians) - mz * sin(roll_radians) * cos(pitch_radians);
     *yaw_output = atan2(Yh, Xh) * M_RAD_TO_DEG;
+
+    if(flip_clockwise_direction){
+        *yaw_output = -*yaw_output;
+    }
 
     *yaw_output += yaw_offset;
 

@@ -153,28 +153,41 @@ uint8_t manual_bdshot = 0;
 // ===================================== Magnetometer soft and hard irons
 
 // Magnetometer MMC5603 field
-float magnetometer_mmc5603_hard_iron_correction[3] = {
-    3278.120072, 3274.994569, 3270.926288
+float magnetometer_mmc5603_hard_iron_correction[3] = {3277.283060f, 3274.944050f, 3270.911984f};
+float magnetometer_mmc5603_soft_iron_correction[3][3] = {
+  {1.065294f, 0.001482f, -0.003566f},
+  {0.001482f, 1.038720f, 0.068150f},
+  {-0.003566f, 0.068150f, 1.107906f},
 };
 
-float magnetometer_mmc5603_soft_iron_correction[3][3] = {
-    {1.001581, -0.002604, -0.008801},
-    {-0.002604, 0.980725, 0.063952},
-    {-0.008801, 0.063952, 1.046160}
+float magnetometer_mmc5603_rotation_correction[3][3] = {
+  {-0.004702f, 0.998760f, 0.049552f},
+  {-0.999989f, -0.004682f, -0.000524f},
+  {-0.000291f, -0.049554f, 0.998771f},
 };
+
+
+
 
 
 
 // Magnetometer BMM350 at field far old
-float magnetometer_hard_iron_correction[3] = {
-    -11.106392, 2.754993, -2.908094
+float magnetometer_hard_iron_correction[3] = {-22.253065f, -2.751542f, -7.204707f};
+float magnetometer_soft_iron_correction[3][3] = {
+  {1.049370f, -0.008414f, -0.007085f},
+  {-0.008414f, 1.066816f, -0.012539f},
+  {-0.007085f, -0.012539f, 1.124578f},
 };
 
-float magnetometer_soft_iron_correction[3][3] = {
-    {0.987158, -0.007043, -0.007839},
-    {-0.007043, 0.997832, -0.006877},
-    {-0.007839, -0.006877, 1.063742}
+float magnetometer_rotation_correction[3][3] = {
+  {0.012639f, 0.999794f, -0.015868f},
+  {-0.999759f, 0.012920f, 0.017748f},
+  {0.017950f, 0.015640f, 0.999717f},
 };
+
+
+
+
 
 
 
@@ -220,8 +233,10 @@ float base_accelerometer_pitch_offset = -0.76 - -0.8275;
 float accelerometer_roll_offset = 0;
 float accelerometer_pitch_offset = 0;
 
-float yaw_offset = -180.0;
-float yaw_declination = 5.1;
+float yaw_offset1 = -180.0;
+float yaw_offset2 = -90.0;
+
+float yaw_declination = 5.117134f;
 
 // ------------------------------------------------------------------------------------------------------ Accelerometer values to degrees conversion
 float accelerometer_roll = 0;
@@ -381,6 +396,11 @@ float old_imu_orientation[] = {0,0,0};
 float magnetometer_data[] = {0,0,0};
 float magnetometer_data_secondary[] = {0,0,0};
 
+float magnetometer_data_unrotated[3] = {0.0f, 0.0f, 0.0f};
+float magnetometer_data_secondary_unrotated[3] = {0.0f, 0.0f, 0.0f};
+
+
+
 float gyro_yaw_old = 0.0f; // For testing yaw
 
 float magnetometer_data_current_unfiltered[] = {0,0,0}; // For testing yaw
@@ -421,7 +441,7 @@ float gps_height_above_geoid_kilometers = 0.0;
 
 uint8_t gps_date_day = 0;
 uint8_t gps_date_month = 0;
-uint8_t gps_date_year = 0;
+uint16_t gps_date_year = 0;
 
 
 float lat_distance_to_target_meters = 0.0;
@@ -432,7 +452,7 @@ uint8_t gps_target_set = 0;
 uint8_t gps_target_unset_logged = 1;
 
 uint8_t use_wmm = 1;
-uint8_t wmm_perform_elements_compute = 0;
+uint8_t wmm_perform_elements_compute = 1;
 uint8_t wmm_elements_computed = 0;
 
 
@@ -667,6 +687,7 @@ uint8_t log_file_base_name_gps[] = "QuadGPS.csv";
 uint8_t log_file_base_name_alt[] = "QuadALT.csv";
 uint8_t log_file_base_name_mag[] = "QuadMAG.txt";
 uint8_t log_file_base_name_compassRPM[] = "QuadCompassRPM.csv";
+uint8_t log_file_base_name_maga[] = "QuadMAGA.csv";
 uint8_t log_file_base_name_yaw[] = "QuadYAW.csv";
 uint8_t log_file_base_name_timing[] = "QuadTIMING.csv";
 uint8_t log_file_base_name_imu[] = "QuadIMU.csv";
@@ -702,7 +723,11 @@ const uint8_t use_blackbox_logging = 0;
 // 6 - imu data
 // 7 - magnetometer calibrated data
 // 8 - compassRPM (like compassMOT but with rpm)
-uint8_t txt_logging_mode = 1;
+// 9 - magnetometer raw data + accelerometer + gyro
+// 10 - magnetometer raw data + accelerometer + gyro BUT TRIGGER BASED
+uint8_t txt_logging_mode = 4;
+
+uint8_t perform_log_for_log_mode_10 = 0;
 
 // This lets the logger system know if the header has been printed already
 uint8_t txt_logged_header = 0; 

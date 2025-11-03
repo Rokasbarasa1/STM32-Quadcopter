@@ -163,7 +163,14 @@ volatile float bmm350_soft_iron[3][3] = {
     {0, 0, 1}
 };
 
+volatile float bmm350_rotation_matrix[3][3] = {
+    {1, 0, 0},
+    {0, 1, 0},
+    {0, 0, 1}
+};
+
 float bmm350_old_magnetometer_readings[3] = {0, 0, 0};
+float bmm350_magnetometer_readings_without_rotation[3] = {0, 0, 0};
 float bmm350_old_temperature_reading = 0;
 
 float bmm350_offset_mag_x = 0.0f;
@@ -828,7 +835,7 @@ void bmm350_apply_temperature_compensation(float *magnetometer_and_temperature_d
     magnetometer_and_temperature_data[2] = cr_ax_comp_z;
 }
 
-void bmm350_magnetometer_readings_micro_teslas(float *data, uint8_t perfrom_temperature_correction){
+void bmm350_magnetometer_readings_micro_teslas(float *data, uint8_t perform_temperature_correction, uint8_t apply_rotation_into_accelerometer_position){
     // Read magnetometer data and temperature data
 
     uint8_t retrieved_data[14]; // First two bytes are dummy bytes
@@ -874,7 +881,7 @@ void bmm350_magnetometer_readings_micro_teslas(float *data, uint8_t perfrom_temp
     }
 
     // Perform the temperature compensation of the data
-    if(perfrom_temperature_correction){
+    if(perform_temperature_correction){
         bmm350_apply_temperature_compensation(data_output);
     }
 
@@ -898,6 +905,21 @@ void bmm350_magnetometer_readings_micro_teslas(float *data, uint8_t perfrom_temp
     }
     for (uint8_t i = 0; i < 3; i++) data_output[i] = temp[i];
     
+    
+    bmm350_magnetometer_readings_without_rotation[0] = data_output[0];
+    bmm350_magnetometer_readings_without_rotation[1] = data_output[1];
+    bmm350_magnetometer_readings_without_rotation[2] = data_output[2];
+
+    if(apply_rotation_into_accelerometer_position){
+        float temp2[3];
+        for (uint8_t i = 0; i < 3; i++){
+            temp2[i] = (bmm350_rotation_matrix[i][0] * data_output[0]) +
+                    (bmm350_rotation_matrix[i][1] * data_output[1]) +
+                    (bmm350_rotation_matrix[i][2] * data_output[2]);
+        }
+        for (uint8_t i = 0; i < 3; i++) data_output[i] = temp2[i];
+    }
+
     data[0] = data_output[0];
     data[1] = data_output[1];
     data[2] = data_output[2];
@@ -912,4 +934,18 @@ void bmm350_previous_raw_magetometer_readings(float *data){
 
 float bmm350_previous_temperature_reading(){
     return bmm350_old_temperature_reading;
+}
+
+void bmm350_set_rotation_matrix(const float rotation_matrix[3][3]){
+    for (uint8_t i = 0; i < 3; i++){
+        for (uint8_t k = 0; k < 3; k++){
+            bmm350_rotation_matrix[i][k] = rotation_matrix[i][k];
+        }
+    }
+}
+
+void bmm350_magnetometer_readings_micro_teslas_unrotated(float *data){
+    data[0] = bmm350_magnetometer_readings_without_rotation[0];
+    data[1] = bmm350_magnetometer_readings_without_rotation[1];
+    data[2] = bmm350_magnetometer_readings_without_rotation[2];
 }

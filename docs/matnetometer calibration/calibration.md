@@ -50,11 +50,13 @@ printf("\n");
 50.7244
 50.7167
 50.4905
-50,716.7
+50.7167
 50.7206
 50.7207
 50.7208
 50.7226
+50.7371
+50.7392 
 
 6. Open "Magneto 1.2". Point it to your txt file with magnetometer readings. Put in the Norm of magnetic field value in THE SAME UNITS as the magnetometer readings. In this case my readings are in micro tesla and the norm is in nano tesla, convert that to micro teslas also. Converting the value gives weird readings but i guess that is supposed to be the correct way. Get the calibrations from Magneto. Combined bias is hard iron calibration and the 3x3 grid bellow that is the soft iron one.
 ![Alt text](image.png)

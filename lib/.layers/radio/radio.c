@@ -488,10 +488,20 @@ void handle_radio_communication(){
 
         set_flight_mode(flight_mode);
 
-        find_accelerometer_error(10);
+        // Trigger event here because it is easy
+        if(txt_logging_mode == 10){
+            perform_log_for_log_mode_10 = 1;
+        }
 
+    }else  if(strcmp(rx_type, "event") == 0){
+        printf("Got event\n");
+
+        // Trigger event on logging mode or flight mode
+
+        if(txt_logging_mode == 10){
+            perform_log_for_log_mode_10 = 1;
+        }
     }
-
     rx_type[0] = '\0'; // Clear out the string by setting its first char to string terminator
 }
 

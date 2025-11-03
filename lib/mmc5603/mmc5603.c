@@ -29,6 +29,7 @@ I2C_HandleTypeDef *i2c_handle;
 
 
 float mmc5603_old_magnetometer_readings[3] = {0, 0, 0};
+float mmc5603_magnetometer_readings_without_rotation[3] = {0, 0, 0};
 
 // Storage of hard iron correction, values should be replaced by what is passed
 volatile float m_mmc5603_hard_iron[3] = {
@@ -41,6 +42,13 @@ volatile float m_mmc5603_soft_iron[3][3] = {
     {0, 1, 0},
     {0, 0, 1}
 };
+
+volatile float mmc5603_rotation_matrix[3][3] = {
+    {1, 0, 0},
+    {0, 1, 0},
+    {0, 0, 1}
+};
+
 
 enum t_mmc6503_control_0 {
     MMC5603_CONTROL0_TAKE_MAGNETIC_MEASUREMENT                  = 0b00000001,
@@ -280,7 +288,7 @@ uint8_t mmc5603_init(
 }
 
 
-void mmc5603_magnetometer_readings_micro_teslas(float *data){
+void mmc5603_magnetometer_readings_micro_teslas(float *data, uint8_t apply_rotation_into_accelerometer_position){
 
     if(!m_use_continuos_mode){
         // Need to ask for the measurement to be made
@@ -335,7 +343,6 @@ void mmc5603_magnetometer_readings_micro_teslas(float *data){
         data[i] = data[i] - m_mmc5603_hard_iron[i];
     }
 
-
     float temp[3];
     for (uint8_t i = 0; i < 3; i++){
         temp[i] = (m_mmc5603_soft_iron[i][0] * data[0]) +
@@ -343,6 +350,20 @@ void mmc5603_magnetometer_readings_micro_teslas(float *data){
                   (m_mmc5603_soft_iron[i][2] * data[2]);
     }
     for (uint8_t i = 0; i < 3; i++) data[i] = temp[i];
+
+    mmc5603_magnetometer_readings_without_rotation[0] = temp[0];
+    mmc5603_magnetometer_readings_without_rotation[1] = temp[1];
+    mmc5603_magnetometer_readings_without_rotation[2] = temp[2];
+
+    if(apply_rotation_into_accelerometer_position){
+        float temp2[3];
+        for (uint8_t i = 0; i < 3; i++){
+            temp2[i] = (mmc5603_rotation_matrix[i][0] * data[0]) +
+                    (mmc5603_rotation_matrix[i][1] * data[1]) +
+                    (mmc5603_rotation_matrix[i][2] * data[2]);
+        }
+        for (uint8_t i = 0; i < 3; i++) data[i] = temp2[i];
+    }
 }
 
 void mmc5603_set(){
@@ -484,12 +505,12 @@ void mmc5603_get_bridge_offset(float *data){
     mmc5603_set();
 
     float set_magnetometer_data[3];
-    mmc5603_magnetometer_readings_micro_teslas(set_magnetometer_data);
+    mmc5603_magnetometer_readings_micro_teslas(set_magnetometer_data, 0);
 
     mmc5603_reset();
 
     float reset_magnetometer_data[3];
-    mmc5603_magnetometer_readings_micro_teslas(reset_magnetometer_data);
+    mmc5603_magnetometer_readings_micro_teslas(reset_magnetometer_data, 0);
 
 
     // To get the offset the datasheet tells to add the measurements and divide by 2.
@@ -503,12 +524,12 @@ void mmc5603_magnetometer_readings_micro_teslas_bridge_offset_removed(float *dat
     mmc5603_set();
 
     float set_magnetometer_data[3];
-    mmc5603_magnetometer_readings_micro_teslas(set_magnetometer_data);
+    mmc5603_magnetometer_readings_micro_teslas(set_magnetometer_data, 0);
 
     mmc5603_reset();
 
     float reset_magnetometer_data[3];
-    mmc5603_magnetometer_readings_micro_teslas(reset_magnetometer_data);
+    mmc5603_magnetometer_readings_micro_teslas(reset_magnetometer_data, 0);
 
 
     // To get the output without offset the datasheet tells to subtract the measurements and divide by 2.
@@ -521,4 +542,18 @@ void mmc5603_previous_raw_magetometer_readings(float *data){
     data[0] = mmc5603_old_magnetometer_readings[0];
     data[1] = mmc5603_old_magnetometer_readings[1];
     data[2] = mmc5603_old_magnetometer_readings[2];
+}
+
+void mmc5603_set_rotation_matrix(const float rotation_matrix[3][3]){
+    for (uint8_t i = 0; i < 3; i++){
+        for (uint8_t k = 0; k < 3; k++){
+            mmc5603_rotation_matrix[i][k] = rotation_matrix[i][k];
+        }
+    }
+}
+
+void mmc5603_magnetometer_readings_micro_teslas_unrotated(float *data){
+    data[0] = mmc5603_magnetometer_readings_without_rotation[0];
+    data[1] = mmc5603_magnetometer_readings_without_rotation[1];
+    data[2] = mmc5603_magnetometer_readings_without_rotation[2];
 }

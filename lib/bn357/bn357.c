@@ -24,7 +24,7 @@ volatile uint8_t m_fix_type = 0;
 volatile float m_course_over_ground = 0;
 volatile uint8_t m_date_day = 0;
 volatile uint8_t m_date_month = 0;
-volatile uint8_t m_date_year = 0;
+volatile uint16_t m_date_year = 0;
 
 
 #define BN357_DEBUG 0
@@ -228,9 +228,9 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
         char sub_string_gnrmc[length + 1];  // create a new string to store the substring, plus one for null terminator
         strncpy(sub_string_gnrmc, start, length);  // copy the substring to the new string
         sub_string_gnrmc[length] = '\0';  // add a null terminator to the new string
-    #if(BN357_DEBUG)
+    // #if(BN357_DEBUG)
         printf("GNRMC Substring: %s\n", sub_string_gnrmc);  // print the substring
-    #endif
+    // #endif
     }else{
         return 0;
     }
@@ -264,7 +264,8 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
         // printf("len 0\n");
     }
 
-    start = strchr(end, ',');
+    start = end + 1;
+    end = strchr(start, ',');
     length = end - start;
     if (length != 0 && length == 6){
         char date_day[2 + 1];
@@ -282,11 +283,11 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
         m_date_year = atoi(date_year);
 
         
-        // #if(BN357_DEBUG)
+        #if(BN357_DEBUG)
             printf("GNRMC date: %d/%d/%d\n", m_date_day, m_date_month, m_date_year + 2000);
-        // #endif
+        #endif
     }else{
-        // printf("Date not found\n");
+        // printf("Date not found. %d \n", length);
     }
 
 
@@ -494,7 +495,7 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
     } 
 
     end = strchr(start, ',');
-    if(!m_minimal_gps_parse_enabled){
+    // if(!m_minimal_gps_parse_enabled){
         length = end - start;
         char geoid_altitude_string[length + 1];
         strncpy(geoid_altitude_string, start, length);
@@ -503,7 +504,7 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
     #if(BN357_DEBUG)
         printf("GNGGA Geoid altitude: %f\n", m_altitude_geoid);
     #endif
-    }
+    // }
 
 
 
@@ -702,6 +703,6 @@ uint8_t bn357_get_date_two_digits_year(){
     return m_date_year;
 }
 
-uint8_t bn357_get_date_full_year(){
+uint16_t bn357_get_date_full_year(){
     return m_date_year + 2000;
 }

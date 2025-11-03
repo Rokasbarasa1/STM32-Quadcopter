@@ -8,6 +8,7 @@
 #include <inttypes.h>
 #include <math.h>
 #include <stdbool.h>
+#include "../utils/math_constants.h"
 
 #ifndef TRUE
 #define TRUE            ((int)1)
@@ -33,11 +34,6 @@
 
 #define MAG_USE_GEOID	1    /* 1 Geoid - Ellipsoid difference should be corrected, 0 otherwise */
 
-#define M_DEG_TO_RAD 0.0174533f
-#define M_RAD_TO_DEG 57.29578f
-#ifndef M_PI
-#define M_PI 3.1415927f
-#endif
 #define NMAX 12
 #define NMAXSV 12
 

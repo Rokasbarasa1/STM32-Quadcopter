@@ -35,4 +35,4 @@ float bn357_get_course_over_ground();
 uint8_t bn357_get_date_day();
 uint8_t bn357_get_date_month();
 uint8_t bn357_get_date_two_digits_year();
-uint8_t bn357_get_date_full_year();
+uint16_t bn357_get_date_full_year();

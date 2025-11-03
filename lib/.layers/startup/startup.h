@@ -4,6 +4,7 @@
 #include "../time_keeping/time_keeping.h"
 #include "../logging/logging.h"
 #include "../motors/motors.h"
+#include "../../wmm/wmm.h"
 
 int startup_procedure();
 uint8_t init_drivers();

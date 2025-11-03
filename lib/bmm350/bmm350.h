@@ -30,7 +30,9 @@ uint8_t bmm350_init(
     enum bmm350_PAD_CTRL_odr odr_setting,
     enum bmm350_PAD_CTRL_avg average_setting
 );
-void bmm350_magnetometer_readings_micro_teslas(float *data, uint8_t perfrom_temperature_correction);
+void bmm350_magnetometer_readings_micro_teslas(float *data, uint8_t perform_temperature_correction, uint8_t apply_rotation_into_accelerometer_position);
 void bmm350_previous_raw_magetometer_readings(float *data);
 float bmm350_previous_temperature_reading();
 void bmm350_read_all_otp_data();
+void bmm350_set_rotation_matrix(const float rotation_matrix[3][3]);
+void bmm350_magnetometer_readings_micro_teslas_unrotated(float *data);

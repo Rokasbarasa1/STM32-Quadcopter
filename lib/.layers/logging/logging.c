@@ -206,13 +206,19 @@ void handle_logging(){
                 );
             }else if (txt_logging_mode == 4){
                 if(txt_logged_header == 0){
-                    sd_card_append_to_buffer(1, "time microseconds;gyro_yaw;magnetometer_yaw;magnetometer_yaw_90;magnetometer_yaw_180;magnetometer_yaw_270;magnetometer_yaw_secondary;gps_yaw;magnetometer_ist8310_yaw;roll;pitch;\n");
+                    sd_card_append_to_buffer(1, "time microseconds;magx;magy;magz;mag2x;mag2y;mag2z;gyro_yaw;magnetometer_yaw;magnetometer_yaw_90;magnetometer_yaw_180;magnetometer_yaw_270;magnetometer_yaw_secondary;gps_yaw;magnetometer_ist8310_yaw;roll;pitch;\n");
                     txt_logged_header = 1;
                 }
                 char abs_time_str[21];
                 uint64_to_str(get_absolute_time(), abs_time_str);
-                sd_card_append_to_buffer(1, "%s;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;\n",
+                sd_card_append_to_buffer(1, "%s;%f;%f;%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;\n",
                     abs_time_str,
+                    magnetometer_data_raw[0],
+                    magnetometer_data_raw[1],
+                    magnetometer_data_raw[2],
+                    magnetometer_data_secondary_raw[0],
+                    magnetometer_data_secondary_raw[1],
+                    magnetometer_data_secondary_raw[2],
                     gyro_yaw,
                     magnetometer_yaw,
                     magnetometer_yaw_90,
@@ -221,8 +227,8 @@ void handle_logging(){
                     magnetometer_yaw_secondary,
                     gps_yaw,
                     magnetometer_ist8310_yaw,
-                    imu_orientation[0],
-                    imu_orientation[1]
+                    imu_orientation[0] - accelerometer_roll_offset,
+                    imu_orientation[1] - accelerometer_pitch_offset
                 );
             }else if (txt_logging_mode == 5){
 
@@ -337,6 +343,69 @@ void handle_logging(){
                     imu_orientation[1],
                     average_rpm
                 );
+            }else if(txt_logging_mode == 9){
+                float raw_magnetometer_data[] = {0, 0, 0};
+                float raw_magnetometer_secondary_data[] = {0, 0, 0};
+
+                bmm350_previous_raw_magetometer_readings(raw_magnetometer_data);
+                mmc5603_previous_raw_magetometer_readings(raw_magnetometer_secondary_data);
+                // qmc5883l_previous_raw_magetometer_readings(raw_magnetometer_data);
+                // hmc5883l_previous_raw_magetometer_readings(raw_magnetometer_data);
+                // if(ist8310){
+                //     ist8310_previous_raw_magetometer_readings(raw_magnetometer_data);
+                // }else{
+                //     bmm350_previous_raw_magetometer_readings(raw_magnetometer_data);
+                // }
+
+
+                // sd_card_append_to_buffer(1, "%f\t%f\t%f\t\n", 
+                //     raw_magnetometer_data[0],
+                //     raw_magnetometer_data[1],
+                //     raw_magnetometer_data[2]
+                // );
+                
+                sd_card_append_to_buffer(1, "%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;\n", 
+                    raw_magnetometer_data[0],
+                    raw_magnetometer_data[1],
+                    raw_magnetometer_data[2],
+                    raw_magnetometer_secondary_data[0],
+                    raw_magnetometer_secondary_data[1],
+                    raw_magnetometer_secondary_data[2],
+                    acceleration_data_raw[0], // Not inverted x and y
+                    acceleration_data_raw[1],
+                    acceleration_data_raw[2],
+                    gyro_angular_raw[0],
+                    gyro_angular_raw[1],
+                    gyro_angular_raw[2]
+                );
+            }else if(txt_logging_mode == 10){
+                if(perform_log_for_log_mode_10){
+                    float raw_magnetometer_data[] = {0, 0, 0};
+                    float raw_magnetometer_secondary_data[] = {0, 0, 0};
+
+                    bmm350_previous_raw_magetometer_readings(raw_magnetometer_data);
+                    mmc5603_previous_raw_magetometer_readings(raw_magnetometer_secondary_data);
+                    
+                    sd_card_append_to_buffer(1, "%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;\n", 
+                        raw_magnetometer_data[0],
+                        raw_magnetometer_data[1],
+                        raw_magnetometer_data[2],
+                        raw_magnetometer_secondary_data[0],
+                        raw_magnetometer_secondary_data[1],
+                        raw_magnetometer_secondary_data[2],
+                        acceleration_data_raw[0],
+                        acceleration_data_raw[1],
+                        acceleration_data_raw[2],
+                        gyro_angular_raw[0],
+                        gyro_angular_raw[1],
+                        gyro_angular_raw[2]
+                    );
+
+                    // DISABLE
+                    perform_log_for_log_mode_10 = 0;
+                }else{
+                    sd_card_append_to_buffer(1, "NAN\n");
+                }
             }
         }
 
@@ -556,6 +625,8 @@ void setup_logging_to_sd(uint8_t use_updated_file_name){
         else if(txt_logging_mode == 6) sd_card_initialized = sd_special_initialize(log_file_base_name_imu);
         else if(txt_logging_mode == 7) sd_card_initialized = sd_special_initialize(log_file_base_name_mag);
         else if(txt_logging_mode == 8) sd_card_initialized = sd_special_initialize(log_file_base_name_compassRPM);
+        else if(txt_logging_mode == 9) sd_card_initialized = sd_special_initialize(log_file_base_name_maga);
+        else if(txt_logging_mode == 10) sd_card_initialized = sd_special_initialize(log_file_base_name_maga);
         else sd_card_initialized = sd_special_initialize(log_file_base_name);
 
         if(!sd_card_initialized){

@@ -58,7 +58,8 @@
         "motors.h": "c",
         "system.h": "c",
         "i2c_scanner.h": "c",
-        "shared.h": "c"
+        "shared.h": "c",
+        "wmm.h": "c"
     },
     "cSpell.words": [
         "acro",

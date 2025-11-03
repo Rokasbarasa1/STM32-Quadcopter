@@ -1,5 +1,29 @@
 #include "./startup.h"
 
+void check_fpu(void) {
+    uint32_t cpacr = SCB->CPACR;
+    if ((cpacr & (0xF << 20)) == (0xF << 20)) {
+        printf("✅ FPU is ENABLED (CP10 & CP11 full access)\r\n");
+    } else {
+        printf("❌ FPU is DISABLED\r\n");
+    }
+}
+
+// Minimal double test harness
+void test_precision_chain(void) {
+    double ref = 0.0;
+    float reff = 0.0f;
+    
+    for (int i=1; i<=1000; i++) {
+        ref += 1.0 / (double)(i*i);
+        reff += 1.0f / ((float)(i*i));
+    }
+    printf("Double sum: %.15lf\n", ref);
+    printf("Float sum: %.7f\n", reff);
+    printf("Difference: %.10lf\n", fabs(ref - (double)reff));
+}
+
+
 int startup_procedure(){
     accelerometer_roll_offset = base_accelerometer_roll_offset;
     accelerometer_pitch_offset = base_accelerometer_pitch_offset;
@@ -20,7 +44,11 @@ int startup_procedure(){
     initialize_control_abstractions();
     initialize_motor_communication();
     get_initial_position();
-    
+    wmm_init();
+
+    check_fpu();
+    test_precision_chain();
+
     return 0;
 }
 
@@ -131,6 +159,16 @@ uint8_t init_drivers(){
         yaw_alpha = COMPLEMENTARY_RATIO_MULTIPLYER_YAW_UPPER_GATE_MORE_MAG;
     }
 
+    if(bmm350){
+        bmm350_set_rotation_matrix(magnetometer_rotation_correction);
+    }
+
+    
+    if(mmc5603){
+        mmc5603_set_rotation_matrix(magnetometer_mmc5603_rotation_correction);
+    }
+
+
     return 1;
 }
 
@@ -167,12 +205,12 @@ void initialize_control_abstractions(){
     filter_magnetometer_90_z = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
 
     filter_magnetometer_180_x = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
-    filter_magnetometer_180_x = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
-    filter_magnetometer_180_x = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
+    filter_magnetometer_180_y = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
+    filter_magnetometer_180_z = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
 
     filter_magnetometer_270_x = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
-    filter_magnetometer_270_x = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
-    filter_magnetometer_270_x = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
+    filter_magnetometer_270_y = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
+    filter_magnetometer_270_z = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);
 
     
     filter_magnetometer_ist8310_x = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, 200);
@@ -352,8 +390,8 @@ void get_initial_position(){
     // Find the initial position in degrees and apply it to the gyro measurement integral
     // This will tell the robot which way to go to get the actual upward
     __disable_irq();
-    bmm350_magnetometer_readings_micro_teslas(magnetometer_data, 1);
-    mmc5603_magnetometer_readings_micro_teslas(magnetometer_data_secondary);
+    bmm350_magnetometer_readings_micro_teslas(magnetometer_data, 1, 1);
+    mmc5603_magnetometer_readings_micro_teslas(magnetometer_data_secondary, 1);
 
     // WILL FIX THIS LATER
 
@@ -392,9 +430,9 @@ void get_initial_position(){
     // magnetometer_data[2] = moving_average_process(&moving_average_magnetometer_z, magnetometer_data[2]);
 
     calculate_roll_pitch_from_accelerometer_data(acceleration_data, &accelerometer_roll, &accelerometer_pitch, accelerometer_roll_offset, accelerometer_pitch_offset);
-    // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_current_unfiltered, &mangetometer_yaw_unfiltered, imu_orientation[0], imu_orientation[1], yaw_offset + yaw_declination);
-    // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_low_pass, &mangetometer_yaw_low_pass, imu_orientation[0], imu_orientation[1], yaw_offset + yaw_declination);
-    // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw, accelerometer_roll, accelerometer_pitch, yaw_offset + yaw_declination);
+    // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_current_unfiltered, &mangetometer_yaw_unfiltered, imu_orientation[0], imu_orientation[1], yaw_offset1 + yaw_declination);
+    // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_low_pass, &mangetometer_yaw_low_pass, imu_orientation[0], imu_orientation[1], yaw_offset1 + yaw_declination);
+    // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw, accelerometer_roll, accelerometer_pitch, yaw_offset1 + yaw_declination);
 
     
     imu_orientation[0] = accelerometer_roll;

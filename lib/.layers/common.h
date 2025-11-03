@@ -146,12 +146,15 @@ extern uint8_t manual_bdshot;
 extern float magnetometer_mmc5603_hard_iron_correction[3];
 
 extern float magnetometer_mmc5603_soft_iron_correction[][3];
+extern float magnetometer_mmc5603_rotation_correction[3][3];
 
 
 
 extern float magnetometer_hard_iron_correction[3];
 
 extern float magnetometer_soft_iron_correction[][3];
+
+extern float magnetometer_rotation_correction[3][3];
 
 
 
@@ -172,7 +175,9 @@ extern float base_accelerometer_pitch_offset;
 extern float accelerometer_roll_offset;
 extern float accelerometer_pitch_offset;
 
-extern float yaw_offset;
+extern float yaw_offset1;
+extern float yaw_offset2;
+
 extern float yaw_declination;
 
 extern float accelerometer_roll;
@@ -353,6 +358,9 @@ extern float old_imu_orientation[];
 extern float magnetometer_data[];
 extern float magnetometer_data_secondary[];
 
+extern float magnetometer_data_unrotated[];
+extern float magnetometer_data_secondary_unrotated[];
+
 extern float gyro_yaw_old;
 
 extern float magnetometer_data_current_unfiltered[];
@@ -370,7 +378,7 @@ extern float gps_height_above_geoid_kilometers;
 
 extern uint8_t gps_date_day;
 extern uint8_t gps_date_month;
-extern uint8_t gps_date_year;
+extern uint16_t gps_date_year;
 
 extern float lat_distance_to_target_meters;
 extern float lon_distance_to_target_meters;
@@ -609,6 +617,7 @@ extern uint8_t log_file_base_name_gps[];
 extern uint8_t log_file_base_name_alt[];
 extern uint8_t log_file_base_name_mag[];
 extern uint8_t log_file_base_name_compassRPM[];
+extern uint8_t log_file_base_name_maga[];
 extern uint8_t log_file_base_name_yaw[];
 extern uint8_t log_file_base_name_timing[];
 extern uint8_t log_file_base_name_imu[];
@@ -627,6 +636,9 @@ extern const uint8_t use_simple_async;
 extern const uint8_t use_blackbox_logging;
 
 extern uint8_t txt_logging_mode;
+
+extern uint8_t perform_log_for_log_mode_10;
+
 extern uint8_t txt_logged_header;
 
 extern uint32_t loop_iteration;
