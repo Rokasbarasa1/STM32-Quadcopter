@@ -153,17 +153,17 @@ uint8_t manual_bdshot = 0;
 // ===================================== Magnetometer soft and hard irons
 
 // Magnetometer MMC5603 field
-float magnetometer_mmc5603_hard_iron_correction[3] = {3277.283060f, 3274.944050f, 3270.911984f};
+float magnetometer_mmc5603_hard_iron_correction[3] = {3277.799462f, 3275.390504f, 3270.859356f};
 float magnetometer_mmc5603_soft_iron_correction[3][3] = {
-  {1.065294f, 0.001482f, -0.003566f},
-  {0.001482f, 1.038720f, 0.068150f},
-  {-0.003566f, 0.068150f, 1.107906f},
+  {1.003529f, -0.001081f, -0.002708f},
+  {-0.001081f, 0.974598f, 0.061903f},
+  {-0.002708f, 0.061903f, 1.043300f},
 };
 
 float magnetometer_mmc5603_rotation_correction[3][3] = {
-  {-0.004702f, 0.998760f, 0.049552f},
-  {-0.999989f, -0.004682f, -0.000524f},
-  {-0.000291f, -0.049554f, 0.998771f},
+  {-0.005117f, 0.999011f, 0.044169f},
+  {-0.999986f, -0.005179f, 0.001292f},
+  {0.001520f, -0.044162f, 0.999023f},
 };
 
 
@@ -172,19 +172,18 @@ float magnetometer_mmc5603_rotation_correction[3][3] = {
 
 
 // Magnetometer BMM350 at field far old
-float magnetometer_hard_iron_correction[3] = {-22.253065f, -2.751542f, -7.204707f};
+float magnetometer_hard_iron_correction[3] = {-22.491882f, -0.720891f, -7.203170f};
 float magnetometer_soft_iron_correction[3][3] = {
-  {1.049370f, -0.008414f, -0.007085f},
-  {-0.008414f, 1.066816f, -0.012539f},
-  {-0.007085f, -0.012539f, 1.124578f},
+  {0.982527f, -0.006156f, -0.004748f},
+  {-0.006156f, 0.983021f, -0.008824f},
+  {-0.004748f, -0.008824f, 1.067227f},
 };
 
 float magnetometer_rotation_correction[3][3] = {
-  {0.012639f, 0.999794f, -0.015868f},
-  {-0.999759f, 0.012920f, 0.017748f},
-  {0.017950f, 0.015640f, 0.999717f},
+  {0.018187f, 0.999716f, -0.015412f},
+  {-0.999783f, 0.018341f, 0.009885f},
+  {0.010165f, 0.015229f, 0.999832f},
 };
-
 
 
 
