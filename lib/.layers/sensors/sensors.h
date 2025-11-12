@@ -8,4 +8,3 @@ float map_value_to_expo_range(float value, float min_expo, float max_expo, uint8
 float map_value_to_expo_range_inverted(float value, float min_expo, float max_expo, uint8_t expo_curve);
 void reset_array_data(float *array, uint8_t array_size);
 void invert_axies(float *data);
-void flip_sensor_data_upside_down(float *data);

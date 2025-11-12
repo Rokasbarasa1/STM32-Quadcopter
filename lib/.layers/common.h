@@ -188,13 +188,14 @@ extern float magnetometer_yaw_unrotated_no_tilt;
 extern float magnetometer_yaw_unrotated_tilt;
 extern float magnetometer_yaw_no_tilt;
 extern float magnetometer_yaw;
+extern float magnetometer_yaw_unrotated;
 extern float magnetometer_yaw_secondary;
 
 
 extern float magnetometer_yaw_90;
 extern float magnetometer_yaw_180;
 extern float magnetometer_yaw_270;
-
+extern float magnetometer_yaw_secondary_unrotated;
 
 extern float magnetometer_yaw_unfiltered_no_tilt;
 

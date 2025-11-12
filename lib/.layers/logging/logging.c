@@ -206,25 +206,27 @@ void handle_logging(){
                 );
             }else if (txt_logging_mode == 4){
                 if(txt_logged_header == 0){
-                    sd_card_append_to_buffer(1, "time microseconds;magx;magy;magz;mag2x;mag2y;mag2z;gyro_yaw;magnetometer_yaw;magnetometer_yaw_90;magnetometer_yaw_180;magnetometer_yaw_270;magnetometer_yaw_secondary;gps_yaw;magnetometer_ist8310_yaw;roll;pitch;\n");
+                    sd_card_append_to_buffer(1, "time microseconds;magx;magy;magz;mag2x;mag2y;mag2z;gyro_yaw;magnetometer_yaw;magnetometer_yaw_unrotated;magnetometer_yaw_90;magnetometer_yaw_180;magnetometer_yaw_270;magnetometer_yaw_secondary;magnetometer_yaw_secondary_unrotated;gps_yaw;magnetometer_ist8310_yaw;roll;pitch;\n");
                     txt_logged_header = 1;
                 }
                 char abs_time_str[21];
                 uint64_to_str(get_absolute_time(), abs_time_str);
-                sd_card_append_to_buffer(1, "%s;%f;%f;%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;\n",
+                sd_card_append_to_buffer(1, "%s;%f;%f;%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;\n",
                     abs_time_str,
-                    magnetometer_data_raw[0],
-                    magnetometer_data_raw[1],
-                    magnetometer_data_raw[2],
-                    magnetometer_data_secondary_raw[0],
-                    magnetometer_data_secondary_raw[1],
-                    magnetometer_data_secondary_raw[2],
+                    magnetometer_data[0],
+                    magnetometer_data[1],
+                    magnetometer_data[2],
+                    magnetometer_data_secondary[0],
+                    magnetometer_data_secondary[1],
+                    magnetometer_data_secondary[2],
                     gyro_yaw,
                     magnetometer_yaw,
+                    magnetometer_yaw_unrotated,
                     magnetometer_yaw_90,
                     magnetometer_yaw_180,
                     magnetometer_yaw_270,
                     magnetometer_yaw_secondary,
+                    magnetometer_yaw_secondary_unrotated,
                     gps_yaw,
                     magnetometer_ist8310_yaw,
                     imu_orientation[0] - accelerometer_roll_offset,
@@ -296,13 +298,22 @@ void handle_logging(){
                     altitude_barometer_raw
                 );
             }else if (txt_logging_mode == 7){
-                sd_card_append_to_buffer(1, "%f\t%f\t%f\t%f\t%f\t%f\t\n", 
-                    magnetometer_data_raw[0],
-                    magnetometer_data_raw[1],
-                    magnetometer_data_raw[2],
-                    magnetometer_data_secondary_raw[0],
-                    magnetometer_data_secondary_raw[1],
-                    magnetometer_data_secondary_raw[2]
+                // sd_card_append_to_buffer(1, "%f\t%f\t%f\t%f\t%f\t%f\t\n", 
+                //     magnetometer_data_raw[0],
+                //     magnetometer_data_raw[1],
+                //     magnetometer_data_raw[2],
+                //     magnetometer_data_secondary_raw[0],
+                //     magnetometer_data_secondary_raw[1],
+                //     magnetometer_data_secondary_raw[2]
+                // );
+
+                sd_card_append_to_buffer(1, "%f;%f;%f;%f;%f;%f;\n", 
+                    magnetometer_data[0],
+                    magnetometer_data[1],
+                    magnetometer_data[2],
+                    magnetometer_data_secondary[0],
+                    magnetometer_data_secondary[1],
+                    magnetometer_data_secondary[2]
                 );
             }else if (txt_logging_mode == 8){
 

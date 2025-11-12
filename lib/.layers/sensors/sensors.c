@@ -154,9 +154,6 @@ void handle_get_and_calculate_sensor_values(){
     invert_axies(acceleration_data);
     invert_axies(gyro_angular);
 
-    flip_sensor_data_upside_down(magnetometer_data);
-    flip_sensor_data_upside_down(magnetometer_data_unrotated);
-
     // Save old data
     acceleration_data_raw[0] = acceleration_data[0];
     acceleration_data_raw[1] = acceleration_data[1];
@@ -374,8 +371,9 @@ void handle_get_and_calculate_sensor_values(){
         imu_orientation[0] - accelerometer_roll_offset, // Dont use offset roll and pitch, has to be pure
         imu_orientation[1] - accelerometer_pitch_offset,
         yaw_declination,
-        1
+        0
     );
+
     calculate_yaw_tilt_compensated_using_magnetometer_data(
         magnetometer_data_secondary, 
         &magnetometer_yaw_secondary, 
@@ -385,27 +383,58 @@ void handle_get_and_calculate_sensor_values(){
         0
     );
 
-    // // X bmm350 yaw rotated tilt
-    // calculate_yaw_tilt_compensated_using_magnetometer_data(
-    //     magnetometer_data_unrotated, 
-    //     &magnetometer_yaw_90, 
-    //     imu_orientation[0] - accelerometer_roll_offset, // Dont use offset roll and pitch, has to be pure
-    //     imu_orientation[1] - accelerometer_pitch_offset,
-    //     yaw_declination - 90.0f,
-    //     1
-    // );
-    // calculate_yaw_tilt_compensated_using_magnetometer_data(
-    //     magnetometer_data_secondary_unrotated, 
-    //     &magnetometer_yaw_180, 
-    //     imu_orientation[0] - accelerometer_roll_offset, // Dont use offset roll and pitch, has to be pure
-    //     imu_orientation[1] - accelerometer_pitch_offset,
-    //     yaw_declination - 90.0f,
-    //     0
-    // );
 
 
     if(txt_logging_mode == 4){
-    // if(0){
+
+        calculate_yaw_tilt_compensated_using_magnetometer_data(
+            magnetometer_data_unrotated, 
+            &magnetometer_yaw_unrotated, 
+            imu_orientation[0], // Dont use offset roll and pitch, has to be pure
+            imu_orientation[1],
+            yaw_declination - 180.0f,
+            1
+        );
+        
+        calculate_yaw_tilt_compensated_using_magnetometer_data(
+            magnetometer_data, 
+            &magnetometer_yaw_90, 
+            -imu_orientation[1] - accelerometer_pitch_offset, // Dont use offset roll and pitch, has to be pure
+            imu_orientation[0] - accelerometer_roll_offset,
+            yaw_declination,
+            1
+        );
+
+        calculate_yaw_tilt_compensated_using_magnetometer_data(
+            magnetometer_data, 
+            &magnetometer_yaw_180, 
+            -(imu_orientation[0] - accelerometer_roll_offset), // Dont use offset roll and pitch, has to be pure
+            -(imu_orientation[1] - accelerometer_pitch_offset),
+            yaw_declination,
+            1
+        );
+
+        calculate_yaw_tilt_compensated_using_magnetometer_data(
+            magnetometer_data, 
+            &magnetometer_yaw_270, 
+            imu_orientation[1] - accelerometer_pitch_offset, // Dont use offset roll and pitch, has to be pure
+            -(imu_orientation[0] - accelerometer_roll_offset),
+            yaw_declination,
+            1
+        );
+
+        calculate_yaw_tilt_compensated_using_magnetometer_data(
+            magnetometer_data_secondary_unrotated, 
+            &magnetometer_yaw_secondary_unrotated, 
+            -imu_orientation[1], // Dont use offset roll and pitch, has to be pure
+            imu_orientation[0],
+            yaw_declination - 90.0f,
+            0
+        );
+
+    }
+    // if(txt_logging_mode == 4){
+    if(0){
 
         // magnetometer_rotation_matrix
 

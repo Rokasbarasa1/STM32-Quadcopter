@@ -152,19 +152,6 @@ uint8_t manual_bdshot = 0;
 
 // ===================================== Magnetometer soft and hard irons
 
-// Magnetometer MMC5603 field
-float magnetometer_mmc5603_hard_iron_correction[3] = {3277.799462f, 3275.390504f, 3270.859356f};
-float magnetometer_mmc5603_soft_iron_correction[3][3] = {
-  {1.003529f, -0.001081f, -0.002708f},
-  {-0.001081f, 0.974598f, 0.061903f},
-  {-0.002708f, 0.061903f, 1.043300f},
-};
-
-float magnetometer_mmc5603_rotation_correction[3][3] = {
-  {-0.005117f, 0.999011f, 0.044169f},
-  {-0.999986f, -0.005179f, 0.001292f},
-  {0.001520f, -0.044162f, 0.999023f},
-};
 
 
 
@@ -180,11 +167,36 @@ float magnetometer_soft_iron_correction[3][3] = {
 };
 
 float magnetometer_rotation_correction[3][3] = {
-  {0.018187f, 0.999716f, -0.015412f},
-  {-0.999783f, 0.018341f, 0.009885f},
-  {0.010165f, 0.015229f, 0.999832f},
+  {-0.999716f, -0.018187f, 0.015412f},
+  {-0.018341f, 0.999783f, -0.009885f},
+  {-0.015229f, -0.010165f, -0.999832f},
 };
 
+
+// float magnetometer_hard_iron_correction[3] = {
+//     -25.827434, -1.773559, -6.239976
+// };
+
+// float magnetometer_soft_iron_correction[3][3] = {
+//     {0.987158, -0.007043, -0.007839},
+//     {-0.007043, 0.997832, -0.006877},
+//     {-0.007839, -0.006877, 1.063742}
+// };
+
+
+// Magnetometer MMC5603 field
+float magnetometer_mmc5603_hard_iron_correction[3] = {3277.799462f, 3275.390504f, 3270.859356f};
+float magnetometer_mmc5603_soft_iron_correction[3][3] = {
+  {1.003529f, -0.001081f, -0.002708f},
+  {-0.001081f, 0.974598f, 0.061903f},
+  {-0.002708f, 0.061903f, 1.043300f},
+};
+
+float magnetometer_mmc5603_rotation_correction[3][3] = {
+  {-0.005117f, 0.999011f, 0.044169f},
+  {-0.999986f, -0.005179f, 0.001292f},
+  {0.001520f, -0.044162f, 0.999023f},
+};
 
 
 
@@ -246,11 +258,15 @@ float magnetometer_yaw_unrotated_no_tilt = 0;
 float magnetometer_yaw_unrotated_tilt = 0;
 float magnetometer_yaw_no_tilt = 0;
 float magnetometer_yaw = 0;
-float magnetometer_yaw_secondary = 0;
-
+float magnetometer_yaw_unrotated = 0;
 float magnetometer_yaw_90 = 0;
 float magnetometer_yaw_180 = 0;
 float magnetometer_yaw_270 = 0;
+
+float magnetometer_yaw_secondary = 0;
+
+float magnetometer_yaw_secondary_unrotated = 0;
+
 
 
 float magnetometer_yaw_unfiltered_no_tilt = 0;
