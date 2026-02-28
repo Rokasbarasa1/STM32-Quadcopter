@@ -40,7 +40,17 @@ enum t_mpu6050_power_management {
     PWR_CLOCK_INTERNAL_STOP = 0b00000111,
 };
 
-volatile float m_accelerometer_correction[3] = {
+volatile float m_accelerometer_ellipsoid_correction[3][3] = {
+    {1, 0, 0},
+    {0, 1, 0},
+    {0, 0, 1}
+};
+
+volatile float m_accelerometer_offset_correction[3] = {
+    0, 0, 0
+};
+
+volatile float m_accelerometer_level_correction[3] = {
     0, 0, 0
 };
 
@@ -48,17 +58,18 @@ volatile float m_gyro_correction[3] = {
     0, 0, 0
 };
 
-volatile float m_accelerometer_scale_factor_correction[3][3] = {
-    {1, 0, 0},
-    {0, 1, 0},
-    {0, 0, 1}
-};
-
-
 volatile int64_t m_previous_time_roll_pitch = 0;
 volatile int64_t m_previous_time_yaw = 0;
+volatile int64_t m_previous_time_gyro = 0;
+volatile int64_t m_previous_time_gyro2 = 0;
 volatile float m_complementary_ratio = 0.0;
 volatile float m_complementary_ratio_yaw = 0.0;
+
+float mpu6050_old_accelerometer_readings_raw[3] = {0, 0, 0};
+float mpu6050_old_accelerometer_readings_no_level[3] = {0, 0, 0};
+
+float mpu6050_old_gyro_readings[3] = {0, 0, 0};
+
 
 I2C_HandleTypeDef *i2c_handle;
 
@@ -69,8 +80,9 @@ uint8_t init_mpu6050(
     enum t_mpu6050_gyro_config gyro_range, 
     enum t_mpu6050_low_pass_filter low_pass_setting, 
     uint8_t apply_calibration, 
-    float accelerometer_scale_factor_correction[3][3], 
-    float accelerometer_correction[3], 
+    float accelerometer_ellipsoid_correction[3][3], 
+    float accelerometer_offset_correction[3], 
+    float accelerometer_level_correction[3], 
     float gyro_correction[3], 
     float refresh_rate_hz, 
     float complementary_ratio
@@ -84,16 +96,22 @@ uint8_t init_mpu6050(
             m_gyro_correction[i] = gyro_correction[i];
         }
 
-        // assign the correction for accelerometer
-        for (uint8_t i = 0; i < 3; i++){
-            m_accelerometer_correction[i] = accelerometer_correction[i];
-        }
-
         for (uint8_t i = 0; i < 3; i++){
             for (uint8_t k = 0; k < 3; k++){
-                m_accelerometer_scale_factor_correction[i][k] = accelerometer_scale_factor_correction[i][k];
+                m_accelerometer_ellipsoid_correction[i][k] = accelerometer_ellipsoid_correction[i][k];
             }
         }
+
+        // assign the correction for accelerometer
+        for (uint8_t i = 0; i < 3; i++){
+            m_accelerometer_offset_correction[i] = accelerometer_offset_correction[i];
+        }
+
+        // assign the correction for accelerometer
+        for (uint8_t i = 0; i < 3; i++){
+            m_accelerometer_level_correction[i] = accelerometer_level_correction[i];
+        }
+
     }
 
 
@@ -246,19 +264,58 @@ void mpu6050_get_accelerometer_readings_gravity(float *data){
     int16_t Y = ((int16_t)retrieved_data[2] << 8) | (int16_t)retrieved_data[3];
     int16_t Z = ((int16_t)retrieved_data[4] << 8) | (int16_t)retrieved_data[5];
 
-    float X_out = (float)X * selected_accelerometer_accuracy_conversion;
-    float Y_out = (float)Y * selected_accelerometer_accuracy_conversion;
-    float Z_out = (float)Z * selected_accelerometer_accuracy_conversion;
 
-    data[0] = X_out - (m_accelerometer_correction[0]);
-    data[1] = Y_out - (m_accelerometer_correction[1]);
-    data[2] = Z_out - (m_accelerometer_correction[2] - 1);
+    mpu6050_old_accelerometer_readings_raw[0] = (float)X * selected_accelerometer_accuracy_conversion;
+    mpu6050_old_accelerometer_readings_raw[1] = (float)Y * selected_accelerometer_accuracy_conversion;
+    mpu6050_old_accelerometer_readings_raw[2] = (float)Z * selected_accelerometer_accuracy_conversion;
 
+    data[0] = mpu6050_old_accelerometer_readings_raw[0] - (m_accelerometer_offset_correction[0]);
+    data[1] = mpu6050_old_accelerometer_readings_raw[1] - (m_accelerometer_offset_correction[1]);
+    data[2] = mpu6050_old_accelerometer_readings_raw[2] - (m_accelerometer_offset_correction[2]);
+
+    float temp[3];
     for (uint8_t i = 0; i < 3; i++){
-        data[i] = (m_accelerometer_scale_factor_correction[i][0] * data[0]) +
-                  (m_accelerometer_scale_factor_correction[i][1] * data[1]) +
-                  (m_accelerometer_scale_factor_correction[i][2] * data[2]);
+        temp[i] = (m_accelerometer_ellipsoid_correction[i][0] * data[0]) +
+                  (m_accelerometer_ellipsoid_correction[i][1] * data[1]) +
+                  (m_accelerometer_ellipsoid_correction[i][2] * data[2]);
     }
+    for (uint8_t i = 0; i < 3; i++) data[i] = temp[i];
+
+
+
+    mpu6050_old_accelerometer_readings_no_level[0] = data[0];
+    mpu6050_old_accelerometer_readings_no_level[1] = data[1];
+    mpu6050_old_accelerometer_readings_no_level[2] = data[2];
+
+    data[0] = data[0] - (m_accelerometer_level_correction[0]);
+    data[1] = data[1] - (m_accelerometer_level_correction[1]);
+    data[2] = data[2] - (m_accelerometer_level_correction[2] - 1);
+
+}
+
+void mpu6050_get_accelerometer_readings_gravity_raw(float *data){
+    uint8_t retrieved_data[] = {0, 0, 0, 0, 0, 0};
+
+    HAL_I2C_Mem_Read(
+        i2c_handle,
+        MPU6050 + 1,
+        ACCEL_XOUT_H_REG,
+        1,
+        retrieved_data,
+        6,  // Read all of the accelerometer registers
+        5);
+
+    int16_t X = ((int16_t)retrieved_data[0] << 8) | (int16_t)retrieved_data[1];
+    int16_t Y = ((int16_t)retrieved_data[2] << 8) | (int16_t)retrieved_data[3];
+    int16_t Z = ((int16_t)retrieved_data[4] << 8) | (int16_t)retrieved_data[5];
+
+    mpu6050_old_accelerometer_readings_raw[0] = (float)X * selected_accelerometer_accuracy_conversion;
+    mpu6050_old_accelerometer_readings_raw[1] = (float)Y * selected_accelerometer_accuracy_conversion;
+    mpu6050_old_accelerometer_readings_raw[2] = (float)Z * selected_accelerometer_accuracy_conversion;
+
+    data[0] = mpu6050_old_accelerometer_readings_raw[0];
+    data[1] = mpu6050_old_accelerometer_readings_raw[1];
+    data[2] = mpu6050_old_accelerometer_readings_raw[2];
 }
 
 // Read gyro in degrees per second units 
@@ -278,7 +335,7 @@ void mpu6050_get_gyro_readings_dps(float *data){
     int16_t Y = ((int16_t)retrieved_data[2] << 8) | (int16_t)retrieved_data[3];
     int16_t Z = ((int16_t)retrieved_data[4] << 8) | (int16_t)retrieved_data[5];
 
-    float X_out = (float)X * selected_gyro_accuracy_conversion; // This is an old fuckup that i dont have time to fix at the moment
+    float X_out = (float)X * selected_gyro_accuracy_conversion;
     float Y_out = (float)Y * selected_gyro_accuracy_conversion;
     float Z_out = (float)Z * selected_gyro_accuracy_conversion;
 
@@ -310,10 +367,10 @@ void find_accelerometer_error(uint64_t sample_size){
         gyro_correction_temp[i] = m_gyro_correction[i];
         m_gyro_correction[i] = 0;
 
-        accelerometer_correction_temp[i] = m_accelerometer_correction[i];
-        m_accelerometer_correction[i] = 0;
+        accelerometer_correction_temp[i] = m_accelerometer_offset_correction[i];
+        m_accelerometer_offset_correction[i] = 0;
     }
-    m_accelerometer_correction[2] = 1;
+    m_accelerometer_offset_correction[2] = 1;
 
     for (uint64_t i = 0; i < sample_size; i++){
         __disable_irq();
@@ -331,7 +388,7 @@ void find_accelerometer_error(uint64_t sample_size){
     // Reassign the corrections 
     for (uint8_t i = 0; i < 3; i++){
         m_gyro_correction[i] = gyro_correction_temp[i];
-        m_accelerometer_correction[i] = accelerometer_correction_temp[i];
+        m_accelerometer_offset_correction[i] = accelerometer_correction_temp[i];
     }
 
     printf(
@@ -379,8 +436,8 @@ void find_gyro_error(uint64_t sample_size){
         gyro_correction_temp[i] = m_gyro_correction[i];
         m_gyro_correction[i] = 0;
 
-        accelerometer_correction_temp[i] = m_accelerometer_correction[i];
-        m_accelerometer_correction[i] = 0;
+        accelerometer_correction_temp[i] = m_accelerometer_offset_correction[i];
+        m_accelerometer_offset_correction[i] = 0;
     }
 
     for (uint64_t i = 0; i < sample_size; i++){
@@ -399,7 +456,7 @@ void find_gyro_error(uint64_t sample_size){
     // Reassign the corrections 
     for (uint8_t i = 0; i < 3; i++){
         m_gyro_correction[i] = gyro_correction_temp[i];
-        m_accelerometer_correction[i] = accelerometer_correction_temp[i];
+        m_accelerometer_offset_correction[i] = accelerometer_correction_temp[i];
     }
 
     printf(
@@ -459,7 +516,7 @@ void mpu6050_apply_calibrations(float accelerometer_correction[3], float gyro_co
 
     // assign the correction for accelerometer
     for (uint8_t i = 0; i < 3; i++){
-        m_accelerometer_correction[i] = accelerometer_correction[i];
+        m_accelerometer_offset_correction[i] = accelerometer_correction[i];
     }
 }
 
@@ -473,8 +530,20 @@ void mpu6050_apply_calibrations_gyro(float gyro_correction[3]){
 void mpu6050_apply_calibration_accelerometers(float accelerometer_correction[3]){
     // assign the correction for accelerometer
     for (uint8_t i = 0; i < 3; i++){
-        m_accelerometer_correction[i] = accelerometer_correction[i];
+        m_accelerometer_offset_correction[i] = accelerometer_correction[i];
     }
+}
+
+void mpu6050_get_accelerometer_readings_gravity_raw_old(float *data){
+    data[0] = mpu6050_old_accelerometer_readings_raw[0];
+    data[1] = mpu6050_old_accelerometer_readings_raw[1];
+    data[2] = mpu6050_old_accelerometer_readings_raw[2];
+}
+
+void mpu6050_get_accelerometer_readings_gravity_no_level_old(float *data){
+    data[0] = mpu6050_old_accelerometer_readings_no_level[0];
+    data[1] = mpu6050_old_accelerometer_readings_no_level[1];
+    data[2] = mpu6050_old_accelerometer_readings_no_level[2];
 }
 
 
@@ -508,7 +577,39 @@ void sensor_fusion_roll_pitch(float* gyro_angular, float accelerometer_roll, flo
     while (imu_orientation[1] < -180.0) imu_orientation[1] += 360.0;
 }
 
-void sensor_fusion_yaw(float* gyro_angular, float magnetometer_yaw, int64_t time, uint8_t set_timestamp, float* imu_orientation, float* gyro_yaw){
+// void sensor_fusion_yaw(float* gyro_angular, float magnetometer_yaw, int64_t time, uint8_t set_timestamp, float* imu_orientation, float* gyro_yaw){
+
+//     if(m_previous_time_yaw == 0){
+//         m_previous_time_yaw = time;
+//         return;
+//     }
+
+//     float elapsed_time_sec = (((float)time*CONVERT_MICROSECONDS_TO_SECONDS)-((float)m_previous_time_yaw*CONVERT_MICROSECONDS_TO_SECONDS));
+//     if(set_timestamp == 1) m_previous_time_yaw = time;
+
+//     float gyro_yaw_rate_dps = -gyro_angular[2];  // Flip sign to match compass/heading convention. Otherwise the gyro going positive counter clock wise
+
+//     float gyro_yaw_new = imu_orientation[2] + gyro_yaw_rate_dps * elapsed_time_sec; // Gyro increases counter clock wise but it has to increas clockwise, that is why substract
+
+//     while (gyro_yaw_new >= 360.0f) gyro_yaw_new -= 360.0f;
+//     while (gyro_yaw_new < 0.0f) gyro_yaw_new += 360.0f;
+
+//     imu_orientation[2] = complementary_filter_angle_calculate(
+//         m_complementary_ratio_yaw, 
+//         gyro_yaw_new, 
+//         magnetometer_yaw,
+//         0.0f,
+//         360.0f
+//     );
+
+//     while (imu_orientation[2] >= 360.0) imu_orientation[2] -= 360.0;
+//     while (imu_orientation[2] < 0.0) imu_orientation[2] += 360.0;
+
+
+// }
+
+
+void sensor_fusion_yaw(float magnetometer_yaw, float* gyro_angular, int64_t time, uint8_t set_timestamp, float* imu_orientation){
 
     if(m_previous_time_yaw == 0){
         m_previous_time_yaw = time;
@@ -518,13 +619,32 @@ void sensor_fusion_yaw(float* gyro_angular, float magnetometer_yaw, int64_t time
     float elapsed_time_sec = (((float)time*CONVERT_MICROSECONDS_TO_SECONDS)-((float)m_previous_time_yaw*CONVERT_MICROSECONDS_TO_SECONDS));
     if(set_timestamp == 1) m_previous_time_yaw = time;
 
-    float gyro_yaw_rate_dps = -gyro_angular[2];  // Flip sign to match compass/heading convention. Otherwise the gyro going positive counter clock wise
+    // Gyro yaw tilt compensation 
+    float roll_rad = imu_orientation[0] * M_DEG_TO_RAD;
+    float pitch_rad = imu_orientation[1] * M_DEG_TO_RAD;
 
-    float gyro_yaw_new = imu_orientation[2] + gyro_yaw_rate_dps * elapsed_time_sec; // Gyro increases counter clock wise but it has to increas clockwise, that is why substract
+    // From empirical testing i found out that halfing the correction values is best
+    float p = gyro_angular[0] * 0.5f;  // Does the pitch fix
+    float q = -gyro_angular[1] * 0.5f; // Does the roll fix 
+    float r = -gyro_angular[2];
+
+    // Tilt-compensated yaw rate (ZYX Euler convention)
+    float yaw_rate_dps = (r + q * sinf(roll_rad) + p * sinf(pitch_rad) * cosf(roll_rad));
+    
+    // Improved denominator for stability (handles gimbal lock better)
+    float denom = cosf(pitch_rad) * cosf(roll_rad);
+    if (fabsf(denom) < 0.1f) {  // Steep tilt fallback
+        yaw_rate_dps = r;
+    } else {
+        yaw_rate_dps /= denom;
+    }
+
+    float gyro_yaw_new = imu_orientation[2] + yaw_rate_dps * elapsed_time_sec;
 
     while (gyro_yaw_new >= 360.0f) gyro_yaw_new -= 360.0f;
     while (gyro_yaw_new < 0.0f) gyro_yaw_new += 360.0f;
 
+    // Actual sensro fusin happenning
     imu_orientation[2] = complementary_filter_angle_calculate(
         m_complementary_ratio_yaw, 
         gyro_yaw_new, 
@@ -535,20 +655,54 @@ void sensor_fusion_yaw(float* gyro_angular, float magnetometer_yaw, int64_t time
 
     while (imu_orientation[2] >= 360.0) imu_orientation[2] -= 360.0;
     while (imu_orientation[2] < 0.0) imu_orientation[2] += 360.0;
-
-
 }
 
 
-void get_gyro_yaw(float* gyro_angular, int64_t time, uint8_t set_timestamp, float* gyro_yaw){
+void get_gyro_yaw2(float* gyro_angular, int64_t time, uint8_t set_timestamp, float* gyro_yaw, float *imu_orientation){
     
-    if(m_previous_time_yaw == 0){
-        m_previous_time_yaw = time;
+    if(m_previous_time_gyro2 == 0){
+        m_previous_time_gyro2 = time;
         return;
     }
 
-    float elapsed_time_sec = (((float)time*CONVERT_MICROSECONDS_TO_SECONDS)-((float)m_previous_time_yaw*CONVERT_MICROSECONDS_TO_SECONDS));
-    if(set_timestamp == 1) m_previous_time_yaw = time;
+    float elapsed_time_sec = (((float)time*CONVERT_MICROSECONDS_TO_SECONDS)-((float)m_previous_time_gyro2*CONVERT_MICROSECONDS_TO_SECONDS));
+    if(set_timestamp == 1) m_previous_time_gyro2 = time;
+
+    float roll_rad = imu_orientation[0] * M_DEG_TO_RAD;
+    float pitch_rad = imu_orientation[1] * M_DEG_TO_RAD;
+
+    // From empirical testing i found out that halfing the correction values is best
+    float p = gyro_angular[0] * 0.5f;  // Does the pitch fix
+    float q = -gyro_angular[1] * 0.5f; // Does the roll fix 
+    float r = -gyro_angular[2];
+
+    // Tilt-compensated yaw rate (ZYX Euler convention)
+    float yaw_rate_dps = (r + q * sinf(roll_rad) + p * sinf(pitch_rad) * cosf(roll_rad));
+    
+    // Improved denominator for stability (handles gimbal lock better)
+    float denom = cosf(pitch_rad) * cosf(roll_rad);
+    if (fabsf(denom) < 0.1f) {  // Steep tilt fallback
+        yaw_rate_dps = r;
+    } else {
+        yaw_rate_dps /= denom;
+    }
+
+    // Integrate
+    *gyro_yaw += yaw_rate_dps * elapsed_time_sec;
+    
+    while (*gyro_yaw >= 360.0f) *gyro_yaw -= 360.0f;
+    while (*gyro_yaw < 0.0f) *gyro_yaw += 360.0f;
+}
+
+void get_gyro_yaw(float* gyro_angular, int64_t time, uint8_t set_timestamp, float* gyro_yaw){
+    
+    if(m_previous_time_gyro == 0){
+        m_previous_time_gyro = time;
+        return;
+    }
+
+    float elapsed_time_sec = (((float)time*CONVERT_MICROSECONDS_TO_SECONDS)-((float)m_previous_time_gyro*CONVERT_MICROSECONDS_TO_SECONDS));
+    if(set_timestamp == 1) m_previous_time_gyro = time;
 
     float gyro_yaw_rate_dps = -gyro_angular[2];  // Flip sign to match compass/heading convention. Otherwise the gyro going positive counter clock wise
 
@@ -558,6 +712,7 @@ void get_gyro_yaw(float* gyro_angular, int64_t time, uint8_t set_timestamp, floa
     while (*gyro_yaw >= 360.0) *gyro_yaw -= 360.0;
     while (*gyro_yaw < 0.0) *gyro_yaw += 360.0;
 }
+
 
 
 // Find the shortest value between two angles. Range -180 to 180

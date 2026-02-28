@@ -6,6 +6,7 @@
 #include "stm32f4xx_hal.h"
 #include "../printf/retarget.h"
 #include "../utils/string_utils/string_utils.h"
+#include <stdbool.h>
 
 uint8_t init_bn357(UART_HandleTypeDef *uart_temp, DMA_HandleTypeDef *hdma_uart_rx_temp, uint8_t minimal_gps_parse_enabled);
 void bn357_toggle_gps_logging(uint8_t status);
@@ -31,8 +32,17 @@ uint8_t bn357_get_utc_time_seconds();
 uint8_t bn357_get_utc_time_raw();
 uint8_t bn357_get_fix_type();
 uint8_t bn357_parse_data();
+float bn357_get_speed_over_ground_knots();
+bool bn357_get_speed_over_ground_knots_stale();
+float bn357_get_speed_over_ground_ms();
+bool bn357_get_speed_over_ground_ms_stale();
 float bn357_get_course_over_ground();
+bool bn357_get_course_over_ground_stale();
 uint8_t bn357_get_date_day();
 uint8_t bn357_get_date_month();
 uint8_t bn357_get_date_two_digits_year();
 uint16_t bn357_get_date_full_year();
+uint16_t bn357_get_GNGGA_string(uint8_t* buffer, uint16_t buffer_size);
+bool bn357_GNGGA_string_stale();
+uint16_t bn357_get_GNRMC_string(uint8_t* buffer, uint16_t buffer_size);
+bool bn357_GNRMC_string_stale();

@@ -63,26 +63,26 @@ void handle_pid_and_motor_control(){
         ((float)get_absolute_time() - (float)last_signal_timestamp_microseconds) / 1000000.0 > minimum_signal_timing_seconds
     ){  
 
-
+        motors_off = 1;
         motor_off_index++;
         motor_off_index %= REFRESH_RATE_HZ;
 
         if(motor_off_index == 0){
             // DEBUG Why are motors off?
             if(imu_orientation[0] >  max_angle_before_motors_off){
-                printf("MO ROLL+\n");
+                printf("NO ROLL+\n");
             }
             if(imu_orientation[0] < -max_angle_before_motors_off){
-                printf("MO ROLL-\n");
+                printf("NO ROLL-\n");
             }
             if(imu_orientation[1] >  max_angle_before_motors_off){
-                printf("MO PITCH+\n");
+                printf("NO PITCH+\n");
             }
             if(imu_orientation[1] < -max_angle_before_motors_off){
-                printf("MO PITCH-\n");
+                printf("NO PITCH-\n");
             }
             if( ((float)get_absolute_time() - (float)last_signal_timestamp_microseconds) / 1000000.0 > minimum_signal_timing_seconds){
-                printf("MO RADIO\n");
+                printf("NO RADIO\n");
             }
         }
 
@@ -177,6 +177,8 @@ void handle_pid_and_motor_control(){
         motor7 = DWT->CYCCNT;
         return;
     }
+    
+    motors_off = 0;
     // When receiving signals, decrease the complementary filter ratio to make the drone more responsive to gyro
     mpu6050_set_complementary_ratio(COMPLEMENTARY_RATIO_MULTIPLYER_FLIGHT * (1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ))));
 
@@ -184,23 +186,25 @@ void handle_pid_and_motor_control(){
     if(use_gps_hold){
         // If the gps is not up to date then do not use it
         if(gps_position_hold_enabled && gps_can_be_used){
+
+            // Want both velocities to be at 0
             pid_set_desired_value(&gps_latitude_pid, 0.0);
             pid_set_desired_value(&gps_longitude_pid, 0.0);
+            
+            // EAST velocity error → longitude PID → roll command  
+            float roll_command = pid_get_error_own_error(&gps_longitude_pid, error_gps_roll, loop_start_timestamp_microseconds);
 
-            float roll_command = pid_get_error_own_error(&gps_longitude_pid, error_right, loop_start_timestamp_microseconds);
-            float pitch_command = pid_get_error_own_error(&gps_latitude_pid, error_forward, loop_start_timestamp_microseconds);
-
-            // For logging
+            // NORTH velocity error → latitude PID → pitch command
+            float pitch_command = pid_get_error_own_error(&gps_latitude_pid, error_gps_pitch, loop_start_timestamp_microseconds);
+            
+            // For logging (still works, now logging velocity PID terms)
             PID_proportional[4] = pid_get_last_proportional_error(&gps_latitude_pid);
             PID_integral[4] = pid_get_last_integral_error(&gps_latitude_pid);
             PID_derivative[4] = pid_get_last_derivative_error(&gps_latitude_pid);
 
-            // Convert the roll and pitch adjustment to a vector
-            // This makes the target position more clear to the drone
-            // Roll and pitch is adjusted to go STRAIGHT to the target
+            // ALL THE VECTOR LOGIC STAYS IDENTICAL - it's perfect as-is
             float gps_hold_vector_magnitude = sqrtf(roll_command * roll_command + pitch_command * pitch_command);
 
-            // Get unit vectors of error lat and lon
             float unit_vector_roll_command = 0.0f;
             float unit_vector_pitch_command = 0.0f;
             if(gps_hold_vector_magnitude != 0.0f){
@@ -210,12 +214,8 @@ void handle_pid_and_motor_control(){
 
             float scale_factor = fmin(gps_hold_vector_magnitude, gps_pid_angle_of_attack_max);
 
-            unit_vector_roll_command = unit_vector_roll_command * scale_factor;
-            unit_vector_pitch_command = unit_vector_pitch_command * scale_factor;
-
-            // Works better inverted
-            gps_hold_roll_adjustment = -unit_vector_roll_command;
-            gps_hold_pitch_adjustment = -unit_vector_pitch_command;
+            gps_hold_roll_adjustment = unit_vector_roll_command * scale_factor;
+            gps_hold_pitch_adjustment = unit_vector_pitch_command * scale_factor;
 
         }else if(gps_position_hold_enabled && !gps_can_be_used){
             // Put in the same values'

@@ -20,3 +20,39 @@ float complementary_filter_angle_calculate(float ratio, float value1, float valu
     float corrected_value2 = value1 + correction;
     return complementary_filter_calculate(ratio, value1, corrected_value2);
 }
+
+// 360 - 0 = 360
+
+// 100 - 10 = 90
+
+// 90 % 360 = 90
+
+// (90 + 360) % 360 = 90
+
+
+
+
+
+// 360 - 0 = 360
+
+// 200 - 10 = 190
+
+// 190 % 360 = 190
+
+// (190 + 360) % 360 = 190
+
+
+// 10 - 200 = -190
+
+// -190 % 360 = 170
+
+// 170 % 
+
+
+
+// 350 - 10 = 340
+
+// 340 % 360 = 340
+
+
+// 10 - 350 = -340

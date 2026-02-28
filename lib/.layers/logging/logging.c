@@ -90,11 +90,11 @@ void handle_logging(){
             }else if(txt_logging_mode == 1){ // Log gps target and current position
                 if(got_gps){
                     if(txt_logged_header == 0){
-                        sd_card_append_to_buffer(1, "target lat;target lon;lat;lon;satellites count;yaw;gyro yaw;mag yaw;mag2 yaw;gps yaw;gps roll;gps pitch;roll;pitch;lat distance to target meters;lon distance to target meters;extra info;\n");
+                        sd_card_append_to_buffer(1, "target lat;target lon;lat;lon;satellites count;yaw;gyro yaw;mag yaw;mag2 yaw;gps yaw;gps roll;gps pitch;roll;pitch;gps speed;slowing forward;slowing right;error forward;error right;extra info;\n");
                         txt_logged_header = 1;
                     }
 
-                    sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;", 
+                    sd_card_append_to_buffer(1, "%.1f;%.1f;%.1f;%.1f;%d;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%.1f;%f;%.3f;%.3f;", 
                         target_latitude * 1000000.0f,            // %f;
                         target_longitude * 1000000.0f,           // %f;
                         gps_latitude * 1000000.0f,               // %f;
@@ -108,7 +108,10 @@ void handle_logging(){
                         gps_hold_roll_adjustment,   // %.1f;
                         gps_hold_pitch_adjustment,  // %.1f;
                         imu_orientation[0],         // %.1f;
-                        imu_orientation[1]          // %.1f;
+                        imu_orientation[1],          // %.1f;
+                        gps_speed_ms,
+                        gps_hold_roll_adjustment_not_slowed,
+                        gps_hold_pitch_adjustment_not_slowed
                     );
 
                     if(gps_target_unset_logged == 0){
@@ -141,8 +144,8 @@ void handle_logging(){
                     }else{
                         // Log the distance to target and empty reason for something
                         sd_card_append_to_buffer(1, "%f;%f;;", 
-                            lat_distance_to_target_meters,
-                            lon_distance_to_target_meters
+                            error_gps_pitch,
+                            error_gps_roll
                         );
                     }
 
@@ -206,12 +209,12 @@ void handle_logging(){
                 );
             }else if (txt_logging_mode == 4){
                 if(txt_logged_header == 0){
-                    sd_card_append_to_buffer(1, "time microseconds;magx;magy;magz;mag2x;mag2y;mag2z;gyro_yaw;magnetometer_yaw;magnetometer_yaw_unrotated;magnetometer_yaw_90;magnetometer_yaw_180;magnetometer_yaw_270;magnetometer_yaw_secondary;magnetometer_yaw_secondary_unrotated;gps_yaw;magnetometer_ist8310_yaw;roll;pitch;\n");
+                    sd_card_append_to_buffer(1, "time microseconds;magx;magy;magz;mag2x;mag2y;mag2z;fused yaw;gyro_yaw;gyro_yaw_tilt;magnetometer_yaw;magnetometer_yaw_secondary;gps_yaw;magnetometer_ist8310_yaw;roll;pitch;\n");
                     txt_logged_header = 1;
                 }
                 char abs_time_str[21];
                 uint64_to_str(get_absolute_time(), abs_time_str);
-                sd_card_append_to_buffer(1, "%s;%f;%f;%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;\n",
+                sd_card_append_to_buffer(1, "%s;%f;%f;%f;%f;%f;%f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;\n",
                     abs_time_str,
                     magnetometer_data[0],
                     magnetometer_data[1],
@@ -219,14 +222,11 @@ void handle_logging(){
                     magnetometer_data_secondary[0],
                     magnetometer_data_secondary[1],
                     magnetometer_data_secondary[2],
+                    imu_orientation[2],
                     gyro_yaw,
+                    gyro_yaw2,
                     magnetometer_yaw,
-                    magnetometer_yaw_unrotated,
-                    magnetometer_yaw_90,
-                    magnetometer_yaw_180,
-                    magnetometer_yaw_270,
                     magnetometer_yaw_secondary,
-                    magnetometer_yaw_secondary_unrotated,
                     gps_yaw,
                     magnetometer_ist8310_yaw,
                     imu_orientation[0] - accelerometer_roll_offset,
@@ -261,6 +261,7 @@ void handle_logging(){
 
                 char delta_loop_time_str[21];
                 uint64_to_str(delta_time_without_waiting_from_previous_loop_microseconds, delta_loop_time_str);
+
                 sd_card_append_to_buffer(1, "%s;%s;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.3f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;%.2f;\n",
                     abs_time_str,
                     delta_loop_time_str,
@@ -417,6 +418,78 @@ void handle_logging(){
                 }else{
                     sd_card_append_to_buffer(1, "NAN\n");
                 }
+            }else if(txt_logging_mode == 11){
+
+                
+                if(txt_logged_header == 0){
+                    sd_card_append_to_buffer(1, "abs_time;delta_loop_time;accel x;accel y;accel z;gyro x;gyro y;gyro z;mag1 x;mag1 y;mag1 z;mag2 x;mag2 y;mag2 z;pressure;temperature;lat;lon;gps yaw;gps position accuracy;motor 0 frequency;motor 1 frequency;motor 2 frequency;motor 3 frequency;rc roll;rc pitch;rc throttle;rc yaw;roll;pitch;yaw;\n");
+                    txt_logged_header = 1;
+                }
+                
+                char abs_time_str[21];
+                uint64_to_str(delta_time_total_loop_time_previous_loop_microseconds, abs_time_str);
+
+                char delta_loop_time_str[21];
+                uint64_to_str(delta_time_without_waiting_from_previous_loop_microseconds, delta_loop_time_str);
+
+                sd_card_append_to_buffer(1, "%s;%s;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%f;%.2f;%.1f;%f;%f;%.2f;%f;%.2f;%.2f;%.2f;%.2f;%.1f;%.1f;%.1f;%.1f;%.2f;%.2f;%.2f;\n", 
+                    abs_time_str,
+                    delta_loop_time_str,
+                    acceleration_data_raw[0],
+                    acceleration_data_raw[1],
+                    acceleration_data_raw[2],
+                    gyro_angular_raw[0],
+                    gyro_angular_raw[1],
+                    gyro_angular_raw[2],
+                    magnetometer_data_raw[0],
+                    magnetometer_data_raw[1],
+                    magnetometer_data_raw[2],
+                    magnetometer_data_secondary_raw[0],
+                    magnetometer_data_secondary_raw[1],
+                    magnetometer_data_secondary_raw[2],
+                    pressure_hpa,
+                    temperature_celsius,
+                    gps_latitude,
+                    gps_longitude,
+                    gps_yaw,
+                    gps_position_accuracy,
+                    motor_frequency[0],
+                    motor_frequency[1],
+                    motor_frequency[2],
+                    motor_frequency[3],
+                    roll,
+                    pitch,
+                    throttle,
+                    yaw,
+                    imu_orientation[0],
+                    imu_orientation[1],
+                    imu_orientation[2]
+                );
+            }else if (txt_logging_mode == 12){
+                if(gps_can_be_used){
+                    uint8_t gps_buffer[300] = {0};
+
+                    if(got_gps){
+                        raw_gps_log_type = 0;
+                    }
+                    if(raw_gps_log_type == 0 && !bn357_GNRMC_string_stale()){
+                        bn357_get_GNRMC_string(gps_buffer, 300);
+                        sd_card_append_to_buffer(1, "\n%s\n", 
+                            gps_buffer
+                        );
+                        raw_gps_log_type++;
+
+                    }else if(raw_gps_log_type == 1 && !bn357_GNGGA_string_stale()){
+                        bn357_get_GNGGA_string(gps_buffer, 300);
+                        sd_card_append_to_buffer(1, "\n%s\n", 
+                            gps_buffer
+                        );
+                        raw_gps_log_type++;
+                    }
+                }else{
+                    sd_card_append_to_buffer(1, "NAN");
+                }
+                
             }
         }
 
@@ -638,6 +711,8 @@ void setup_logging_to_sd(uint8_t use_updated_file_name){
         else if(txt_logging_mode == 8) sd_card_initialized = sd_special_initialize(log_file_base_name_compassRPM);
         else if(txt_logging_mode == 9) sd_card_initialized = sd_special_initialize(log_file_base_name_maga);
         else if(txt_logging_mode == 10) sd_card_initialized = sd_special_initialize(log_file_base_name_maga);
+        else if(txt_logging_mode == 11) sd_card_initialized = sd_special_initialize(log_file_base_name_raw);
+        else if(txt_logging_mode == 12) sd_card_initialized = sd_special_initialize(log_file_base_name_raw_gps);
         else sd_card_initialized = sd_special_initialize(log_file_base_name);
 
         if(!sd_card_initialized){

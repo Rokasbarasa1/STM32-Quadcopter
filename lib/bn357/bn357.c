@@ -2,44 +2,82 @@
 
 #include "math.h"
 #include "../utils/math_constants.h"
+#include <stdbool.h>
 
-UART_HandleTypeDef *uart;
-DMA_HandleTypeDef *hdma_uart_rx;
+float m_latitude = 0.0;
+bool m_latitude_stale = true;
+char m_latitude_direction = ' ';
+bool m_latitude_direction_stale = true;
+float m_longitude = 0.0;
+bool m_longitude_stale = true;
+char m_longitude_direction = ' ';
+bool m_longitude_direction_stale = true;
+float m_altitude = 0.0;
+bool m_altitude_stale = true;
+float m_altitude_geoid = 0.0;
+bool m_altitude_geoid_stale = true;
+float m_accuracy = 0.0;
+bool m_accuracy_stale = true;
+uint8_t m_satellites_quantity = 0;
+bool m_satellites_quantity_stale = true;
+uint8_t m_fix_quality = 0;
+bool m_fix_quality_stale = true;
+uint8_t m_time_utc_hours = 0;
+bool m_time_utc_hours_stale = true;
+uint8_t m_time_utc_minutes = 0;
+bool m_time_utc_minutes_stale = true;
+uint8_t m_time_utc_seconds = 0;
+bool m_time_utc_seconds_stale = true;
+uint8_t m_up_to_date_date = 0;
+bool m_up_to_date_date_stale = true;
+uint32_t m_time_raw = 0;
+bool m_time_raw_stale = true;
+uint8_t m_fix_type = 0;
+bool m_fix_type_stale = true;
+float m_speed_over_ground_knots = 0;
+bool m_speed_over_ground_knots_stale = true;
+float m_speed_over_ground_ms = 0.0f;
+bool m_speed_over_ground_ms_stale = true;
+float m_course_over_ground = 0;
+bool m_course_over_ground_stale = true;
 
-volatile float m_latitude = 0.0;
-volatile char m_latitude_direction = ' ';
-volatile float m_longitude = 0.0;
-volatile char m_longitude_direction = ' ';
-volatile float m_altitude = 0.0;
-volatile float m_altitude_geoid = 0.0;
-volatile float m_accuracy = 0.0;
-volatile uint8_t m_satellites_quantity = 0;
-volatile uint8_t m_fix_quality = 0;
-volatile uint8_t m_time_utc_hours = 0;
-volatile uint8_t m_time_utc_minutes = 0;
-volatile uint8_t m_time_utc_seconds = 0;
-volatile uint8_t m_up_to_date_date = 0;
-volatile uint32_t m_time_raw = 0;
-volatile uint8_t m_fix_type = 0;
-volatile float m_course_over_ground = 0;
-volatile uint8_t m_date_day = 0;
-volatile uint8_t m_date_month = 0;
-volatile uint16_t m_date_year = 0;
+uint8_t m_date_day = 0;
+bool m_date_day_stale = true;
+
+uint8_t m_date_month = 0;
+bool m_date_month_stale = true;
+
+uint16_t m_date_year = 0;
+bool m_date_year_stale = true;
+
+
+uint8_t gngga_string[300] = {0};
+uint16_t gngga_string_size = 0;
+bool gngga_string_stale = 1;
+
+uint8_t gnrmc_string[200] = {0};
+uint16_t gnrmc_string_size = 0;
+bool gnrmc_string_stale = 1;
 
 
 #define BN357_DEBUG 0
 #define BN357_TRACK_TIMING 0
 
-volatile uint8_t continue_with_gps_data = 0;
+
+
+
+// ISR STUFF
+UART_HandleTypeDef *uart;
+DMA_HandleTypeDef *hdma_uart_rx;
 
 #define GPS_RECEIVE_BUFFER_SIZE 700
+
 
 uint8_t receive_buffer_1[GPS_RECEIVE_BUFFER_SIZE];
 volatile uint16_t receive_buffer_1_size;
 uint8_t receive_buffer_2[GPS_RECEIVE_BUFFER_SIZE];
 volatile uint16_t receive_buffer_2_size;
 volatile uint8_t buffer_for_dma = 0; // 0 is buf 1, 1 is buf 2
-
 volatile uint8_t got_data = 0;
 
 // Interrupt for uart 2 data received
@@ -120,9 +158,6 @@ void bn357_start_uart_interrupt(){
     __HAL_DMA_DISABLE_IT(hdma_uart_rx, DMA_IT_HT);
 }
 
-void bn357_toggle_gps_logging(uint8_t status){
-    continue_with_gps_data = status;
-}
 uint8_t bn357_parse_data(){
     if(!got_data){
         return 0;
@@ -228,10 +263,22 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
         char sub_string_gnrmc[length + 1];  // create a new string to store the substring, plus one for null terminator
         strncpy(sub_string_gnrmc, start, length);  // copy the substring to the new string
         sub_string_gnrmc[length] = '\0';  // add a null terminator to the new string
-    // #if(BN357_DEBUG)
+    #if(BN357_DEBUG)
         printf("GNRMC Substring: %s\n", sub_string_gnrmc);  // print the substring
-    // #endif
+    #endif
+        
+        // For GNRMC:
+        if (length > 0 && length + 1 <= sizeof(gnrmc_string)) {
+            memcpy(gnrmc_string, sub_string_gnrmc, length);
+            gnrmc_string[length] = '\0';
+            gnrmc_string_size = length + 1;  // Include null terminator
+            gnrmc_string_stale = 0;
+        } else {
+            gnrmc_string_size = 0;
+        }
+
     }else{
+        gnrmc_string_size = -1;
         return 0;
     }
 
@@ -243,12 +290,33 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
     start++; // move past the comma
 
     // Skip 6 more commas to get to the 8th field (course over ground)
-    for (int i = 0; i < 7; i++) {
+    for (int i = 0; i < 6; i++) {
         start = strchr(start, ',');
         if (!start) return 0;
         start++;
     }
 
+
+
+    end = strchr(start, ','); 
+    length = end - start;
+    if (length != 0){
+        char speed_over_ground_knots_str[length + 1];
+        strncpy(speed_over_ground_knots_str, start, length);
+        speed_over_ground_knots_str[length] = '\0';
+        m_speed_over_ground_knots = atof(speed_over_ground_knots_str);
+        m_speed_over_ground_ms = m_speed_over_ground_knots * M_KNOT_TO_M_S;
+        m_speed_over_ground_knots_stale = false;
+        m_speed_over_ground_ms_stale = false;
+        #if(BN357_DEBUG)
+            printf("GNRMC speed over ground: %f\n", m_speed_over_ground_ms);
+        #endif
+    }else{
+        m_speed_over_ground_knots_stale = true;
+        m_speed_over_ground_ms_stale = true;
+    }
+
+    start = end + 1;
     end = strchr(start, ','); 
     length = end - start;
     if (length != 0){
@@ -257,11 +325,12 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
         course_over_ground_str[length] = '\0';
         m_course_over_ground = atof(course_over_ground_str);
 
-        // #if(BN357_DEBUG)
-            // printf("GNRMC course over ground: %s\n", course_over_ground_str);
-        // #endif
+        m_course_over_ground_stale = false;
+        #if(BN357_DEBUG)
+            printf("GNRMC course over ground: %s\n", course_over_ground_str);
+        #endif
     }else{
-        // printf("len 0\n");
+        m_course_over_ground_stale = true;
     }
 
     start = end + 1;
@@ -282,11 +351,18 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
         m_date_month = atoi(date_month);
         m_date_year = atoi(date_year);
 
+        m_date_day = false;
+        m_date_month = false;
+        m_date_year = false;
         
         #if(BN357_DEBUG)
             printf("GNRMC date: %d/%d/%d\n", m_date_day, m_date_month, m_date_year + 2000);
         #endif
     }else{
+        m_date_day_stale = true;
+        m_date_month_stale = true;
+        m_date_year_stale = true;
+
         // printf("Date not found. %d \n", length);
     }
 
@@ -317,6 +393,16 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
     printf("GNGGA Substring: %s\n", sub_string_gngga);  // print the substring
 #endif
 
+    if (length > 0 && length + 1 <= sizeof(gngga_string)) {
+        memcpy(gngga_string, sub_string_gngga, length);
+        gngga_string[length] = '\0';
+        gngga_string_size = length + 1;  // Include null terminator
+        gngga_string_stale = 0;
+    } else {
+        gngga_string_size = 0;
+    }
+
+
 
 
     // ----------------------------------------------------------------------------------------- find utc time
@@ -338,6 +424,11 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
         m_time_utc_seconds = time % 100;
         m_time_utc_minutes = ((time % 10000) - m_time_utc_seconds) / 100;
         m_time_utc_hours = ((time % 1000000) - (m_time_utc_minutes * 100) - m_time_utc_seconds) / 10000;
+
+        
+        m_time_utc_seconds_stale = false;
+        m_time_utc_minutes_stale = false;
+        m_time_utc_hours_stale = false;
     #if(BN357_DEBUG)
         printf("GNGGA UTC time: %d%d%d\n", m_time_utc_hours, m_time_utc_minutes, m_time_utc_seconds);
     #endif
@@ -452,16 +543,14 @@ uint8_t bn357_parse_and_store(char *gps_output_buffer, uint16_t size_of_buffer){
     } 
 
     end = strchr(start, ',');
-    if(!m_minimal_gps_parse_enabled){
-        length = end - start;
-        char accuracy_quantity_string[length + 1];
-        strncpy(accuracy_quantity_string, start, length);
-        accuracy_quantity_string[length] = '\0';
-        m_accuracy = atof(accuracy_quantity_string);
-    #if(BN357_DEBUG)
-        printf("GNGGA Accuracy: %f\n", m_accuracy);
-    #endif
-    }
+    length = end - start;
+    char accuracy_quantity_string[length + 1];
+    strncpy(accuracy_quantity_string, start, length);
+    accuracy_quantity_string[length] = '\0';
+    m_accuracy = atof(accuracy_quantity_string);
+#if(BN357_DEBUG)
+    printf("GNGGA Accuracy: %f\n", m_accuracy);
+#endif
 
     // ----------------------------------------------------------------------------------------- find altitude above sea levels
     start = end+1;
@@ -687,8 +776,28 @@ uint8_t bn357_get_fix_type(){
     return m_fix_type;
 }
 
+float bn357_get_speed_over_ground_knots(){
+    return m_speed_over_ground_knots;
+}
+
+bool bn357_get_speed_over_ground_knots_stale(){
+    return m_speed_over_ground_knots_stale;
+}
+
+float bn357_get_speed_over_ground_ms(){
+    return m_speed_over_ground_ms;
+}
+
+bool bn357_get_speed_over_ground_ms_stale(){
+    return m_speed_over_ground_ms_stale;
+}
+
 float bn357_get_course_over_ground(){
     return m_course_over_ground;
+}
+
+bool bn357_get_course_over_ground_stale(){
+    return m_course_over_ground_stale;
 }
 
 uint8_t bn357_get_date_day(){
@@ -705,4 +814,42 @@ uint8_t bn357_get_date_two_digits_year(){
 
 uint16_t bn357_get_date_full_year(){
     return m_date_year + 2000;
+}
+
+uint16_t bn357_get_GNGGA_string(uint8_t* buffer, uint16_t buffer_size) {
+    if (gngga_string_size == 0) return 0;
+    
+    uint16_t copy_len = (buffer_size > 0) ? 
+                       (gngga_string_size < buffer_size ? gngga_string_size : buffer_size - 1) : 0;
+    
+    if (copy_len > 0) {
+        memcpy(buffer, gngga_string, copy_len);  // Or strncpy + manual '\0'
+        buffer[copy_len] = '\0';
+        gngga_string_stale = 1;
+    }
+    
+    return copy_len;
+}
+
+bool bn357_GNGGA_string_stale(){
+    return gngga_string_stale;
+}
+
+uint16_t bn357_get_GNRMC_string(uint8_t* buffer, uint16_t buffer_size) {
+    if (gnrmc_string_size == 0) return 0;
+    
+    uint16_t copy_len = (buffer_size > 0) ? 
+                       (gnrmc_string_size < buffer_size ? gnrmc_string_size : buffer_size - 1) : 0;
+    
+    if (copy_len > 0) {
+        memcpy(buffer, gnrmc_string, copy_len);  // Or strncpy + manual '\0'
+        buffer[copy_len] = '\0';
+        gnrmc_string_stale = 1;
+    }
+    
+    return copy_len;
+}
+
+bool bn357_GNRMC_string_stale(){
+    return gnrmc_string_stale;
 }

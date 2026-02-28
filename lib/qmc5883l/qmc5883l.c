@@ -203,6 +203,10 @@ void calculate_yaw_tilt_compensated_using_magnetometer_data(float *magnetometer_
 
     float Xh = mx * cos(pitch_radians) + mz * sin(pitch_radians);
     float Yh = mx * sin(roll_radians) * sin(pitch_radians) + my * cos(roll_radians) - mz * sin(roll_radians) * cos(pitch_radians);
+
+    // float Xh = mx*cos(pitch) + mz*sin(pitch);
+    // float Yh = my*cos(roll) + mz*sin(roll);
+
     *yaw_output = atan2(Yh, Xh) * M_RAD_TO_DEG;
 
     if(flip_clockwise_direction){

@@ -100,8 +100,9 @@ uint8_t init_drivers(){
         GYRO_CONFIG_RANGE_500_DEG, 
         LOW_PASS_FILTER_FREQUENCY_CUTOFF_GYRO_260HZ_ACCEL_256HZ,
         1, 
-        accelerometer_scale_factor_correction, 
-        accelerometer_correction, 
+        accelerometer_ellipsoid_correction, 
+        accelerometer_offset_correction,
+        accelerometer_level_correction, 
         gyro_correction, 
         REFRESH_RATE_HZ, 
         complementary_ratio
@@ -155,8 +156,8 @@ uint8_t init_drivers(){
         // mpu6050_set_complementary_ratio_yaw(COMPLEMENTARY_RATIO_MULTIPLYER_YAW_UPPER_GATE_MORE_MAG * (1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ))));
         // yaw_alpha = COMPLEMENTARY_RATIO_MULTIPLYER_YAW_UPPER_GATE_MORE_MAG * (1.0 - 1.0/(1.0+(1.0/REFRESH_RATE_HZ)));
 
-        mpu6050_set_complementary_ratio_yaw(COMPLEMENTARY_RATIO_MULTIPLYER_YAW_UPPER_GATE_MORE_MAG);
-        yaw_alpha = COMPLEMENTARY_RATIO_MULTIPLYER_YAW_UPPER_GATE_MORE_MAG;
+        mpu6050_set_complementary_ratio_yaw(COMPLEMENTARY_RATIO_MULTIPLYER_YAW_LOWER_GATE_MORE_GYRO_NEW);
+        yaw_alpha = COMPLEMENTARY_RATIO_MULTIPLYER_YAW_LOWER_GATE_MORE_GYRO_NEW;
     }
 
     if(bmm350){
@@ -178,6 +179,16 @@ uint8_t init_drivers(){
 
 
 void initialize_control_abstractions(){
+
+    // Accelerometer calibrations
+    average_accelerometer_x = running_average_init(); // NOT GOOD TO DO APPARENTLY
+    average_accelerometer_y = running_average_init();
+    average_accelerometer_z = running_average_init();
+
+    average_roll = running_average_init();
+    average_pitch = running_average_init();
+
+
     // PID controllers
     acro_roll_pid = pid_init(acro_roll_pitch_master_gain * acro_roll_pitch_gain_p, acro_roll_pitch_master_gain * acro_roll_pitch_gain_i, acro_roll_pitch_master_gain * acro_roll_pitch_gain_d, 0.0, get_absolute_time(), 25, -25, 1, 0);
     acro_pitch_pid = pid_init(acro_roll_pitch_master_gain * acro_roll_pitch_gain_p, acro_roll_pitch_master_gain * acro_roll_pitch_gain_i, acro_roll_pitch_master_gain * acro_roll_pitch_gain_d, 0.0, get_absolute_time(), 25, -25, 1, 0);
@@ -190,6 +201,9 @@ void initialize_control_abstractions(){
 
     gps_longitude_pid = pid_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), 2.0, -2.0, 1, 0);
     gps_latitude_pid = pid_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), 2.0, -2.0, 1, 0);
+
+    gps_longitude_slowed_pid = pid_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), 2.0, -2.0, 1, 0);
+    gps_latitude_slowed_pid = pid_init(gps_hold_master_gain * gps_hold_gain_p, gps_hold_master_gain * gps_hold_gain_i, gps_hold_master_gain * gps_hold_gain_d, 0.0, get_absolute_time(), 2.0, -2.0, 1, 0);
 
     // Filtering
     filter_magnetometer_x = filtering_init_low_pass_filter_biquad(filtering_magnetometer_cutoff_frequency, REFRESH_RATE_HZ);// TODO bmm350 has refresh rate of 400
@@ -290,9 +304,7 @@ void initialize_control_abstractions(){
     lowpass_filter_gps_lat = filtering_init_low_pass_filter_pt1(gps_filtering_min_cutoff, 10);
     lowpass_filter_gps_lon = filtering_init_low_pass_filter_pt1(gps_filtering_min_cutoff, 10);
 
-    lowpass_filter_gps_forward = filtering_init_low_pass_filter_pt1(gps_forward_right_filtering_min_cutoff, REFRESH_RATE_HZ);
-    lowpass_filter_gps_right = filtering_init_low_pass_filter_pt1(gps_forward_right_filtering_min_cutoff, REFRESH_RATE_HZ);
-
+    lowpass_yaw_rad = filtering_init_low_pass_filter_pt1(gps_forward_right_filtering_min_cutoff, REFRESH_RATE_HZ);
 
     // Kalman  sensor fusion for vertical velocity
     float S_state[2][1] = {

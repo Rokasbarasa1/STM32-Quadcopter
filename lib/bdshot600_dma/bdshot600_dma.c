@@ -782,11 +782,11 @@ uint8_t bdshot600_dma_convert_response_to_data(uint8_t motor_index){
     if(calculated_crc != payload_16bit_only_crc){
 
         // For debugging 
-        printf("Failed CRC \n");
-        for (int i = 3; i >= 0; i--) printf("%u", (calculated_crc >> i) & 1); 
-        printf(" != ");
-        for (int i = 3; i >= 0; i--) printf("%u", (payload_16bit_only_crc >> i) & 1); 
-        printf("\n");
+        // printf("Failed CRC \n");
+        // for (int i = 3; i >= 0; i--) printf("%u", (calculated_crc >> i) & 1); 
+        // printf(" != ");
+        // for (int i = 3; i >= 0; i--) printf("%u", (payload_16bit_only_crc >> i) & 1); 
+        // printf("\n");
 
         // Return 0 to indicate that something wrong happened
         *motor_period_us = 0;

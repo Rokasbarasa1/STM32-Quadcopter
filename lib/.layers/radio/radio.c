@@ -258,6 +258,19 @@ void handle_radio_communication(){
                 pid_set_integral_gain(&gps_longitude_pid, gps_hold_gain_i * gps_hold_master_gain);
                 pid_set_derivative_gain(&gps_longitude_pid, gps_hold_gain_d * gps_hold_master_gain);
                 pid_reset_integral_sum(&gps_longitude_pid);
+
+                // SLOWED Configure the pitch pid 
+                pid_set_proportional_gain(&gps_latitude_slowed_pid, gps_hold_gain_p * gps_hold_master_gain);
+                pid_set_integral_gain(&gps_latitude_slowed_pid, gps_hold_gain_i * gps_hold_master_gain);
+                pid_set_derivative_gain(&gps_latitude_slowed_pid, gps_hold_gain_d * gps_hold_master_gain);
+                pid_reset_integral_sum(&gps_latitude_slowed_pid);
+
+                // SLOWED Configure the roll pid 
+                pid_set_proportional_gain(&gps_longitude_slowed_pid, gps_hold_gain_p * gps_hold_master_gain);
+                pid_set_integral_gain(&gps_longitude_slowed_pid, gps_hold_gain_i * gps_hold_master_gain);
+                pid_set_derivative_gain(&gps_longitude_slowed_pid, gps_hold_gain_d * gps_hold_master_gain);
+                pid_reset_integral_sum(&gps_longitude_slowed_pid);
+
                 printf("Changed PID of GPS hold\n");
             }
         }
@@ -493,7 +506,7 @@ void handle_radio_communication(){
             perform_log_for_log_mode_10 = 1;
         }
 
-    }else  if(strcmp(rx_type, "event") == 0){
+    }else if(strcmp(rx_type, "event") == 0){
         printf("Got event\n");
 
         // Trigger event on logging mode or flight mode
@@ -501,7 +514,120 @@ void handle_radio_communication(){
         if(txt_logging_mode == 10){
             perform_log_for_log_mode_10 = 1;
         }
+    }else if(strcmp(rx_type, "calAccEllipsoid") == 0){
+        printf("calAccEllipsoid\n");
+
+        if(perform_procedure == 1){
+            // Dont let the value go too much by accident
+            if(calibrate_accelerometer_step != 6){
+                // Increment the step 
+                calibrate_accelerometer_step++;
+                // Make it be logged
+                calibrate_accelerometer_step_logged = 0;
+                calibrate_accelerometer_step_logged_amount = 0;
+            }else{
+                printf("STOPPINMG");
+                perform_procedure = 0;
+                calibrate_accelerometer_step = 0;
+                calibrate_accelerometer_step_logged = 0;
+                calibrate_accelerometer_step_logged_amount = 0;
+                running_average_reset(&average_accelerometer_x);
+                running_average_reset(&average_accelerometer_y);
+                running_average_reset(&average_accelerometer_z);
+            }
+        }else{
+            perform_procedure = 1;
+            calibrate_accelerometer_step = 0;
+            calibrate_accelerometer_step_logged = 1; // Do not want to do anything on first iteration
+            calibrate_accelerometer_step_logged_amount = 0;
+            running_average_reset(&average_accelerometer_x);
+            running_average_reset(&average_accelerometer_y);
+            running_average_reset(&average_accelerometer_z);
+        }
+    }else if(strcmp(rx_type, "calAccEllipsoidStop") == 0){
+        printf("calAccEllipsoidStop\n");
+        perform_procedure = 0;
+        calibrate_accelerometer_step = 0;
+        calibrate_accelerometer_step_logged = 0;
+        calibrate_accelerometer_step_logged_amount = 0;
+        running_average_reset(&average_accelerometer_x);
+        running_average_reset(&average_accelerometer_y);
+        running_average_reset(&average_accelerometer_z);
+    }else if(strcmp(rx_type, "calAccLevel") == 0){
+        printf("calAccLevel\n");
+        if(perform_procedure == 2){
+            // Dont let the value go too much by accident
+            if(calibrate_accelerometer_step != 4){
+                // Increment the step 
+                calibrate_accelerometer_step++;
+                // Make it be logged
+                calibrate_accelerometer_step_logged = 0;
+                calibrate_accelerometer_step_logged_amount = 0;
+            }else{
+                perform_procedure = 0;
+                calibrate_accelerometer_step = 0;
+                calibrate_accelerometer_step_logged = 0;
+                calibrate_accelerometer_step_logged_amount = 0;
+                running_average_reset(&average_accelerometer_x);
+                running_average_reset(&average_accelerometer_y);
+                running_average_reset(&average_accelerometer_z);
+            }
+        }else{
+            perform_procedure = 2;
+            calibrate_accelerometer_step = 0;
+            calibrate_accelerometer_step_logged = 1; // Do not want to do anything on first iteration
+            calibrate_accelerometer_step_logged_amount = 0;
+            running_average_reset(&average_accelerometer_x);
+            running_average_reset(&average_accelerometer_y);
+            running_average_reset(&average_accelerometer_z);
+        }
+    }else if(strcmp(rx_type, "calAccLevelStop") == 0){
+        printf("calAccLevelStop\n");
+        perform_procedure = 0;
+        calibrate_accelerometer_step = 0;
+        calibrate_accelerometer_step_logged = 1;
+        calibrate_accelerometer_step_logged_amount = 0;
+        running_average_reset(&average_accelerometer_x);
+        running_average_reset(&average_accelerometer_y);
+        running_average_reset(&average_accelerometer_z);
+    }else if(strcmp(rx_type, "calRollPitch") == 0){
+        printf("calRollPitch\n");
+
+        if(perform_procedure == 3){
+            // Dont let the value go too much by accident
+            if(calibrate_roll_pitch_step != 4){
+                // Increment the step 
+                calibrate_roll_pitch_step++;
+                // Make it be logged
+                calibrate_roll_pitch_step_logged = 0;
+                calibrate_roll_pitch_step_logged_amount = 0;
+            }else{
+                perform_procedure = 0;
+                calibrate_roll_pitch_step = 0;
+                calibrate_roll_pitch_step_logged = 0;
+                calibrate_roll_pitch_step_logged_amount = 0;
+                running_average_reset(&average_roll);
+                running_average_reset(&average_pitch);
+            }
+        }else{
+            perform_procedure = 3;
+            calibrate_roll_pitch_step = 0;
+            calibrate_roll_pitch_step_logged = 1; // Do not want to do anything on first iteration
+            calibrate_roll_pitch_step_logged_amount = 0;
+            running_average_reset(&average_roll);
+            running_average_reset(&average_pitch);
+        }
+    }else if(strcmp(rx_type, "calRollPitchStop") == 0){
+        printf("calRollPitchStop\n");
+
+        perform_procedure = 0;
+        calibrate_roll_pitch_step = 0;
+        calibrate_roll_pitch_step_logged = 0;
+        calibrate_roll_pitch_step_logged_amount = 0;
+        running_average_reset(&average_roll);
+        running_average_reset(&average_pitch);
     }
+
     rx_type[0] = '\0'; // Clear out the string by setting its first char to string terminator
 }
 

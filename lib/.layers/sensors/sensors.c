@@ -67,9 +67,6 @@ void handle_get_and_calculate_sensor_values(){
     mpu6050_get_gyro_readings_dps(gyro_angular);
     __enable_irq();
 
-    // printf("ACCEL,%5.2f,%5.2f,%5.2f;", acceleration_data[0], acceleration_data[1], acceleration_data[2]);
-    // printf("GYRO,%5.2f,%5.2f,%5.2f;\n", gyro_angular[0], gyro_angular[1], gyro_angular[2]);
-
     bmm350_magnetometer_readings_micro_teslas_unrotated(magnetometer_data_unrotated);
     mmc5603_magnetometer_readings_micro_teslas_unrotated(magnetometer_data_secondary_unrotated);
 
@@ -78,79 +75,83 @@ void handle_get_and_calculate_sensor_values(){
     got_gps = bn357_get_status_up_to_date(1);
 
     if(got_gps){
+        // ========================================== Gather data form gps
         float latitude_sign = 1 * (bn357_get_latitude_direction() == 'N') + (-1) * (bn357_get_latitude_direction() == 'S'); // Possible results: 0, 1 or -1
         float longitude_sign = 1 * (bn357_get_longitude_direction() == 'E') + (-1) * (bn357_get_longitude_direction() == 'W');
 
         //Add turn the lat and lon positive based on the sign
         gps_latitude = bn357_get_latitude() * latitude_sign;
         gps_longitude = bn357_get_longitude() * longitude_sign;
-        gps_height_above_geoid_kilometers = bn357_get_geoid_altitude_meters() / 1000.0f;
-
-        gps_date_day = bn357_get_date_day();
-        gps_date_month = bn357_get_date_month();
-        gps_date_year = bn357_get_date_full_year();
 
         gps_fix_type = bn357_get_fix_type();
         gps_satellites_count = bn357_get_satellites_quantity();
+        gps_position_accuracy = bn357_get_accuracy();
         gps_yaw = bn357_get_course_over_ground();
+        gps_speed_ms = bn357_get_speed_over_ground_ms();
 
-        // This is basically proportional error
-        lat_distance_to_target_meters = (gps_latitude - target_latitude) * 111320.0f;
-        lon_distance_to_target_meters = (gps_longitude - target_longitude) * 111320.0f * cosf(gps_latitude * M_DEG_TO_RAD);
+        // ========================================== Calculate based on data
 
-        if(
-            lat_distance_to_target_meters > 100.0f || 
-            lat_distance_to_target_meters < -100.0f || 
-            lon_distance_to_target_meters > 100.0f || 
-            lon_distance_to_target_meters < -100.0f
-        ){
-            // Somewhere in this biquad filter it divides by zero and fucks everything up
-            // low_pass_filter_biquad_set_initial_values(&biquad_filter_gps_lat, lat_distance_to_target_meters);
-            // low_pass_filter_biquad_set_initial_values(&biquad_filter_gps_lon, lon_distance_to_target_meters);
+        // This is basically proportional error but with proper earth diameter calculations
+        float dlat = (gps_latitude - target_latitude) * M_DEG_TO_RAD;
+        float dlon = (gps_longitude - target_longitude) * M_DEG_TO_RAD;
+        float lat_mid = ((gps_latitude + target_latitude) * 0.5f) * M_DEG_TO_RAD;
 
-            
-            low_pass_filter_pt1_set_initial_values(&lowpass_filter_gps_lat, lat_distance_to_target_meters);
-            low_pass_filter_pt1_set_initial_values(&lowpass_filter_gps_lon, lon_distance_to_target_meters);
-
-        }else{
-            // lat_distance_to_target_meters = low_pass_filter_biquad_read(&biquad_filter_gps_lat, lat_distance_to_target_meters);
-            // lon_distance_to_target_meters = low_pass_filter_biquad_read(&biquad_filter_gps_lon, lon_distance_to_target_meters);
-
-            lat_distance_to_target_meters = low_pass_filter_pt1_read(&lowpass_filter_gps_lat, lat_distance_to_target_meters);
-            lon_distance_to_target_meters = low_pass_filter_pt1_read(&lowpass_filter_gps_lon, lon_distance_to_target_meters);
-        }
+        lat_distance_to_target_meters = R_EARTH * dlat;
+        lon_distance_to_target_meters = R_EARTH * dlon * cosf(lat_mid);
 
         // Based on gps data get the declination 
         if(!wmm_elements_computed && wmm_perform_elements_compute && gps_satellites_count > 8){
+            gps_height_above_geoid_kilometers = bn357_get_geoid_altitude_meters() / 1000.0f;
+            gps_date_day = bn357_get_date_day();
+            gps_date_month = bn357_get_date_month();
+            gps_date_year = bn357_get_date_full_year();
             // wmm_compute_elements(gps_latitude, gps_longitude, gps_height_above_geoid_kilometers, gps_date_year, gps_date_month, gps_date_day);
             // yaw_declination = wmm_get_declination_degrees();
             wmm_elements_computed = 1;
             // TODO add logic that checks how far away last declination point was and recompute the declination
         }
 
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+        if(!bn357_get_course_over_ground_stale() && !bn357_get_speed_over_ground_ms_stale()){
+            float gps_yaw_rad = gps_yaw * M_DEG_TO_RAD;
+            gps_speed_ms_north = gps_speed_ms * cosf(gps_yaw_rad);
+            gps_speed_ms_east = gps_speed_ms * sinf(gps_yaw_rad);
+        }else{
+            gps_speed_ms_north = 0.0f;
+            gps_speed_ms_north = 0.0f;
+        }
+
+        const float pos_to_vel_scale = 1.0f;  // just a scalar, like a unit conversion
+        const float vel_sp_max       = gps_pid_angle_of_attack_max;  // clamp, also just a constant
+
+        float vel_sp_north_raw = pos_to_vel_scale * lat_distance_to_target_meters;
+        float vel_sp_east_raw  = pos_to_vel_scale * lon_distance_to_target_meters;
+
+        float vel_sp_mag = sqrtf(vel_sp_north_raw * vel_sp_north_raw +
+                                vel_sp_east_raw  * vel_sp_east_raw);
+
+        if (vel_sp_mag > vel_sp_max && vel_sp_mag > 0.001f) {
+            float scale = vel_sp_max / vel_sp_mag;
+            vel_sp_north = vel_sp_north_raw * scale;
+            vel_sp_east  = vel_sp_east_raw  * scale;
+        } else {
+            vel_sp_north = vel_sp_north_raw;
+            vel_sp_east  = vel_sp_east_raw;
+        }
+
+        // Velocity error in earth frame (N/E)
+        vel_error_east  = vel_sp_east + gps_speed_ms_east;
+        vel_error_north = vel_sp_north + gps_speed_ms_north;
+
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET); // Turn led ON
         last_got_gps_timestamp = get_absolute_time()/1000;
         gps_can_be_used = 1;
     }else if(get_absolute_time()/1000 - last_got_gps_timestamp > max_allowed_time_miliseconds_between_got_gps){
-        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_SET); // Turn led OFF
         gps_can_be_used = 0;
     }
 
     // --------------------------------------------------------------------------------------------------- Make adjustments to sensor data to fit orientation of drone 
 
-    // IST8310
-    // if(got_ist8310_reading){
-    //     rotate_magnetometer_output_90_degrees_anti_clockwise(magnetometer_data_ist8310);
-    // }
-
-
-
-    // Pitch (+)forwards - front of device nose goes down
-    // Roll (+)right - the device banks to the right side while pointing forward
-    // After yaw calculation yaw has to be 0/360 when facing north in the pitch+ axis
-    // After getting roll and pitch from accelerometer. Pitch forwards -> +Pitch. Roll right -> +Roll
-
-    // rotate_magnetometer_output_90_degrees_anti_clockwise(magnetometer_data);
     invert_axies(acceleration_data);
     invert_axies(gyro_angular);
 
@@ -162,25 +163,158 @@ void handle_get_and_calculate_sensor_values(){
     gyro_angular_raw[0] = gyro_angular[0];
     gyro_angular_raw[1] = gyro_angular[1];
     gyro_angular_raw[2] = gyro_angular[2];
-    // Pitch device forwards -> Y axis positive. Roll device right -> X axis positive
+
+    magnetometer_data_raw[0] = magnetometer_data[0];
+    magnetometer_data_raw[1] = magnetometer_data[1];
+    magnetometer_data_raw[2] = magnetometer_data[2];
+
+    magnetometer_data_secondary_raw[0] = magnetometer_data_secondary[0];
+    magnetometer_data_secondary_raw[1] = magnetometer_data_secondary[1];
+    magnetometer_data_secondary_raw[2] = magnetometer_data_secondary[2];
+
 
     if(txt_logging_mode == 6 || txt_logging_mode == 7){
-        gyro_angular_raw[0] = gyro_angular[0];
-        gyro_angular_raw[1] = gyro_angular[1];
-        gyro_angular_raw[2] = gyro_angular[2];
-
-        acceleration_data_raw[0] = acceleration_data[0];
-        acceleration_data_raw[1] = acceleration_data[1];
-        acceleration_data_raw[2] = acceleration_data[2];
-
-        magnetometer_data_raw[0] = magnetometer_data[0];
-        magnetometer_data_raw[1] = magnetometer_data[1];
-        magnetometer_data_raw[2] = magnetometer_data[2];
 
         altitude_barometer_raw = altitude_barometer;
     }
     // ------------------------------------------------------------------------------------------------------ Filter the sensor data (sensitive to loop HZ disruptions)
-    sensors6 = DWT->CYCCNT;
+
+    handle_filtering_of_sensor_data();
+
+    // ------------------------------------------------------------------------------------------------------ Sensor fusion
+    calculate_roll_pitch_from_accelerometer_data(acceleration_data, &accelerometer_roll, &accelerometer_pitch, accelerometer_roll_offset, accelerometer_pitch_offset);
+    sensor_fusion_roll_pitch(gyro_angular, accelerometer_roll, accelerometer_pitch, loop_start_timestamp_microseconds, 1, imu_orientation);
+
+    // Apply mag motor frequency comensation 
+    if(use_compass_rpm){
+        average_rpm = (motor_frequency[0]+motor_frequency[1]+motor_frequency[2]+motor_frequency[3])/4.0f;
+
+        mag1_x_offset = (-1) * calculate_mag_offset_using_compass_rpm(average_rpm, compass_frequency_frequency_samples, compass_frequency_mag1_x_offsets, compass_frequency_values_amount);
+        mag1_y_offset = (-1) * calculate_mag_offset_using_compass_rpm(average_rpm, compass_frequency_frequency_samples, compass_frequency_mag1_y_offsets, compass_frequency_values_amount);
+        mag1_z_offset = (-1) * calculate_mag_offset_using_compass_rpm(average_rpm, compass_frequency_frequency_samples, compass_frequency_mag1_z_offsets, compass_frequency_values_amount);
+
+        mag2_x_offset = (-1) * calculate_mag_offset_using_compass_rpm(average_rpm, compass_frequency_frequency_samples, compass_frequency_mag2_x_offsets, compass_frequency_values_amount);
+        mag2_y_offset = (-1) * calculate_mag_offset_using_compass_rpm(average_rpm, compass_frequency_frequency_samples, compass_frequency_mag2_y_offsets, compass_frequency_values_amount);
+        mag2_z_offset = (-1) * calculate_mag_offset_using_compass_rpm(average_rpm, compass_frequency_frequency_samples, compass_frequency_mag2_z_offsets, compass_frequency_values_amount);
+
+        magnetometer_data[0] = magnetometer_data[0] + mag1_x_offset;
+        magnetometer_data[1] = magnetometer_data[1] + mag1_y_offset;
+        magnetometer_data[2] = magnetometer_data[2] + mag1_z_offset;
+
+        magnetometer_data_secondary[0] = magnetometer_data_secondary[0] + mag2_x_offset;
+        magnetometer_data_secondary[1] = magnetometer_data_secondary[1] + mag2_y_offset;
+        magnetometer_data_secondary[2] = magnetometer_data_secondary[2] + mag2_z_offset;
+    }
+
+
+    // Calculat yaw
+    calculate_yaw_tilt_compensated_using_magnetometer_data(
+        magnetometer_data, 
+        &magnetometer_yaw, 
+        imu_orientation[0] - accelerometer_roll_offset, // Dont use offset roll and pitch, has to be pure
+        imu_orientation[1] - accelerometer_pitch_offset,
+        yaw_declination,
+        0
+    );
+
+    calculate_yaw_tilt_compensated_using_magnetometer_data(
+        magnetometer_data_secondary, 
+        &magnetometer_yaw_secondary, 
+        imu_orientation[0] - accelerometer_roll_offset, // Dont use offset roll and pitch, has to be pure
+        imu_orientation[1] - accelerometer_pitch_offset,
+        yaw_declination,
+        0
+    );
+
+    get_gyro_yaw(gyro_angular, loop_start_timestamp_microseconds, 1, &gyro_yaw);
+    get_gyro_yaw2(gyro_angular, loop_start_timestamp_microseconds, 1, &gyro_yaw2, imu_orientation);
+
+    if(initial_yaw_set == 0 && get_absolute_time() - yaw_loop_start_timestamp > yaw_set_yaw_after_microseconds_of_loop){
+        initial_yaw_set = 1;
+        gyro_yaw = magnetometer_yaw_secondary;
+        gyro_yaw2 = magnetometer_yaw_secondary;
+        imu_orientation[2] = magnetometer_yaw_secondary;
+    }
+
+    sensor_fusion_yaw(magnetometer_yaw_secondary, gyro_angular, loop_start_timestamp_microseconds, 1, imu_orientation);
+
+    if(txt_logging_mode == 4){
+
+        calculate_yaw_tilt_compensated_using_magnetometer_data(
+            magnetometer_data_unrotated, 
+            &magnetometer_yaw_unrotated, 
+            imu_orientation[0], // Dont use offset roll and pitch, has to be pure
+            imu_orientation[1],
+            yaw_declination - 180.0f,
+            1
+        );
+        
+        calculate_yaw_tilt_compensated_using_magnetometer_data(
+            magnetometer_data, 
+            &magnetometer_yaw_90, 
+            -imu_orientation[1] - accelerometer_pitch_offset, // Dont use offset roll and pitch, has to be pure
+            imu_orientation[0] - accelerometer_roll_offset,
+            yaw_declination,
+            1
+        );
+
+        calculate_yaw_tilt_compensated_using_magnetometer_data(
+            magnetometer_data, 
+            &magnetometer_yaw_180, 
+            -(imu_orientation[0] - accelerometer_roll_offset), // Dont use offset roll and pitch, has to be pure
+            -(imu_orientation[1] - accelerometer_pitch_offset),
+            yaw_declination,
+            1
+        );
+
+        calculate_yaw_tilt_compensated_using_magnetometer_data(
+            magnetometer_data, 
+            &magnetometer_yaw_270, 
+            imu_orientation[1] - accelerometer_pitch_offset, // Dont use offset roll and pitch, has to be pure
+            -(imu_orientation[0] - accelerometer_roll_offset),
+            yaw_declination,
+            1
+        );
+
+        calculate_yaw_tilt_compensated_using_magnetometer_data(
+            magnetometer_data_secondary_unrotated, 
+            &magnetometer_yaw_secondary_unrotated, 
+            -imu_orientation[1], // Dont use offset roll and pitch, has to be pure
+            imu_orientation[0],
+            yaw_declination - 90.0f,
+            0
+        );
+
+    }
+    
+    // GPS STUFF
+    float yaw_rad = low_pass_filter_pt1_read(&lowpass_yaw_rad, imu_orientation[2] * M_DEG_TO_RAD);
+
+    // This is just a rotation matrix in linear algebra rotate coordinates by degrees
+    error_gps_roll = -(-vel_error_north * sinf(yaw_rad) + vel_error_east * cosf(yaw_rad));
+    error_gps_pitch =  -(vel_error_north * cosf(yaw_rad) + vel_error_east * sinf(yaw_rad));
+
+    // --------------------- TODO DO SOME CROSS AXIS CORRECTION (Gyro gimbal Lock/Transfer) for roll and pitch
+
+    // ------------------------------------------------------------------------------------------------------ Use sensor fused data for more data
+    vertical_acceleration_old = old_mpu6050_calculate_vertical_acceleration_cm_per_second(acceleration_data, imu_orientation);
+    vertical_acceleration = mpu6050_calculate_vertical_acceleration_cm_per_second(acceleration_data, imu_orientation);
+
+    // kalman_filter_predict(&altitude_and_velocity_kalman, &vertical_acceleration);
+    // kalman_filter_update(&altitude_and_velocity_kalman, &altitude_barometer);
+
+    // altitude_sensor_fusion = kalman_filter_get_state(&altitude_and_velocity_kalman)[0][0];
+    // vertical_velocity = kalman_filter_get_state(&altitude_and_velocity_kalman)[1][0];
+
+    // printf("Alt %f vel %f ", altitude_sensor_fusion, vertical_velocity);
+    // printf("IMU %f %f %f\n", imu_orientation[0], imu_orientation[1], imu_orientation[2]);
+
+    // printf("Lat %f, Lon %f\n", gps_latitude, gps_longitude);
+    // printf("%f;%f;%f;\n", mangetometer_yaw_unfiltered, mangetometer_yaw_low_pass, magnetometer_yaw);
+
+}
+
+void handle_filtering_of_sensor_data(){
 
     // Max 1.79. Without 1.46
     // RPM filtering
@@ -244,7 +378,6 @@ void handle_get_and_calculate_sensor_values(){
         // or just introduce stronger noise 
 
     }
-    sensors7 = DWT->CYCCNT;
 
     // Dynamic notch filtering
     // Not currently used
@@ -317,327 +450,8 @@ void handle_get_and_calculate_sensor_values(){
     gyro_angular_for_d_term[0] = low_pass_filter_biquad_read(&roll_d_term_filtering, gyro_angular[0]);
     gyro_angular_for_d_term[1] = low_pass_filter_biquad_read(&pitch_d_term_filtering, gyro_angular[1]);
 
-    sensors8 = DWT->CYCCNT;
-
     altitude_barometer = low_pass_filter_biquad_read(&altitude_barometer_filtering, altitude_barometer);
 
-    // ------------------------------------------------------------------------------------------------------ Sensor fusion
-    calculate_roll_pitch_from_accelerometer_data(acceleration_data, &accelerometer_roll, &accelerometer_pitch, accelerometer_roll_offset, accelerometer_pitch_offset); // Get roll and pitch from the data. I call it x and y. Ranges -90 to 90. 
-    sensor_fusion_roll_pitch(gyro_angular, accelerometer_roll, accelerometer_pitch, loop_start_timestamp_microseconds, 1, imu_orientation);
-
-    // Main objectives
-    // Rotation
-    // Tilt compensation
-    // FIltering
-    // DIfferent sensors
-
-
-    // Ttime
-    // Gyro yaw
-    get_gyro_yaw(gyro_angular, loop_start_timestamp_microseconds, 1, &gyro_yaw);
-
-
-    // Apply mag offsets
-
-
-    if(use_compass_rpm){
-        average_rpm = (motor_frequency[0]+motor_frequency[1]+motor_frequency[2]+motor_frequency[3])/4.0f;
-
-        mag1_x_offset = (-1) * calculate_mag_offset_using_compass_rpm(average_rpm, compass_frequency_frequency_samples, compass_frequency_mag1_x_offsets, compass_frequency_values_amount);
-        mag1_y_offset = (-1) * calculate_mag_offset_using_compass_rpm(average_rpm, compass_frequency_frequency_samples, compass_frequency_mag1_y_offsets, compass_frequency_values_amount);
-        mag1_z_offset = (-1) * calculate_mag_offset_using_compass_rpm(average_rpm, compass_frequency_frequency_samples, compass_frequency_mag1_z_offsets, compass_frequency_values_amount);
-
-        mag2_x_offset = (-1) * calculate_mag_offset_using_compass_rpm(average_rpm, compass_frequency_frequency_samples, compass_frequency_mag2_x_offsets, compass_frequency_values_amount);
-        mag2_y_offset = (-1) * calculate_mag_offset_using_compass_rpm(average_rpm, compass_frequency_frequency_samples, compass_frequency_mag2_y_offsets, compass_frequency_values_amount);
-        mag2_z_offset = (-1) * calculate_mag_offset_using_compass_rpm(average_rpm, compass_frequency_frequency_samples, compass_frequency_mag2_z_offsets, compass_frequency_values_amount);
-
-
-        magnetometer_data[0] = magnetometer_data[0] + mag1_x_offset;
-        magnetometer_data[1] = magnetometer_data[1] + mag1_y_offset;
-        magnetometer_data[2] = magnetometer_data[2] + mag1_z_offset;
-
-        magnetometer_data_secondary[0] = magnetometer_data_secondary[0] + mag2_x_offset;
-        magnetometer_data_secondary[1] = magnetometer_data_secondary[1] + mag2_y_offset;
-        magnetometer_data_secondary[2] = magnetometer_data_secondary[2] + mag2_z_offset;
-    }
-
-
-
-
-    // X bmm350 yaw rotated tilt
-    calculate_yaw_tilt_compensated_using_magnetometer_data(
-        magnetometer_data, 
-        &magnetometer_yaw, 
-        imu_orientation[0] - accelerometer_roll_offset, // Dont use offset roll and pitch, has to be pure
-        imu_orientation[1] - accelerometer_pitch_offset,
-        yaw_declination,
-        0
-    );
-
-    calculate_yaw_tilt_compensated_using_magnetometer_data(
-        magnetometer_data_secondary, 
-        &magnetometer_yaw_secondary, 
-        imu_orientation[0] - accelerometer_roll_offset, // Dont use offset roll and pitch, has to be pure
-        imu_orientation[1] - accelerometer_pitch_offset,
-        yaw_declination,
-        0
-    );
-
-
-
-    if(txt_logging_mode == 4){
-
-        calculate_yaw_tilt_compensated_using_magnetometer_data(
-            magnetometer_data_unrotated, 
-            &magnetometer_yaw_unrotated, 
-            imu_orientation[0], // Dont use offset roll and pitch, has to be pure
-            imu_orientation[1],
-            yaw_declination - 180.0f,
-            1
-        );
-        
-        calculate_yaw_tilt_compensated_using_magnetometer_data(
-            magnetometer_data, 
-            &magnetometer_yaw_90, 
-            -imu_orientation[1] - accelerometer_pitch_offset, // Dont use offset roll and pitch, has to be pure
-            imu_orientation[0] - accelerometer_roll_offset,
-            yaw_declination,
-            1
-        );
-
-        calculate_yaw_tilt_compensated_using_magnetometer_data(
-            magnetometer_data, 
-            &magnetometer_yaw_180, 
-            -(imu_orientation[0] - accelerometer_roll_offset), // Dont use offset roll and pitch, has to be pure
-            -(imu_orientation[1] - accelerometer_pitch_offset),
-            yaw_declination,
-            1
-        );
-
-        calculate_yaw_tilt_compensated_using_magnetometer_data(
-            magnetometer_data, 
-            &magnetometer_yaw_270, 
-            imu_orientation[1] - accelerometer_pitch_offset, // Dont use offset roll and pitch, has to be pure
-            -(imu_orientation[0] - accelerometer_roll_offset),
-            yaw_declination,
-            1
-        );
-
-        calculate_yaw_tilt_compensated_using_magnetometer_data(
-            magnetometer_data_secondary_unrotated, 
-            &magnetometer_yaw_secondary_unrotated, 
-            -imu_orientation[1], // Dont use offset roll and pitch, has to be pure
-            imu_orientation[0],
-            yaw_declination - 90.0f,
-            0
-        );
-
-    }
-    // if(txt_logging_mode == 4){
-    if(0){
-
-        // magnetometer_rotation_matrix
-
-        // float magnetometer_data_matrix_rotate[3];
-        // float magnetometer_data_matrix_rotate1[3];
-        // float magnetometer_data_matrix_rotate2[3];
-
-        // magnetometer_data_matrix_rotate[0] = magnetometer_data_secondary[0];
-        // magnetometer_data_matrix_rotate[1] = magnetometer_data_secondary[1];
-        // magnetometer_data_matrix_rotate[2] = magnetometer_data_secondary[2];
-
-        // magnetometer_data_matrix_rotate1[0] = magnetometer_data_secondary[0];
-        // magnetometer_data_matrix_rotate1[1] = magnetometer_data_secondary[1];
-        // magnetometer_data_matrix_rotate1[2] = magnetometer_data_secondary[2];
-
-        // magnetometer_data_matrix_rotate2[0] = magnetometer_data_secondary[0];
-        // magnetometer_data_matrix_rotate2[1] = magnetometer_data_secondary[1];
-        // magnetometer_data_matrix_rotate2[2] = magnetometer_data_secondary[2];
-
-
-        // rotate_magnetometer_inplace(magnetometer_rotation_matrix, magnetometer_data_matrix_rotate);
-        // rotate_magnetometer_inplace(magnetometer_rotation_matrix1, magnetometer_data_matrix_rotate1);
-        // rotate_magnetometer_inplace(magnetometer_rotation_matrix2, magnetometer_data_matrix_rotate2);
-
-
-        // bmm350 yaw unrotated no tilt
-        calculate_yaw_using_magnetometer_data(magnetometer_data, &magnetometer_yaw_unrotated_no_tilt, 0.0f);
-
-        // bmm350 yaw unrotated tilt
-        calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw_unrotated_tilt, imu_orientation[0], imu_orientation[1], 0.0f, 0);
-
-        // bmm350 yaw rotated no tilt
-        calculate_yaw_using_magnetometer_data(magnetometer_data, &magnetometer_yaw_no_tilt, yaw_offset1 + yaw_declination);
-
-        
-        // Roll and pitch rotated 90 degrees
-        // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_matrix_rotate, &magnetometer_yaw_90, imu_orientation[0], imu_orientation[1], yaw_offset1 + yaw_declination);
-        // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_matrix_rotate1, &magnetometer_yaw_180, imu_orientation[0], imu_orientation[1], yaw_offset1 + yaw_declination);
-        // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_matrix_rotate2, &magnetometer_yaw_270, imu_orientation[0], imu_orientation[1], yaw_offset1 + yaw_declination);
-
-        calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw_90, -imu_orientation[1], imu_orientation[0], yaw_declination, 1);
-        calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw_180, -imu_orientation[0], -imu_orientation[1], yaw_declination, 1);
-        calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw_270, imu_orientation[1], -imu_orientation[0], yaw_declination, 1);
-        
-        // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_matrix_rotate, &magnetometer_yaw_90, -imu_orientation[1], imu_orientation[0], yaw_offset2 + yaw_declination);
-        // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_matrix_rotate1, &magnetometer_yaw_180, -imu_orientation[1], imu_orientation[0], yaw_offset2 + yaw_declination);
-        // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_matrix_rotate2, &magnetometer_yaw_270, -imu_orientation[1], imu_orientation[0], yaw_offset2 + yaw_declination);
-
-        
-        // bmm350 yaw rotated unfiltered no tilt
-        calculate_yaw_using_magnetometer_data(magnetometer_data_unfiltered, &magnetometer_yaw_unfiltered_no_tilt, yaw_offset1 + yaw_declination);
-
-
-        // ist8310 yaw unrotated no tilt
-        calculate_yaw_using_magnetometer_data(magnetometer_data_ist8310, &magnetometer_ist8310_yaw_unrotated_no_tilt, 0.0f);
-
-        // ist8310 yaw unrotated tilt
-        calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_ist8310, &magnetometer_ist8310_yaw_unrotated_tilt, imu_orientation[0], imu_orientation[1], 0.0f, 0);
-
-        // ist8310 yaw rotated no tilt
-        calculate_yaw_using_magnetometer_data(magnetometer_data_ist8310, &magnetometer_ist8310_yaw_no_tilt, yaw_offset1 + yaw_declination);
-
-        // ist8310 yaw rotated tilt
-        calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data_ist8310, &magnetometer_ist8310_yaw, imu_orientation[0], imu_orientation[1], yaw_offset1 + yaw_declination, 0);
-
-        // ist8310 yaw rotated unfiltered no tilt
-        calculate_yaw_using_magnetometer_data(magnetometer_data_ist8310_unfiltered, &magnetometer_ist8310_yaw_unfiltered_no_tilt, yaw_offset1 + yaw_declination);
-    }
-
-
-    // // Set new yaw after some time
-    // if(initial_yaw_set == 0 && get_absolute_time() - yaw_loop_start_timestamp > yaw_set_yaw_after_microseconds_of_loop){
-    //     initial_yaw_set = 1;
-    //     imu_orientation[2] = magnetometer_yaw;
-    //     gyro_yaw = magnetometer_yaw;
-    //     gyro_yaw_old = magnetometer_yaw_old;
-    // }
-
-    // acceleration_data_previous[0] = acceleration_data[0];
-    // acceleration_data_previous[1] = acceleration_data[1];
-    // acceleration_data_previous[2] = acceleration_data[2];
-
-    // if (!initial_yaw_set) {
-    //     // float gyro_magnitude = sqrtf(
-    //     //     gyro_angular[0] * gyro_angular[0] +
-    //     //     gyro_angular[1] * gyro_angular[1] +
-    //     //     gyro_angular[2] * gyro_angular[2]
-    //     // );
-
-    //     // float accel_change = sqrtf(
-    //     //     (acceleration_data[0] - acceleration_data_previous[0]) * (acceleration_data[0] - acceleration_data_previous[0]) +
-    //     //     (acceleration_data[1] - acceleration_data_previous[1]) * (acceleration_data[1] - acceleration_data_previous[1]) +
-    //     //     (acceleration_data[2] - acceleration_data_previous[2]) * (acceleration_data[2] - acceleration_data_previous[2])
-    //     // );
-
-    //     if (fabs(imu_orientation[0]) < 0.2f &&  // roll < 3°
-    //         fabs(imu_orientation[1]) < 0.2f)  // pitch < 3°
-    //     {
-    //     // if (fabs(imu_orientation[0]) < 0.3f &&  // roll < 3°
-    //     //     fabs(imu_orientation[1]) < 0.3f &&  // pitch < 3°
-    //     //     gyro_magnitude < 0.1f &&            // not rotating
-    //     //     accel_change < 0.05f)               // not being bumped
-    //     // {
-    //         initial_yaw_set = 1;
-    //         imu_orientation[2] = magnetometer_yaw;
-    //         gyro_yaw = magnetometer_yaw;
-    //         gyro_yaw_old = magnetometer_yaw_old;
-    //     }else{
-    //         gps_target_unset_logged = 0;
-    //         gps_target_unset_cause = 5;
-    //         gps_can_be_used = 0;
-    //     }
-    // }
-
-
-    // WHEN THE USER IS YAWING INCREASE THE MAGNETOMETER COMPONENT. WHEN HE IS NOT KEEP IT LOW LOW LOW
-    // if(yaw != 50){
-    //     yaw_alpha = COMPLEMENTARY_RATIO_MULTIPLYER_YAW_USER_INPUT_MORE_MORE_MAG;
-    //     mpu6050_set_complementary_ratio_yaw(COMPLEMENTARY_RATIO_MULTIPLYER_YAW_USER_INPUT_MORE_MORE_MAG);
-    // }else if(fabs(imu_orientation[0]) <= yaw_magnetometer_only_gate_absolute_degrees && fabs(imu_orientation[1]) <= yaw_magnetometer_only_gate_absolute_degrees){
-    //     // MAG ONLY
-    //     yaw_alpha = COMPLEMENTARY_RATIO_MULTIPLYER_YAW_UPPER_GATE_MORE_MAG;
-    //     mpu6050_set_complementary_ratio_yaw(COMPLEMENTARY_RATIO_MULTIPLYER_YAW_UPPER_GATE_MORE_MAG);
-    // }else if(fabs(imu_orientation[0]) >= yaw_gyro_only_gate_absolute_degrees && fabs(imu_orientation[1]) >= yaw_gyro_only_gate_absolute_degrees){
-    //     yaw_alpha = COMPLEMENTARY_RATIO_MULTIPLYER_YAW_LOWER_GATE_MORE_GYRO;
-    //     mpu6050_set_complementary_ratio_yaw(COMPLEMENTARY_RATIO_MULTIPLYER_YAW_LOWER_GATE_MORE_GYRO);
-    //     // GYRO ONLY
-    // }else{
-    //     // SCALE BETWEEN MAG AND GYRO based on highest value of roll or pitch
-    //     float max_deviation_from_zero = fmax(fabs(imu_orientation[0]), fabs(imu_orientation[1]));
-
-    //     // map_value_to_expo_range_inverted()
-    //     float new_alpha_value = map_value(
-    //         max_deviation_from_zero, 
-    //         yaw_magnetometer_only_gate_absolute_degrees,
-    //         yaw_gyro_only_gate_absolute_degrees,
-    //         COMPLEMENTARY_RATIO_MULTIPLYER_YAW_UPPER_GATE_MORE_MAG,
-    //         COMPLEMENTARY_RATIO_MULTIPLYER_YAW_LOWER_GATE_MORE_GYRO
-    //     );
-
-    //     // Cap the value just in case
-    //     if(new_alpha_value < 0.0f){
-    //         new_alpha_value = 0.0f;
-    //     }else if(new_alpha_value > 1.0f){
-    //         new_alpha_value = 1.0f;
-    //     }
-
-    //     yaw_alpha = new_alpha_value;
-
-    //     mpu6050_set_complementary_ratio_yaw(new_alpha_value);
-    // }
-    // sensor_fusion_yaw(gyro_angular, magnetometer_yaw, loop_start_timestamp_microseconds, 1, imu_orientation, &gyro_yaw);
-
-    // Extra imu logging
-    // if(txt_logging_mode == 6){
-    //     float temp_old_gyro_angular[] = {0.0f,0.0f,0.0f};
-    //     temp_old_gyro_angular[0] = (gyro_angular[0] / (1.0f / 65.5f)) * (1.0f / 131.0f);
-    //     temp_old_gyro_angular[1] = (gyro_angular[1] / (1.0f / 65.5f)) * (1.0f / 131.0f);
-    //     temp_old_gyro_angular[2] = gyro_angular[2];
-        
-    //     sensor_fusion_roll_pitch(temp_old_gyro_angular, accelerometer_roll, accelerometer_pitch, loop_start_timestamp_microseconds, 0, old_imu_orientation);
-    //     // calculate_yaw_tilt_compensated_using_magnetometer_data(magnetometer_data, &magnetometer_yaw_old, old_imu_orientation[0], old_imu_orientation[1], yaw_offset1);
-    //     // sensor_fusion_yaw(temp_old_gyro_angular, magnetometer_yaw_old, loop_start_timestamp_microseconds, 0, old_imu_orientation, &gyro_yaw_old);
-    // }
-
-    // No need for sensor fusion, it introduces delay
-    imu_orientation[2] = magnetometer_yaw_secondary;
-    // imu_orientation[2] = magnetometer_yaw;
-    
-    sensors9 = DWT->CYCCNT;
-    // GPS STUFF
-
-    float yaw_rad = imu_orientation[2] * M_DEG_TO_RAD;
-    // This is just a rotation matrix in linear algebra rotate coordinates by degrees
-    error_forward = lat_distance_to_target_meters * cosf(yaw_rad) + lon_distance_to_target_meters * sinf(yaw_rad);
-    error_right   = -lat_distance_to_target_meters * sinf(yaw_rad) + lon_distance_to_target_meters * cosf(yaw_rad);
-
-    // Filter this data
-
-    error_forward = low_pass_filter_pt1_read(&lowpass_filter_gps_forward, error_forward);
-    error_right = low_pass_filter_pt1_read(&lowpass_filter_gps_right, error_right);
-
-    // --------------------- TODO DO SOME CROSS AXIS CORRECTION (Gyro gimbal Lock/Transfer) for roll and pitch
-
-    sensors10 = DWT->CYCCNT;
-    // ------------------------------------------------------------------------------------------------------ Use sensor fused data for more data
-    // vertical_acceleration_old = old_mpu6050_calculate_vertical_acceleration_cm_per_second(acceleration_data, imu_orientation);
-    // vertical_acceleration = mpu6050_calculate_vertical_acceleration_cm_per_second(acceleration_data, imu_orientation);
-
-    // kalman_filter_predict(&altitude_and_velocity_kalman, &vertical_acceleration);
-    // kalman_filter_update(&altitude_and_velocity_kalman, &altitude_barometer);
-
-    // altitude_sensor_fusion = kalman_filter_get_state(&altitude_and_velocity_kalman)[0][0];
-    // vertical_velocity = kalman_filter_get_state(&altitude_and_velocity_kalman)[1][0];
-    sensors11 = DWT->CYCCNT;
-
-    // printf("Alt %f vel %f ", altitude_sensor_fusion, vertical_velocity);
-    // printf("IMU %f %f %f\n", imu_orientation[0], imu_orientation[1], imu_orientation[2]);
-
-    // printf("Lat %f, Lon %f\n", gps_latitude, gps_longitude);
-    // printf("%f;%f;%f;\n", mangetometer_yaw_unfiltered, mangetometer_yaw_low_pass, magnetometer_yaw);
-
-    // printf("YAW %f\n", mangetometer_yaw_low_pass);
 }
 
 float map_value_to_expo_range(float value, float min_expo, float max_expo, uint8_t expo_curve){

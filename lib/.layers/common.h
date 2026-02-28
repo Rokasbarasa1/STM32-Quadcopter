@@ -49,6 +49,7 @@ extern DMA_HandleTypeDef hdma_usart2_rx;
 #include "../lib/bdshot600_dma/bdshot600_dma.h"
 #include "../utils/math_constants.h"
 #include "../utils/reset_i2c/reset_i2c.h"
+#include "../lib/utils/averaging/averaging.h"
 
 extern uint32_t radio;
 extern uint32_t radio2;
@@ -163,9 +164,9 @@ extern float magnetometer_ist8310_hard_iron_correction[3];
 extern float magnetometer_ist8310_soft_iron_correction[][3];
 
 
-extern float accelerometer_correction[];
-
-extern float accelerometer_scale_factor_correction[][3];
+extern float accelerometer_ellipsoid_correction[][3];
+extern float accelerometer_offset_correction[];
+extern float accelerometer_level_correction[];
 
 extern float gyro_correction[];
 
@@ -184,6 +185,7 @@ extern float accelerometer_roll;
 extern float accelerometer_pitch;
 
 extern float gyro_yaw;
+extern float gyro_yaw2;
 extern float magnetometer_yaw_unrotated_no_tilt;
 extern float magnetometer_yaw_unrotated_tilt;
 extern float magnetometer_yaw_no_tilt;
@@ -197,6 +199,7 @@ extern float magnetometer_yaw_180;
 extern float magnetometer_yaw_270;
 extern float magnetometer_yaw_secondary_unrotated;
 
+extern float yaw_sensor_fusion;
 extern float magnetometer_yaw_unfiltered_no_tilt;
 
 extern float magnetometer_ist8310_yaw_unrotated_no_tilt;
@@ -224,6 +227,9 @@ extern struct pid altitude_hold_pid;
 
 extern struct pid gps_longitude_pid;
 extern struct pid gps_latitude_pid;
+
+extern struct pid gps_longitude_slowed_pid;
+extern struct pid gps_latitude_slowed_pid;
 
 extern float error_acro_roll;
 extern float error_acro_pitch;
@@ -266,9 +272,12 @@ extern float last_error_pitch;
 #define BASE_ALTITUDE_HOLD_GAIN_D 0.0
 
 #define BASE_GPS_HOLD_MASTER_GAIN 1.0
-#define BASE_GPS_HOLD_GAIN_P 0.3
+#define BASE_GPS_HOLD_GAIN_P 0.0
 #define BASE_GPS_HOLD_GAIN_I 0.0
 #define BASE_GPS_HOLD_GAIN_D 0.0
+
+#define BASE_GPS_HOLD_YAW_SPEED_FF 0.3
+
 
 
 extern float angle_roll_pitch_master_gain;
@@ -310,10 +319,14 @@ extern float gps_hold_gain_p;
 extern float gps_hold_gain_i;
 extern float gps_hold_gain_d;
 
+extern float gps_hold_yaw_speed_gain_ff;
+
 extern float added_gps_hold_master_gain;
 extern float added_gps_hold_gain_p;
 extern float added_gps_hold_gain_i;
 extern float added_gps_hold_gain_d;
+
+extern float added_gps_hold_yaw_speed_gain_ff;
 
 extern float acro_target_roll;
 extern float acro_target_pitch;
@@ -368,8 +381,20 @@ extern float magnetometer_data_current_unfiltered[];
 extern float magnetometer_low_pass[];
 
 extern float gps_yaw;
+extern float gps_speed_ms;
+
+extern float gps_speed_ms_north;
+extern float gps_speed_ms_east;
+
+extern float vel_sp_north;
+extern float vel_sp_east;
+
+extern float vel_error_north;
+extern float vel_error_east;
+
 extern uint8_t gps_fix_type;
 extern uint8_t gps_satellites_count;
+extern float gps_position_accuracy;
 extern uint8_t got_gps;
 
 extern uint8_t gps_can_be_used;
@@ -425,15 +450,20 @@ extern float gps_hold_pitch_adjustment_integral;
 extern float gps_hold_roll_adjustment;
 extern float gps_hold_pitch_adjustment;
 
+extern float gps_hold_roll_adjustment_not_slowed;
+extern float gps_hold_pitch_adjustment_not_slowed;
+
 extern float roll_effect_on_lat;
 extern float pitch_effect_on_lat;
 
 extern float roll_effect_on_lon;
 extern float pitch_effect_on_lon;
 
-extern float error_forward;
-extern float error_right;
+extern float error_gps_pitch;
+extern float error_gps_roll;
 
+extern float slowing_forward;
+extern float slowing_right;
 
 extern uint32_t last_got_gps_timestamp;
 extern uint32_t max_allowed_time_miliseconds_between_got_gps;
@@ -474,6 +504,7 @@ extern uint8_t nrf24;
 #define COMPLEMENTARY_RATIO_MULTIPLYER_FLIGHT 0.3f
 #define COMPLEMENTARY_RATIO_MULTIPLYER_OFF 7.0f
 #define COMPLEMENTARY_RATIO_MULTIPLYER_YAW_LOWER_GATE_MORE_GYRO 0.000f
+#define COMPLEMENTARY_RATIO_MULTIPLYER_YAW_LOWER_GATE_MORE_GYRO_NEW 0.0002f
 #define COMPLEMENTARY_RATIO_MULTIPLYER_YAW_UPPER_GATE_MORE_MAG 0.001f // Increase until it starts doing edges on bumps
 #define COMPLEMENTARY_RATIO_MULTIPLYER_YAW_USER_INPUT_MORE_MORE_MAG 0.01f // Increase until it starts doing edges on bumps
 
@@ -591,6 +622,7 @@ extern const float gps_forward_right_filtering_min_cutoff;
 
 extern struct low_pass_pt1_filter lowpass_filter_gps_forward;
 extern struct low_pass_pt1_filter lowpass_filter_gps_right;
+extern struct low_pass_pt1_filter lowpass_yaw_rad;
 
 extern float max_yaw_attack;
 extern float max_roll_attack;
@@ -622,7 +654,10 @@ extern uint8_t log_file_base_name_maga[];
 extern uint8_t log_file_base_name_yaw[];
 extern uint8_t log_file_base_name_timing[];
 extern uint8_t log_file_base_name_imu[];
+extern uint8_t log_file_base_name_raw[];
 extern uint8_t log_file_blackbox_base_name[];
+extern uint8_t log_file_base_name_raw_gps[];
+
 extern uint8_t *new_log_file_blackbox_base_name;
 extern uint16_t blackbox_file_index;
 
@@ -637,6 +672,8 @@ extern const uint8_t use_simple_async;
 extern const uint8_t use_blackbox_logging;
 
 extern uint8_t txt_logging_mode;
+
+extern uint8_t raw_gps_log_type;
 
 extern uint8_t perform_log_for_log_mode_10;
 
@@ -657,23 +694,12 @@ extern uint8_t use_angle_mode;
 extern uint8_t use_vertical_velocity_control;
 extern uint8_t use_gps_hold;
 
-
+extern uint8_t motors_off;
 extern uint32_t motor_off_index;
 
 extern float yaw_alpha;
 
 extern uint8_t use_compass_rpm;
-
-extern double compass_rpm_mag_1_a;
-extern double compass_rpm_mag_1_b;
-extern double compass_rpm_mag_1_c;
-
-extern double compass_rpm_mag_2_a;
-extern double compass_rpm_mag_2_b;
-extern double compass_rpm_mag_2_c;
-
-extern const float compass_frequency_min;
-extern const float compass_frequency_max;
 
 extern const uint8_t compass_frequency_values_amount;
 
@@ -693,6 +719,37 @@ extern float mag2_x_offset;
 extern float mag2_y_offset;
 extern float mag2_z_offset;
 
+extern uint8_t perform_procedure;
+
+// Accelerometer stuff
+extern uint8_t calibrate_accelerometer_step;
+extern uint8_t calibrate_accelerometer_ellipsoid_steps;
+extern uint8_t calibrate_accelerometer_level_steps;
+extern uint8_t calibrate_accelerometer_steps;
+extern uint8_t calibrate_accelerometer_step_logged;
+extern uint16_t calibrate_accelerometer_step_logged_amount;
+extern uint16_t calibrate_accelerometer_step_logged_amount_required;
+
+extern struct running_average average_accelerometer_x;
+extern struct running_average average_accelerometer_y;
+extern struct running_average average_accelerometer_z;
+
+extern float calibrate_accelerometer_values_x[];
+extern float calibrate_accelerometer_values_y[];
+extern float calibrate_accelerometer_values_z[];
+
+// Roll pitch stuff
+extern uint8_t calibrate_roll_pitch_step;
+extern uint8_t calibrate_roll_pitch_steps;
+extern uint8_t calibrate_roll_pitch_step_logged;
+extern uint16_t calibrate_roll_pitch_step_logged_amount;
+extern uint16_t calibrate_roll_pitch_step_logged_amount_required;
+
+extern struct running_average average_roll;
+extern struct running_average average_pitch;
+
+extern float calibrate_roll_pitch_values_roll[];
+extern float calibrate_roll_pitch_values_pitch[];
 
 #define MICROSECONDS_TO_HOURS (1.0f / 3600000000.0f) // The division is more efficient with multiplication
 #define HOURS_TO_MICROSECONDS (3600000000.0f)
